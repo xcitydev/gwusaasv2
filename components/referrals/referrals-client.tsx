@@ -34,11 +34,11 @@ export function ReferralsClient() {
         <CardContent className="py-8">
           <div className="mx-auto max-w-xl text-center">
             <h2 className="font-display text-2xl italic">
-              Earn {data?.percent ?? 30}% for every referral
+              Earn {data?.percent ?? 50}% for every referral
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Share your link. When someone subscribes to a paid plan, you get a
-              one-time {data?.percent ?? 30}% commission.
+              {" "}{data?.percent ?? 50}% commission.
             </p>
             <div className="mt-5 flex gap-2">
               <Input readOnly value={link} className="font-mono text-xs" />

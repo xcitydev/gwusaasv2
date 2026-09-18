@@ -85,18 +85,30 @@ export const syncPlan = mutation({
   },
 });
 
+const LEDGER_PAGE_SIZE = 10;
+// Numbered pagination needs a total; cap the count so one huge ledger can't
+// make this query heavy. 1000 entries = 100 pages — plenty of history.
+const LEDGER_MAX_ROWS = 1000;
+
 export const ledger = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { page: v.number() },
+  handler: async (ctx, args) => {
+    const empty = { rows: [], total: 0, pageSize: LEDGER_PAGE_SIZE };
     const user = await getCurrentUser(ctx);
-    if (!user) return [];
+    if (!user) return empty;
     const workspace = await getPrimaryWorkspace(ctx, user._id);
-    if (!workspace) return [];
-    return await ctx.db
+    if (!workspace) return empty;
+    const all = await ctx.db
       .query("creditLedger")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
       .order("desc")
-      .take(50);
+      .take(LEDGER_MAX_ROWS);
+    const start = Math.max(0, Math.floor(args.page)) * LEDGER_PAGE_SIZE;
+    return {
+      rows: all.slice(start, start + LEDGER_PAGE_SIZE),
+      total: all.length,
+      pageSize: LEDGER_PAGE_SIZE,
+    };
   },
 });
 

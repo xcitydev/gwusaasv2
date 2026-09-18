@@ -6,7 +6,14 @@ import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { PricingTable, UserProfile } from "@clerk/nextjs";
 import { toast } from "sonner";
-import { Check, Coins, CreditCard, UserRound } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Coins,
+  CreditCard,
+  UserRound,
+} from "lucide-react";
 import { isConfigured } from "@/lib/runtime";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,7 +56,7 @@ const PLANS = [
       "Create with AI & AI tools",
       "AI receptionist & qualifier",
       "10,000 credits included",
-      "30% referral earnings",
+      "50% referral earnings",
     ],
   },
   {
@@ -175,10 +182,36 @@ function StaticPlanCards({ currentPlan }: { currentPlan: string }) {
   );
 }
 
+/** Windowed page list: 1 … 4 5 6 … 12 (0-based pages in, "…" gaps out). */
+function pageNumbers(current: number, total: number): (number | "…")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i);
+  const around = [current - 1, current, current + 1].filter(
+    (p) => p > 0 && p < total - 1,
+  );
+  const out: (number | "…")[] = [0];
+  if ((around[0] ?? total) > 1) out.push("…");
+  out.push(...around);
+  if ((around[around.length - 1] ?? -1) < total - 2) out.push("…");
+  out.push(total - 1);
+  return out;
+}
+
 function BillingTab() {
   const me = useQuery(api.users.me);
-  const ledgerQuery = useQuery(api.billing.ledger);
-  const ledger = ledgerQuery ?? [];
+  // Server-side pages of 10 — only the visible page ships to the browser.
+  const [ledgerPage, setLedgerPage] = useState(0);
+  const ledgerQuery = useQuery(api.billing.ledger, { page: ledgerPage });
+  // Keep the previous page on screen while the next one loads (no flicker) —
+  // the store-latest-during-render pattern from the React docs.
+  const [ledgerData, setLedgerData] = useState(ledgerQuery);
+  if (ledgerQuery !== undefined && ledgerQuery !== ledgerData) {
+    setLedgerData(ledgerQuery);
+  }
+  const ledger = ledgerData?.rows ?? [];
+  const totalPages = Math.max(
+    1,
+    Math.ceil((ledgerData?.total ?? 0) / (ledgerData?.pageSize ?? 10)),
+  );
   const topUp = useMutation(api.billing.topUp);
   const [topUpOpen, setTopUpOpen] = useState(false);
   const [amount, setAmount] = useState("5000");
@@ -234,7 +267,7 @@ function BillingTab() {
           <CardTitle className="text-base">Credit history</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
-          {ledgerQuery === undefined ? (
+          {ledgerData === undefined ? (
             <ListSkeleton rows={4} inCard={false} />
           ) : ledger.length === 0 ? (
             <p className="px-5 pb-8 pt-2 text-center text-sm text-muted-foreground">
@@ -273,6 +306,47 @@ function BillingTab() {
                 ))}
               </TableBody>
             </Table>
+          )}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-1 border-t border-border p-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                disabled={ledgerPage === 0}
+                onClick={() => setLedgerPage((p) => Math.max(0, p - 1))}
+                aria-label="Previous page"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              {pageNumbers(ledgerPage, totalPages).map((p, i) =>
+                p === "…" ? (
+                  <span key={`gap-${i}`} className="px-1 text-sm text-muted-foreground">
+                    …
+                  </span>
+                ) : (
+                  <Button
+                    key={p}
+                    variant={p === ledgerPage ? "default" : "ghost"}
+                    size="icon"
+                    className="size-8 text-sm"
+                    onClick={() => setLedgerPage(p)}
+                  >
+                    {p + 1}
+                  </Button>
+                ),
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                disabled={ledgerPage >= totalPages - 1}
+                onClick={() => setLedgerPage((p) => Math.min(totalPages - 1, p + 1))}
+                aria-label="Next page"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

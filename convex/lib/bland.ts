@@ -62,6 +62,81 @@ export async function sendCall(args: {
   return result.call_id;
 }
 
+/**
+ * Create a Bland TTS voice clone (BTTS V3: exactly one ~10s sample, ≤10MB,
+ * WAV recommended). The clone is org-private and immediately usable in calls
+ * and TTS. POST /v1/clone, multipart.
+ */
+export async function cloneVoice(args: {
+  name: string;
+  audio: Blob;
+  filename: string;
+  gender?: string;
+  description?: string;
+}): Promise<string> {
+  // Hand-rolled multipart: the runtime's FormData stamps "undici" into the
+  // boundary, which Cloudflare's bot rules on this endpoint reject.
+  const boundary = `----gwu${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+  const encoder = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const field = (name: string, value: string) => {
+    chunks.push(
+      encoder.encode(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+      ),
+    );
+  };
+  field("name", args.name);
+  if (args.gender) field("gender", args.gender);
+  if (args.description) field("description", args.description);
+  chunks.push(
+    encoder.encode(
+      `--${boundary}\r\nContent-Disposition: form-data; name="audio_samples"; filename="${args.filename}"\r\nContent-Type: audio/wav\r\n\r\n`,
+    ),
+  );
+  chunks.push(new Uint8Array(await args.audio.arrayBuffer()));
+  chunks.push(encoder.encode(`\r\n--${boundary}--\r\n`));
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  const res = await fetch("https://api.bland.ai/v1/voices/clone", {
+    method: "POST",
+    headers: {
+      authorization: process.env.BLAND_API_KEY!,
+      accept: "application/json",
+      "content-type": `multipart/form-data; boundary=${boundary}`,
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GWUPlatform/1.0",
+    },
+    body,
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Bland clone ${res.status}: ${text.slice(0, 300)}`);
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`Bland clone returned non-JSON: ${text.slice(0, 200)}`);
+  }
+  // Documented shape: { status, data: { voice_id, name }, errors }.
+  const data = (parsed.data ?? parsed.voice ?? parsed) as Record<string, unknown>;
+  const id = data.voice_id ?? data.id ?? parsed.voice_id;
+  if (typeof id !== "string" || !id) {
+    throw new Error(`Bland clone returned no voice id: ${text.slice(0, 200)}`);
+  }
+  return id;
+}
+
+/** Permanently delete a voice you own (frees a clone slot). */
+export async function deleteVoice(voiceId: string): Promise<void> {
+  await call(`/voices/${encodeURIComponent(voiceId)}`, { method: "DELETE" });
+}
+
 export type BlandVoice = {
   id: string;
   name: string;
@@ -78,16 +153,15 @@ export async function listVoices(): Promise<BlandVoice[]> {
 }
 
 /**
- * Short spoken sample of a voice, as a WAV (base64). Billed per character
- * (~$0.001 minimum) — trivial, and we cache client-side per voice.
+ * Speak text in a voice — raw WAV bytes. Billed per character by Bland
+ * (~$0.015/1k chars). Powers voice previews and IG DM voice notes.
  */
-export async function ttsPreview(voiceId: string, text: string): Promise<string> {
+export async function ttsWav(voiceId: string, text: string): Promise<Uint8Array> {
+  const key = process.env.BLAND_API_KEY;
+  if (!key) throw new Error("NOT_CONFIGURED: BLAND_API_KEY is not set");
   const res = await fetch("https://api.bland.ai/v2/tts", {
     method: "POST",
-    headers: {
-      authorization: process.env.BLAND_API_KEY!,
-      "Content-Type": "application/json",
-    },
+    headers: { authorization: key, "Content-Type": "application/json" },
     body: JSON.stringify({
       text,
       voice: voiceId,
@@ -98,7 +172,15 @@ export async function ttsPreview(voiceId: string, text: string): Promise<string>
     const body = await res.text();
     throw new Error(`Bland TTS ${res.status}: ${body.slice(0, 200)}`);
   }
-  const bytes = new Uint8Array(await res.arrayBuffer());
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/**
+ * Short spoken sample of a voice, as a WAV (base64). Billed per character
+ * (~$0.001 minimum) — trivial, and we cache client-side per voice.
+ */
+export async function ttsPreview(voiceId: string, text: string): Promise<string> {
+  const bytes = await ttsWav(voiceId, text);
   let binary = "";
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) {

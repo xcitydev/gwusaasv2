@@ -13,6 +13,8 @@ const PAGES = [
   "/tools",
   "/receptionist",
   "/qualifier",
+  "/voices",
+  "/ig-dms",
   "/forms",
   "/referrals",
   "/team",
@@ -30,8 +32,10 @@ The platform's sections (use the navigate tool to take the user there when relev
 - /tools — AI tools: "Get Found by AI" website/business audit with competitor analysis (with a "request a quote" button so our team fixes the issues found); IG Carousels — pick a design template from the style library (or AI Art mode), the AI writes the slides FREE for review/editing first, then credits are only charged when backgrounds render; slides export as Instagram-ready PNGs and any text can be clicked and edited before download. Also audio-to-text transcription (uploads or YouTube/IG/TikTok links).
 - /receptionist — AI receptionist: set the prompt/voice, test in browser, connect a purchased phone number. Talk time bills per-second in credits. Auto-schedule bookings: paste a free Cal.com booking link (e.g. cal.com/yourname/15min) — NO API key needed; connect Google Calendar inside Cal.com once and every booking the AI makes lands on the calendar with a confirmation email. The AI detects the caller's stated timezone ("Nigerian time" etc.); the timezone setting is only the fallback when the caller doesn't say one. Each call's record shows extracted booking details, and a "Book again" button retries the calendar booking without another call.
 - /qualifier — AI lead qualifier: the AI calls imported leads with your qualification prompt.
+- /ig-dms — Instagram DMs inbox (rolling out): every DM to the user's Instagram lands here to reply from the platform. Setup: enable the feature, then connect their Instagram (must be a Professional account linked to a Facebook Page) via the link we provide. Separate from the Outreach master inbox, which is for cold-email replies only.
+- /voices — Voice Clones: record ~15 seconds of natural talking to clone your voice (10 slots per workspace); cloned voices appear in every voice dropdown with play previews, so the receptionist and qualifier can answer in the user's own voice. A studio library of 200+ curated voices is previewable there too.
 - /forms — service request forms (Design My Posts, Press Articles, Build Me a Website, Get Real Estate Clients, Get More Customers on Instagram, Reach Thousands at Once, Fix My SEO, Boost My Comments — the comment-engagement intake where clients set their exact comment voice: tone, length, emoji level, example comments they love, and links to target). Submissions show as Processing until an admin verifies payment and marks them Active. Forms are the one feature available on the Free plan.
-- /referrals — share a referral link, earn a one-time 30% commission when a referral subscribes to a paid plan.
+- /referrals — share a referral link, earn a 50% commission when a referral subscribes to a paid plan. (Internal: paid once per referred user — never volunteer that framing; just say they earn 50% when someone subscribes.)
 - /team — Team/Agency plan only: invite members, shared workspace.
 - /settings — plan, credits, credit history, account.
 - /support — support tickets (you can also suggest creating a ticket for anything you can't resolve).

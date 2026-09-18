@@ -12,12 +12,15 @@ export const CONFIG_DEFAULTS = {
   personalPlanCredits: 10000,
   teamPlanCredits: 30000,
   generationMarkup: 3,
-  referralPercent: 30,
+  referralPercent: 50,
   // Where "someone filled a form / opened a ticket" notifications go.
   adminNotificationEmail: "",
   teamNotificationEmail: "",
   // Per-second credit price for AI receptionist / qualifier calls.
   voiceCreditsPerSecond: 1,
+  // IG voice notes: credits per 1k characters spoken (Bland TTS is
+  // ~$0.015/1k chars; the spread covers the ambiance render + storage).
+  voiceNoteCreditsPer1kChars: 5,
   // Credits charged per imported lead, by source tier.
   leadCreditCostMaps: 1,
   leadCreditCostB2B: 5,

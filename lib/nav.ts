@@ -1,4 +1,6 @@
 import {
+  AudioWaveform,
+  MessageCircle,
   LayoutDashboard,
   Send,
   Sparkles,
@@ -30,6 +32,8 @@ export type NavItem = {
   badge?: string;
   /** Only shown to team/agency plan workspaces. */
   agencyOnly?: boolean;
+  /** Sub-links revealed while the item's route is active. */
+  children?: { label: string; href: string }[];
 };
 
 export const APP_NAV: { section: string; items: NavItem[] }[] = [
@@ -44,21 +48,33 @@ export const APP_NAV: { section: string; items: NavItem[] }[] = [
       { label: "Find Customers", href: "/leads", icon: Users },
       { label: "AI Receptionist", href: "/receptionist", icon: PhoneCall },
       { label: "Lead Qualifier", href: "/qualifier", icon: PhoneOutgoing },
+      { label: "Voice Clones", href: "/voices", icon: AudioWaveform },
+      { label: "IG DMs", href: "/ig-dms", icon: MessageCircle, badge: "New" },
     ],
   },
   {
     section: "Create",
     items: [
       { label: "Create with AI", href: "/create", icon: Sparkles },
-      { label: "AI Tools", href: "/tools", icon: Wrench },
+      {
+        label: "AI Tools",
+        href: "/tools",
+        icon: Wrench,
+        children: [
+          { label: "Get Found by AI", href: "/tools?tab=audit" },
+          { label: "IG Carousels", href: "/tools?tab=carousel" },
+          { label: "Audio to Text", href: "/tools?tab=transcribe" },
+        ],
+      },
     ],
   },
   {
-    section: "Services",
-    items: [
-      { label: "Forms", href: "/forms", icon: ClipboardList },
-      { label: "Referrals", href: "/referrals", icon: Gift },
-    ],
+    section: "GWU Onboarding Forms",
+    items: [{ label: "All services", href: "/forms", icon: ClipboardList }],
+  },
+  {
+    section: "Earn",
+    items: [{ label: "Referrals", href: "/referrals", icon: Gift }],
   },
   {
     section: "Account",

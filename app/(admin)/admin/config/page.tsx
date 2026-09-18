@@ -62,6 +62,12 @@ const CONFIG_META: {
     kind: "number",
   },
   {
+    key: "voiceNoteCreditsPer1kChars",
+    label: "Voice-note credits per 1k characters",
+    help: "Instagram DM voice notes, billed on the spoken script length.",
+    kind: "number",
+  },
+  {
     key: "leadCreditCostMaps",
     label: "Credits per Google Maps lead",
     help: "Charged when importing local-business leads.",

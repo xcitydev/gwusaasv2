@@ -13,6 +13,20 @@ export const planValidator = v.union(
   v.literal("team"),
 );
 
+// IG DM triage — set by AI on every inbound, editable by hand.
+export const igPriorityValidator = v.union(
+  v.literal("hot"),
+  v.literal("warm"),
+  v.literal("cold"),
+);
+export const igStageValidator = v.union(
+  v.literal("new"),
+  v.literal("qualified"),
+  v.literal("booking_ready"),
+  v.literal("customer"),
+  v.literal("not_fit"),
+);
+
 export default defineSchema({
   // ── Core ────────────────────────────────────────────────────────────────
   users: defineTable({
@@ -505,6 +519,102 @@ export default defineSchema({
     calcomKeyEncrypted: v.optional(v.string()),
     calcomEventTypeId: v.optional(v.string()),
   }).index("by_workspace", ["workspaceId"]),
+
+  // ── IG DMs via GoHighLevel ────────────────────────────────────────────
+  // Platform-wide GHL agency OAuth — one row per app. GHL splits powers:
+  // "provisioner" (Agency-target app, locations.write) creates sub-accounts;
+  // "messenger" (Sub-Account-target app) holds conversation scopes and mints
+  // location tokens.
+  ghlAuth: defineTable({
+    role: v.union(v.literal("provisioner"), v.literal("messenger")),
+    companyId: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.string(),
+    expiresAt: v.number(),
+  }).index("by_role", ["role"]),
+  // One GHL location (sub-account) per workspace that enables IG DMs.
+  igAccounts: defineTable({
+    workspaceId: v.id("workspaces"),
+    ghlLocationId: v.string(),
+    locationToken: v.optional(v.string()),
+    locationTokenExpiresAt: v.optional(v.number()),
+    // Messenger installs are per-location (Location-class OAuth) — each
+    // location keeps its own refresh token.
+    locationRefreshToken: v.optional(v.string()),
+    // Hidden GHL user for the location — the social OAuth start requires one.
+    ghlUserId: v.optional(v.string()),
+    status: v.union(v.literal("pending_connect"), v.literal("connected")),
+    igUsername: v.optional(v.string()),
+    // AI copilot. Autopilot = the AI sends replies itself (drafts-only when
+    // off). The brief is the ONLY source of facts it may state — and the
+    // guardrail: questions outside it get handed to a human.
+    autopilot: v.optional(v.boolean()),
+    aiBrief: v.optional(v.string()),
+    bookingLink: v.optional(v.string()),
+    // Last-used voice-note settings (Bland clone id + ambiance bed).
+    voiceId: v.optional(v.string()),
+    ambiance: v.optional(v.string()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_location", ["ghlLocationId"]),
+  igConversations: defineTable({
+    workspaceId: v.id("workspaces"),
+    ghlConversationId: v.string(),
+    ghlContactId: v.string(),
+    contactName: v.optional(v.string()),
+    lastMessageAt: v.number(),
+    lastPreview: v.optional(v.string()),
+    unread: v.boolean(),
+    // Who spoke last — "inbound" means the lead is waiting on us.
+    lastDirection: v.optional(
+      v.union(v.literal("inbound"), v.literal("outbound")),
+    ),
+    // AI triage (runs on every inbound message).
+    priority: v.optional(igPriorityValidator),
+    stage: v.optional(igStageValidator),
+    nextAction: v.optional(v.string()),
+    triagedAt: v.optional(v.number()),
+    assigneeId: v.optional(v.id("users")),
+    // Autopilot hit something outside its brief and stood down.
+    needsHuman: v.optional(v.boolean()),
+    needsHumanReason: v.optional(v.string()),
+  })
+    .index("by_workspace", ["workspaceId", "lastMessageAt"])
+    .index("by_ghl", ["ghlConversationId"])
+    .searchIndex("search_name", {
+      searchField: "contactName",
+      filterFields: ["workspaceId"],
+    }),
+  igMessages: defineTable({
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("igConversations"),
+    direction: v.union(v.literal("inbound"), v.literal("outbound")),
+    body: v.string(),
+    ghlMessageId: v.optional(v.string()),
+    sentAt: v.number(),
+    // Outbound attribution: a teammate or the AI copilot.
+    sentBy: v.optional(v.union(v.literal("human"), v.literal("ai"))),
+    senderId: v.optional(v.id("users")),
+    // Voice notes: body holds the spoken script, audio lives in storage.
+    kind: v.optional(v.union(v.literal("text"), v.literal("voice"))),
+    audioStorageId: v.optional(v.id("_storage")),
+  })
+    .index("by_conversation", ["conversationId", "sentAt"])
+    .searchIndex("search_body", {
+      searchField: "body",
+      filterFields: ["workspaceId"],
+    }),
+
+  // Voice clones live in the platform-wide Bland account — this table scopes
+  // each clone to the workspace that recorded it (pickers filter on it).
+  clonedVoices: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    voiceId: v.string(),
+    name: v.string(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_voice", ["voiceId"]),
 
   phoneNumbers: defineTable({
     workspaceId: v.id("workspaces"),

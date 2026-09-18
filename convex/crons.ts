@@ -21,4 +21,13 @@ crons.interval(
   {},
 );
 
+// IG DMs safety net: API-pull recent conversations so messages arrive even
+// if GHL's webhook misses (verified live: webhook config is fragile).
+crons.interval(
+  "sync ig dms",
+  { minutes: 5 },
+  internal.igDmsActions.syncAllIgAccounts,
+  {},
+);
+
 export default crons;

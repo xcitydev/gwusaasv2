@@ -7,7 +7,7 @@ export default function ReferralsPage() {
     <LivePage>
       <PageHeader
         title="Referrals"
-        description="Share your link, earn a one-time 30% when someone you refer subscribes."
+        description="Share your link, earn 50% when someone you refer subscribes."
       />
       <ReferralsClient />
     </LivePage>

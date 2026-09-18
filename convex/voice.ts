@@ -196,6 +196,50 @@ export const listNumbers = query({
   },
 });
 
+export const recordClonedVoice = internalMutation({
+  args: { voiceId: v.string(), name: v.string() },
+  handler: async (ctx, args) => {
+    const { user, workspace } = await requireWorkspaceStrict(ctx);
+    await ctx.db.insert("clonedVoices", {
+      workspaceId: workspace._id,
+      userId: user._id,
+      voiceId: args.voiceId,
+      name: args.name,
+    });
+  },
+});
+
+/** Bland voice ids of the clones this workspace owns. */
+export const listWorkspaceCloneIds = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<string[]> => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    if (!workspace) return [];
+    const rows = await ctx.db
+      .query("clonedVoices")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+      .collect();
+    return rows.map((r) => r.voiceId);
+  },
+});
+
+/** Remove a clone row if this workspace owns it; true when it existed. */
+export const removeClonedVoice = internalMutation({
+  args: { voiceId: v.string() },
+  handler: async (ctx, args): Promise<boolean> => {
+    const { workspace } = await requireWorkspaceStrict(ctx);
+    const row = await ctx.db
+      .query("clonedVoices")
+      .withIndex("by_voice", (q) => q.eq("voiceId", args.voiceId))
+      .first();
+    if (!row || row.workspaceId !== workspace._id) return false;
+    await ctx.db.delete(row._id);
+    return true;
+  },
+});
+
 /** Whether the calling user is a platform admin (any level). */
 export const callerIsAdmin = internalQuery({
   args: {},

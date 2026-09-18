@@ -11,8 +11,8 @@ export default function FormsPage() {
   return (
     <div>
       <PageHeader
-        title="Forms"
-        description="Request a service from our team — we review every request and start once payment is confirmed."
+        title="GWU Onboarding Forms"
+        description="Onboarding — we review every request and start once payment is confirmed."
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {FORM_DEFS.map((def) => {

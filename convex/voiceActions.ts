@@ -23,34 +23,106 @@ export const listVoices = action({
   handler: async (
     ctx,
   ): Promise<
-    { id: string; name: string; description: string | null; curated: boolean }[]
+    {
+      id: string;
+      name: string;
+      description: string | null;
+      curated: boolean;
+      owned: boolean;
+    }[]
   > => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
     if (!blandConfigured()) return [];
     const { listVoices: fetchVoices } = await import("./lib/bland");
-    const voices = await fetchVoices();
+    const [voices, ownedIds] = await Promise.all([
+      fetchVoices(),
+      ctx.runQuery(internal.voice.listWorkspaceCloneIds, {}),
+    ]);
+    const ownedSet = new Set(ownedIds);
     return voices
       .map((voice) => ({
         id: voice.id,
         name: voice.name,
         description: voice.description,
-        curated:
-          voice.tags?.includes("Bland Curated") || voice.service === "BTTS_V3",
+        curated: voice.tags?.includes("Bland Curated") ?? false,
+        owned: ownedSet.has(voice.id),
+        isPublic: voice.public,
         service: voice.service,
       }))
+      // The Bland account is platform-wide: show CURATED studio voices to
+      // everyone (the full public library is 900+ entries — unusable), and
+      // private clones only to the workspace that made them.
+      .filter((voice) => voice.owned || (voice.isPublic && voice.curated))
       .sort((a, b) => {
+        if (a.owned !== b.owned) return a.owned ? -1 : 1;
         if (a.curated !== b.curated) return a.curated ? -1 : 1;
         if ((a.service === "BTTS_V3") !== (b.service === "BTTS_V3")) {
           return a.service === "BTTS_V3" ? -1 : 1;
         }
         return a.name.localeCompare(b.name);
       })
-      .map(({ id, name, description, curated }) => ({
+      .map(({ id, name, description, curated, owned }) => ({
         id,
         name,
         description,
         curated,
+        owned,
       }));
+  },
+});
+
+/**
+ * Clone the user's voice from a browser recording (uploaded to storage as
+ * WAV). One ~10s clean sample is all Bland's V3 engine needs; the clone
+ * lands in the org voice library and every voice picker immediately.
+ */
+export const cloneMyVoice = action({
+  args: {
+    name: v.string(),
+    storageId: v.id("_storage"),
+    gender: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ voiceId: string }> => {
+    if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    if (!blandConfigured()) {
+      throw new Error(
+        "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
+      );
+    }
+    const name = args.name.trim().slice(0, 30);
+    if (!name) throw new Error("Give your voice a name");
+    const audio = await ctx.storage.get(args.storageId);
+    if (!audio) throw new Error("Recording not found — try recording again");
+    if (audio.size > 10 * 1024 * 1024) {
+      throw new Error("Recording is over 10MB — keep it to ~15 seconds");
+    }
+    const { cloneVoice } = await import("./lib/bland");
+    const voiceId = await cloneVoice({
+      name,
+      audio,
+      filename: "sample.wav",
+      gender: args.gender,
+      description: "Cloned in-app from a browser recording",
+    });
+    await ctx.runMutation(internal.voice.recordClonedVoice, { voiceId, name });
+    return { voiceId };
+  },
+});
+
+/** Delete one of this workspace's cloned voices (frees a clone slot). */
+export const deleteClonedVoice = action({
+  args: { voiceId: v.string() },
+  handler: async (ctx, args): Promise<void> => {
+    if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    const owned = await ctx.runQuery(internal.voice.listWorkspaceCloneIds, {});
+    if (!owned.includes(args.voiceId)) {
+      throw new Error("That voice isn't in your workspace");
+    }
+    const { deleteVoice } = await import("./lib/bland");
+    await deleteVoice(args.voiceId);
+    await ctx.runMutation(internal.voice.removeClonedVoice, {
+      voiceId: args.voiceId,
+    });
   },
 });
 

@@ -24,8 +24,8 @@ const quickActions = [
     icon: Sparkles,
   },
   {
-    title: "Fill a form",
-    description: "Request a service from our team.",
+    title: "Start onboarding",
+    description: "Onboarding — our team takes it from there.",
     href: "/forms",
     icon: ClipboardList,
   },

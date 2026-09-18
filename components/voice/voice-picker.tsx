@@ -26,6 +26,12 @@ type VoiceOption = {
 let voicesCache: VoiceOption[] | null = null;
 const sampleCache = new Map<string, string>();
 
+/** Call after cloning a voice so pickers refetch the library. */
+export function invalidateVoicesCache() {
+  voicesCache = null;
+  sampleCache.clear();
+}
+
 /** Voice dropdown with an in-app "hear it" preview button. */
 export function VoicePicker({
   value,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -1264,9 +1265,20 @@ function CarouselTab() {
   );
 }
 
+const TOOL_TABS = ["audit", "carousel", "transcribe"];
+
 export function ToolsClient() {
+  // The sidebar deep-links straight to a tool (/tools?tab=carousel), so the
+  // URL owns the active tab.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const param = searchParams.get("tab");
+  const tab = param && TOOL_TABS.includes(param) ? param : "audit";
   return (
-    <Tabs defaultValue="audit">
+    <Tabs
+      value={tab}
+      onValueChange={(v) => router.replace(`/tools?tab=${v}`, { scroll: false })}
+    >
       <TabsList className="mb-4">
         <TabsTrigger value="audit" className="gap-1.5">
           <ScanSearch className="size-4" /> Get Found by AI
