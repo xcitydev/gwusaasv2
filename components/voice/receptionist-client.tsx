@@ -6,7 +6,6 @@ import { api } from "@/convex/_generated/api";
 import { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
 import {
-  ArrowLeft,
   CalendarCheck,
   ChevronRight,
   Headphones,
@@ -16,14 +15,15 @@ import {
   Phone,
   RotateCw,
   PhoneCall,
-  Plus,
   Save,
   Square,
   Trash2,
+  X,
 } from "lucide-react";
 import type { BlandWebClient } from "bland-client-js-sdk";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { Id } from "@/convex/_generated/dataModel";
+import { cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/status-badge";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { CallTranscript } from "@/components/voice/call-transcript";
@@ -108,122 +108,100 @@ type ReceptionistDoc = FunctionReturnType<typeof api.voice.listReceptionists>[nu
 
 export function ReceptionistClient() {
   const receptionists = useQuery(api.voice.listReceptionists);
-  const [view, setView] = useState<"list" | "new" | Id<"receptionists">>("list");
+  // Nothing selected = the blank "New receptionist" editor (the page IS the
+  // create form). Clicking a saved receptionist opens it for changes.
+  const [selection, setSelection] = useState<Id<"receptionists"> | null>(null);
 
   if (receptionists === undefined) {
     return <ListSkeleton rows={3} />;
   }
 
-  const doc =
-    view === "list" || view === "new"
-      ? null
-      : (receptionists.find((r) => r._id === view) ?? null);
-  if (view !== "list" && view !== "new" && !doc) {
-    // Deleted elsewhere — fall back to the list.
-    setView("list");
-    return null;
-  }
+  // A selection that no longer exists (deleted elsewhere) falls back to blank.
+  const current = receptionists.find((r) => r._id === selection) ?? null;
+  const currentKey = current?._id ?? "new";
 
   return (
     <MotionConfig reducedMotion="user">
+      {receptionists.length > 0 && (
+        <SavedReceptionists
+          receptionists={receptionists}
+          activeId={current?._id ?? null}
+          onToggle={(id) => setSelection((prev) => (prev === id ? null : id))}
+        />
+      )}
       <AnimatePresence mode="wait" initial={false}>
-        {view === "list" ? (
-          <motion.div
-            key="list"
-            initial={{ opacity: 0, x: -14 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -14 }}
-            transition={{ duration: 0.16 }}
-          >
-            <ReceptionistList
-              receptionists={receptionists}
-              onOpen={(id) => setView(id)}
-              onNew={() => setView("new")}
-            />
-          </motion.div>
-        ) : (
-          <motion.div
-            key={view === "new" ? "new" : view}
-            initial={{ opacity: 0, x: 14 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 14 }}
-            transition={{ duration: 0.16 }}
-          >
-            <ReceptionistEditor
-              receptionist={doc}
-              onBack={() => setView("list")}
-              onSaved={(id) => setView(id)}
-            />
-          </motion.div>
-        )}
+        <motion.div
+          key={currentKey}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.16 }}
+        >
+          <ReceptionistEditor
+            receptionist={current}
+            onSaved={(id) => setSelection(id)}
+            onClose={() => setSelection(null)}
+            onDeleted={() => setSelection(null)}
+          />
+        </motion.div>
       </AnimatePresence>
     </MotionConfig>
   );
 }
 
-// ── List of saved receptionists ─────────────────────────────────────────
+// ── Saved receptionists, above the editor ───────────────────────────────
 
-function ReceptionistList({
+function SavedReceptionists({
   receptionists,
-  onOpen,
-  onNew,
+  activeId,
+  onToggle,
 }: {
   receptionists: ReceptionistDoc[];
-  onOpen: (id: Id<"receptionists">) => void;
-  onNew: () => void;
+  activeId: Id<"receptionists"> | null;
+  onToggle: (id: Id<"receptionists">) => void;
 }) {
-  const atLimit = receptionists.length >= MAX_RECEPTIONISTS;
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
+    <section className="mb-8">
+      <div className="mb-3">
+        <h2 className="text-base font-semibold">Your receptionists</h2>
         <p className="text-sm text-muted-foreground">
-          {receptionists.length} of {MAX_RECEPTIONISTS} receptionists
+          {receptionists.length} of {MAX_RECEPTIONISTS} — click one to edit it
+          below. Close it to create a new one.
         </p>
-        <Button onClick={onNew} disabled={atLimit} title={atLimit ? "Limit reached — delete one to create another" : undefined}>
-          <Plus className="size-4" /> New receptionist
-        </Button>
       </div>
-
-      {receptionists.length === 0 ? (
-        <motion.div variants={fadeUp} initial="initial" animate="animate">
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
-              <span className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/25 to-primary/5 text-primary">
-                <PhoneCall className="size-6" />
-              </span>
-              <p className="font-medium">No receptionists yet</p>
-              <p className="max-w-md text-sm text-muted-foreground">
-                Create up to {MAX_RECEPTIONISTS} — e.g. one per business or
-                department. Each has its own prompt, voice, number, bookings and
-                call history.
-              </p>
-              <Button className="mt-1" onClick={onNew}>
-                <Plus className="size-4" /> Create your first receptionist
-              </Button>
-            </CardContent>
-          </Card>
-        </motion.div>
-      ) : (
-        <motion.div
-          className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-          variants={stagger}
-          initial="initial"
-          animate="animate"
-        >
-          {receptionists.map((r) => (
+      <motion.div
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+        variants={stagger}
+        initial="initial"
+        animate="animate"
+      >
+        {receptionists.map((r) => {
+          const active = r._id === activeId;
+          return (
             <motion.button
               key={r._id}
               variants={fadeUp}
               whileHover={{ y: -3 }}
               whileTap={{ scale: 0.98 }}
-              onClick={() => onOpen(r._id)}
-              className="group rounded-xl border border-border bg-card p-5 text-left shadow-sm transition-colors hover:border-primary/40"
+              onClick={() => onToggle(r._id)}
+              aria-pressed={active}
+              className={cn(
+                "group rounded-xl border bg-card p-5 text-left shadow-sm transition-colors hover:border-primary/40",
+                active ? "border-primary/60 ring-1 ring-primary/30" : "border-border",
+              )}
             >
               <div className="flex items-start justify-between gap-3">
                 <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/25 to-primary/5 text-primary">
                   <PhoneCall className="size-5" />
                 </span>
-                <StatusBadge status={r.status} className="shrink-0" />
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {active && (
+                    <Badge variant="outline" className="border-primary/40 text-xs text-primary">
+                      Editing
+                    </Badge>
+                  )}
+                  <StatusBadge status={r.status} className="shrink-0" />
+                </div>
               </div>
               <p className="mt-4 flex items-center gap-1 truncate font-semibold">
                 {r.name}
@@ -238,39 +216,21 @@ function ReceptionistList({
                     <Phone className="size-3" /> {r.phoneNumber}
                   </Badge>
                 ) : (
-                  <Badge
-                    variant="outline"
-                    className="text-xs text-muted-foreground"
-                  >
+                  <Badge variant="outline" className="text-xs text-muted-foreground">
                     Browser only
                   </Badge>
                 )}
                 {r.autoBook && (
-                  <Badge
-                    variant="outline"
-                    className="border-primary/40 text-xs text-primary"
-                  >
+                  <Badge variant="outline" className="border-primary/40 text-xs text-primary">
                     <CalendarCheck className="size-3" /> Auto-book
                   </Badge>
                 )}
               </div>
             </motion.button>
-          ))}
-          {!atLimit && (
-            <motion.button
-              variants={fadeUp}
-              whileHover={{ y: -3 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={onNew}
-              className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
-            >
-              <Plus className="size-6" />
-              <span className="text-sm font-medium">New receptionist</span>
-            </motion.button>
-          )}
-        </motion.div>
-      )}
-    </div>
+          );
+        })}
+      </motion.div>
+    </section>
   );
 }
 
@@ -278,11 +238,14 @@ function ReceptionistList({
 
 function ReceptionistEditor({
   receptionist,
-  onBack,
+  onClose,
+  onDeleted,
   onSaved,
 }: {
   receptionist: ReceptionistDoc | null;
-  onBack: () => void;
+  /** Leave the saved receptionist and go back to the blank create form. */
+  onClose: () => void;
+  onDeleted: () => void;
   onSaved: (id: Id<"receptionists">) => void;
 }) {
   const numbers = useQuery(api.voice.listNumbers) ?? [];
@@ -526,14 +489,6 @@ function ReceptionistEditor({
   return (
     <div>
       <div className="mb-5">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-ml-2 mb-2 text-muted-foreground"
-          onClick={onBack}
-        >
-          <ArrowLeft className="size-4" /> All receptionists
-        </Button>
         <div className="flex items-center gap-3">
           <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/30 to-primary/5 text-lg font-semibold text-primary">
             {(receptionist?.name ?? name ?? "N").charAt(0).toUpperCase() || "N"}
@@ -548,14 +503,19 @@ function ReceptionistEditor({
             </p>
           </div>
           {receptionist && (
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label="Delete receptionist"
-              onClick={() => setConfirmDelete(true)}
-            >
-              <Trash2 className="size-4 text-destructive" />
-            </Button>
+            <>
+              <Button variant="outline" size="sm" onClick={onClose}>
+                <X className="size-4" /> Close
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Delete receptionist"
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 className="size-4 text-destructive" />
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -994,7 +954,7 @@ function ReceptionistEditor({
                 try {
                   await deleteReceptionist({ id: receptionist._id });
                   toast.success("Receptionist deleted.");
-                  onBack();
+                  onDeleted();
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : "Delete failed.");
                 }

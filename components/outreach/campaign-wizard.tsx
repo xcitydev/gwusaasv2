@@ -200,7 +200,7 @@ export function CampaignWizard({
                   <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
                     <p>
                       No leads yet — import a CSV right here (it lands in your
-                      lead store too), or find them in Find Customers.
+                      lead store too), or find them in Find Leads.
                     </p>
                     <CsvImportButton
                       variant="default"

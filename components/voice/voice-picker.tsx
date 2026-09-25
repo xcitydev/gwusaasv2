@@ -19,16 +19,22 @@ type VoiceOption = {
   name: string;
   description: string | null;
   curated: boolean;
+  provider?: "bland" | "elevenlabs";
 };
 
 // Voices and samples barely change — cache for the session so pickers on
-// different pages don't refetch or re-bill previews.
-let voicesCache: VoiceOption[] | null = null;
+// different pages don't refetch or re-bill previews. Call pickers and TTS
+// pickers (which add ElevenLabs clones) see different lists.
+const voicesCache: { calls: VoiceOption[] | null; tts: VoiceOption[] | null } = {
+  calls: null,
+  tts: null,
+};
 const sampleCache = new Map<string, string>();
 
 /** Call after cloning a voice so pickers refetch the library. */
 export function invalidateVoicesCache() {
-  voicesCache = null;
+  voicesCache.calls = null;
+  voicesCache.tts = null;
   sampleCache.clear();
 }
 
@@ -36,22 +42,29 @@ export function invalidateVoicesCache() {
 export function VoicePicker({
   value,
   onChange,
+  includeTts = false,
 }: {
   value: string;
   onChange: (voiceId: string) => void;
+  /**
+   * Also offer ElevenLabs clones. Only for text-to-speech surfaces (IG
+   * voice notes) — phone calls run on Bland and can't speak them.
+   */
+  includeTts?: boolean;
 }) {
   const listVoices = useAction(api.voiceActions.listVoices);
   const voicePreview = useAction(api.voiceActions.voicePreview);
-  const [voices, setVoices] = useState<VoiceOption[]>(voicesCache ?? []);
+  const cacheKey = includeTts ? "tts" : "calls";
+  const [voices, setVoices] = useState<VoiceOption[]>(voicesCache[cacheKey] ?? []);
   const [loadingSample, setLoadingSample] = useState(false);
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    if (voicesCache) return;
-    listVoices({})
+    if (voicesCache[cacheKey]) return;
+    listVoices(includeTts ? { includeElevenLabs: true } : {})
       .then((list) => {
-        voicesCache = list;
+        voicesCache[cacheKey] = list;
         setVoices(list);
       })
       .catch(() => {});
@@ -76,8 +89,8 @@ export function VoicePicker({
     if (!sample) {
       setLoadingSample(true);
       try {
-        const { audioBase64 } = await voicePreview({ voiceId: value });
-        sample = audioBase64;
+        const { audioBase64, mime } = await voicePreview({ voiceId: value });
+        sample = `data:${mime};base64,${audioBase64}`;
         sampleCache.set(value, sample);
       } catch {
         toast.error("Couldn't load a preview for this voice.");
@@ -86,7 +99,7 @@ export function VoicePicker({
         setLoadingSample(false);
       }
     }
-    const audio = new Audio(`data:audio/wav;base64,${sample}`);
+    const audio = new Audio(sample);
     audioRef.current = audio;
     setPlaying(true);
     audio.onended = () => setPlaying(false);
@@ -118,6 +131,11 @@ export function VoicePicker({
           {voices.map((voice) => (
             <SelectItem key={voice.id} value={voice.id}>
               <span>{voice.name.trim()}</span>
+              {voice.provider === "elevenlabs" && (
+                <span className="ml-1.5 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] text-violet-300">
+                  ElevenLabs
+                </span>
+              )}
               {voice.description && (
                 <span className="ml-1.5 max-w-56 truncate text-xs text-muted-foreground">
                   {voice.description}

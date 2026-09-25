@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireUser, requireAdmin, getAdminOrNull } from "./lib/auth";
+import { requireUser, requireAdmin, getAdminOrNull, hasFormsAccess } from "./lib/auth";
 import { grantCredits, spendCredits } from "./lib/credits";
 import { adminRoleValidator } from "./schema";
 import { notify } from "./notifications";
@@ -57,6 +57,8 @@ export const listUsers = query({
           name: u.name,
           status: u.status,
           adminRole: u.adminRole,
+          formsAccess: hasFormsAccess(u),
+          formsAccessSource: u.formsAccessSource,
           plan: workspace?.plan ?? "free",
           credits: workspace?.credits ?? 0,
           workspaceId: workspace?._id,

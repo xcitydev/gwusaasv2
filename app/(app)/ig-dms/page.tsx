@@ -6,8 +6,8 @@ export default function IgDmsPage() {
   return (
     <LivePage>
       <PageHeader
-        title="IG DMs"
-        description="Every Instagram DM in one inbox — reply yourself or let AI answer in your brand voice."
+        title="IG DMs & AI Voice"
+        description="Manage messages and automations, and send AI voice DMs in your cloned voice."
       />
       <IgDmsClient />
     </LivePage>

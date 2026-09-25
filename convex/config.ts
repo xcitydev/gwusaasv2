@@ -21,6 +21,9 @@ export const CONFIG_DEFAULTS = {
   // IG voice notes: credits per 1k characters spoken (Bland TTS is
   // ~$0.015/1k chars; the spread covers the ambiance render + storage).
   voiceNoteCreditsPer1kChars: 5,
+  // AI Note Taker: credits per recorded minute (Recall bot + transcription
+  // run ~$0.65/h; 4 credits/min = $2.40/h at the default credit price).
+  noteTakerCreditsPerMinute: 4,
   // Credits charged per imported lead, by source tier.
   leadCreditCostMaps: 1,
   leadCreditCostB2B: 5,

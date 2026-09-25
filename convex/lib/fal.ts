@@ -16,7 +16,10 @@ export async function runFal(
     resolution: string;
     durationSec?: number;
     referenceUrl?: string;
-    kind: "image" | "video";
+    kind: "image" | "video" | "motion";
+    /** Motion control: the driving video + whose background to keep. */
+    videoUrl?: string;
+    characterOrientation?: "image" | "video";
   },
   onRequestId?: (requestId: string) => Promise<void>,
 ): Promise<string> {
@@ -30,7 +33,18 @@ export async function runFal(
     ? input.resolution.split("×").map(Number)
     : [undefined, undefined];
 
-  const body: Record<string, unknown> = { prompt: input.prompt };
+  const body: Record<string, unknown> =
+    input.kind === "motion"
+      ? {
+          // Kling motion control: character image + driving video. The
+          // video's own audio is kept so lips stay in sync with the sound.
+          image_url: input.referenceUrl,
+          video_url: input.videoUrl,
+          character_orientation: input.characterOrientation ?? "video",
+          keep_original_sound: true,
+          ...(input.prompt.trim() && { prompt: input.prompt.trim() }),
+        }
+      : { prompt: input.prompt };
   if (input.kind === "image") {
     if (input.referenceUrl) {
       // Editing models (nano-banana) take the source image as a list.
@@ -68,8 +82,10 @@ export async function runFal(
   const responseUrl =
     response_url ?? `https://queue.fal.run/${baseApp}/requests/${request_id}`;
 
-  // Poll up to ~8 minutes (video can be slow).
-  for (let i = 0; i < 160; i++) {
+  // Poll up to ~8 minutes (video can be slow); motion control gets ~9 —
+  // the most the 10-minute action cap allows.
+  const maxPolls = input.kind === "motion" ? 180 : 160;
+  for (let i = 0; i < maxPolls; i++) {
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const statusRes = await fetch(statusUrl, { headers });
     if (!statusRes.ok) continue;

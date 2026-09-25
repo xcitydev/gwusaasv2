@@ -6,10 +6,11 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MySubmissions } from "@/components/forms/my-submissions";
+import { FormsGate } from "@/components/forms/forms-gate";
 
 export default function FormsPage() {
   return (
-    <div>
+    <FormsGate>
       <PageHeader
         title="GWU Onboarding Forms"
         description="Onboarding — we review every request and start once payment is confirmed."
@@ -44,6 +45,6 @@ export default function FormsPage() {
         })}
       </div>
       <MySubmissions />
-    </div>
+    </FormsGate>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { AudioWaveform, Loader2, Mic, RotateCcw, Square } from "lucide-react";
@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { invalidateVoicesCache } from "@/components/voice/voice-picker";
+import { cn } from "@/lib/utils";
 
 // Keep them talking naturally — the content doesn't matter, the voice does.
 const PROMPTS = [
@@ -70,13 +71,46 @@ function encodeWav(buffer: AudioBuffer): Blob {
   return new Blob([out.buffer], { type: "audio/wav" });
 }
 
-const MAX_SECONDS = 45;
+type CloneEngine = "bland" | "elevenlabs" | "both";
+
+// Bland's engine wants one short sample; ElevenLabs gets noticeably better
+// with a minute or more (90s of WAV still clears the 10MB upload cap).
+const MAX_SECONDS: Record<CloneEngine, number> = {
+  bland: 45,
+  elevenlabs: 90,
+  both: 90,
+};
+const MIN_SECONDS: Record<CloneEngine, number> = {
+  bland: 8,
+  elevenlabs: 30,
+  both: 30,
+};
+
+const ENGINES: { value: CloneEngine; label: string; hint: string }[] = [
+  {
+    value: "bland",
+    label: "Bland",
+    hint: "Works everywhere — calls, previews and IG voice notes.",
+  },
+  {
+    value: "elevenlabs",
+    label: "ElevenLabs",
+    hint: "Previews and IG voice notes only — phone calls can't use it.",
+  },
+  {
+    value: "both",
+    label: "Both",
+    hint: "One recording, a clone on each — the fair way to compare them.",
+  },
+];
 
 export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const cloneMyVoice = useAction(api.voiceActions.cloneMyVoice);
+  const providers = useQuery(api.voice.cloneProviders);
 
   const [open, setOpen] = useState(false);
+  const [engine, setEngine] = useState<CloneEngine>("bland");
   const [voiceName, setVoiceName] = useState("");
   const [gender, setGender] = useState<string>("unset");
   const [recState, setRecState] = useState<"idle" | "recording" | "recorded">("idle");
@@ -126,7 +160,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
       setRecState("recording");
       timerRef.current = setInterval(() => {
         setSeconds((s) => {
-          if (s + 1 >= MAX_SECONDS) stopRecording();
+          if (s + 1 >= MAX_SECONDS[engine]) stopRecording();
           return s + 1;
         });
       }, 1000);
@@ -141,8 +175,12 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
       toast.error("Give your voice a name first.");
       return;
     }
-    if (seconds < 8) {
-      toast.error("Record at least ~10 seconds — quality depends on it.");
+    if (seconds < MIN_SECONDS[engine]) {
+      toast.error(
+        engine === "bland"
+          ? "Record at least ~10 seconds — quality depends on it."
+          : "ElevenLabs needs at least 30 seconds — a full minute sounds much better.",
+      );
       return;
     }
     setCreating(true);
@@ -160,13 +198,31 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
       });
       if (!res.ok) throw new Error("Upload failed — try again");
       const { storageId } = await res.json();
-      await cloneMyVoice({
-        name: voiceName.trim(),
-        storageId,
-        gender: gender === "unset" ? undefined : gender,
-      });
+      // "Both" clones the same recording on each engine, one after the other.
+      const targets: ("bland" | "elevenlabs")[] =
+        engine === "both" ? ["bland", "elevenlabs"] : [engine];
+      const failures: string[] = [];
+      for (const provider of targets) {
+        try {
+          await cloneMyVoice({
+            name: voiceName.trim(),
+            storageId,
+            gender: gender === "unset" ? undefined : gender,
+            provider,
+          });
+        } catch (e) {
+          const raw = e instanceof Error ? e.message : "";
+          failures.push(
+            `${provider === "bland" ? "Bland" : "ElevenLabs"}: ${
+              raw.split("Uncaught Error: ").pop() || "failed"
+            }`,
+          );
+        }
+      }
       invalidateVoicesCache();
       onCloned?.();
+      if (failures.length === targets.length) throw new Error(failures.join(" · "));
+      if (failures.length > 0) toast.error(failures.join(" · "));
       setDoneVoice(voiceName.trim());
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
@@ -212,9 +268,25 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
               <DialogHeader>
                 <DialogTitle>Your voice is ready</DialogTitle>
                 <DialogDescription>
-                  &ldquo;{doneVoice}&rdquo; is now in every voice dropdown —
-                  pick it for a receptionist or qualifier and hit the preview
-                  button to hear yourself.
+                  {engine === "bland" ? (
+                    <>
+                      &ldquo;{doneVoice}&rdquo; is now in every voice dropdown —
+                      pick it for a receptionist or qualifier and hit the
+                      preview button to hear yourself.
+                    </>
+                  ) : engine === "elevenlabs" ? (
+                    <>
+                      &ldquo;{doneVoice}&rdquo; is in your cloned voices —
+                      press play to hear it, and pick it for Instagram voice
+                      notes. Phone calls still use Bland voices.
+                    </>
+                  ) : (
+                    <>
+                      &ldquo;{doneVoice}&rdquo; now exists on both engines.
+                      Type a test line on this page and play each one to
+                      compare them saying the same thing.
+                    </>
+                  )}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
@@ -226,11 +298,61 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
               <DialogHeader>
                 <DialogTitle>Clone your voice</DialogTitle>
                 <DialogDescription>
-                  Talk naturally for 15–45 seconds. Quiet room, close to the
-                  mic — the sample quality sets your voice quality.
+                  {engine === "bland"
+                    ? "Talk naturally for 15–45 seconds."
+                    : "Talk naturally for 60–90 seconds — ElevenLabs gets better the more it hears."}{" "}
+                  Quiet room, close to the mic — the sample quality sets your
+                  voice quality.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
+                <div>
+                  <Label className="mb-1.5">Clone engine</Label>
+                  <div
+                    role="radiogroup"
+                    aria-label="Clone engine"
+                    className="grid grid-cols-3 gap-1 rounded-lg bg-secondary/60 p-1"
+                  >
+                    {ENGINES.map((option) => {
+                      const available =
+                        providers === undefined ||
+                        (option.value === "both"
+                          ? providers.bland && providers.elevenlabs
+                          : providers[option.value]);
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={engine === option.value}
+                          // Switching mid-take would change the time limit.
+                          disabled={!available || recState !== "idle"}
+                          title={
+                            available ? undefined : "Not connected on the platform yet"
+                          }
+                          onClick={() => setEngine(option.value)}
+                          className={cn(
+                            "rounded-md px-2 py-1.5 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                            engine === option.value
+                              ? "bg-background font-medium text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    {ENGINES.find((o) => o.value === engine)?.hint}
+                    {providers && !providers.elevenlabs && (
+                      <span className="text-amber-400">
+                        {" "}
+                        ElevenLabs isn&apos;t connected yet (ELEVENLABS_API_KEY).
+                      </span>
+                    )}
+                  </p>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <Label className="mb-1.5">Voice name</Label>

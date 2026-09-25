@@ -120,6 +120,59 @@ export const VIDEO_MODELS: VideoModel[] = [
   },
 ];
 
+/**
+ * Motion control: a character IMAGE performs the motion of a driving VIDEO
+ * (lips, head, gestures). Output length = driving video length, so the
+ * price is per second of that video. fal routes verified 2026-09-22.
+ */
+export type MotionModel = {
+  id: string;
+  label: string;
+  provider: string; // fal route
+  perSecondUsd: number; // per second of the driving video
+  hint: string;
+  // Hidden from the picker until its fal rate is confirmed by a live run.
+  available: boolean;
+};
+
+export const MOTION_MODELS: MotionModel[] = [
+  {
+    id: "kling-2.6-motion-standard",
+    label: "Kling 2.6 Motion Control — Standard",
+    provider: "fal-ai/kling-video/v2.6/standard/motion-control",
+    perSecondUsd: 0.07,
+    hint: "Talking heads, portraits and simple gestures — the cost-effective pick.",
+    available: true,
+  },
+  {
+    id: "kling-2.6-motion-pro",
+    label: "Kling 2.6 Motion Control — Pro",
+    provider: "fal-ai/kling-video/v2.6/pro/motion-control",
+    perSecondUsd: 0.112,
+    hint: "Complex movement, dance and full-body gestures.",
+    available: true,
+  },
+  {
+    // fal doesn't publish this rate yet; billed at the Pro rate as a
+    // placeholder. Flip `available` after one live run shows the real charge.
+    id: "kling-3-motion-pro",
+    label: "Kling 3.0 Motion Control — Pro",
+    provider: "fal-ai/kling-video/v3/pro/motion-control",
+    perSecondUsd: 0.112,
+    hint: "Newest model with face-consistency binding.",
+    available: false,
+  },
+];
+
+/** Driving-video length caps per background source (Kling's limits). */
+export const MOTION_MAX_SECONDS = { image: 10, video: 30 } as const;
+
+export type MotionOrientation = keyof typeof MOTION_MAX_SECONDS;
+
+export function findMotionModel(id: string): MotionModel | undefined {
+  return MOTION_MODELS.find((m) => m.id === id);
+}
+
 export function findImageModel(id: string): ImageModel | undefined {
   return IMAGE_MODELS.find((m) => m.id === id);
 }
@@ -130,12 +183,17 @@ export function findVideoModel(id: string): VideoModel | undefined {
 
 /** base provider cost in USD for one generation */
 export function baseCostUsd(args: {
-  kind: "image" | "video";
+  kind: "image" | "video" | "motion";
   modelId: string;
   durationSec?: number;
 }): number {
   if (args.kind === "image") {
     return findImageModel(args.modelId)?.baseUsd ?? 0;
+  }
+  if (args.kind === "motion") {
+    const model = findMotionModel(args.modelId);
+    if (!model || !args.durationSec) return 0;
+    return model.perSecondUsd * Math.ceil(args.durationSec);
   }
   const model = findVideoModel(args.modelId);
   if (!model) return 0;
@@ -144,7 +202,7 @@ export function baseCostUsd(args: {
 
 /** credits charged = base × markup ÷ creditPrice, rounded up */
 export function costInCredits(args: {
-  kind: "image" | "video";
+  kind: "image" | "video" | "motion";
   modelId: string;
   durationSec?: number;
   markup: number;

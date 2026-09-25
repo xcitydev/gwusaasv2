@@ -281,11 +281,6 @@ function validateVoiceNoteInput(args: {
   ambiance: string;
 }): VoiceNoteInput {
   if (!ghlConfigured("messenger")) throw new Error(NOT_CONFIGURED);
-  if (!blandConfigured()) {
-    throw new Error(
-      "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
-    );
-  }
   const text = args.text.trim();
   if (!text) throw new Error("Write what the note should say first");
   if (text.length > VOICE_NOTE_MAX_CHARS) {
@@ -299,22 +294,54 @@ function validateVoiceNoteInput(args: {
 }
 
 /**
- * Our own ".wav" route rather than the raw storage URL — GHL/Meta key
- * attachment type detection off the extension.
+ * Our own ".wav"/".mp3" route rather than the raw storage URL — GHL/Meta
+ * key attachment type detection off the extension. Null = file is gone.
  */
-function voiceNoteUrl(storageId: Id<"_storage">): string {
+async function voiceNoteUrl(
+  ctx: ActionCtx,
+  storageId: Id<"_storage">,
+): Promise<string | null> {
   const site = process.env.CONVEX_SITE_URL;
   if (!site) throw new Error("CONVEX_SITE_URL missing");
-  return `${site}/crm/audio/${storageId}.wav`;
+  const blob = await ctx.storage.get(storageId);
+  if (!blob) return null;
+  const ext = blob.type.includes("mpeg") ? "mp3" : "wav";
+  return `${site}/crm/audio/${storageId}.${ext}`;
 }
 
-/** Bland TTS → ambiance bed mixed under the speech → Convex storage. */
+/**
+ * TTS on whichever engine owns the voice (the caller's ElevenLabs clones →
+ * ElevenLabs, everything else → Bland) → ambiance bed mixed under the
+ * speech when the audio is WAV → Convex storage. ElevenLabs only returns
+ * mixable PCM on its Pro tier; below that the note is a clean MP3.
+ */
 async function renderAndStoreVoiceNote(
   ctx: ActionCtx,
   input: VoiceNoteInput,
 ): Promise<Id<"_storage">> {
-  const speech = await ttsWav(input.voiceId, input.text);
-  const rendered = await renderVoiceNote(speech, input.ambiance);
+  const clones = await ctx.runQuery(internal.voice.listWorkspaceClones, {});
+  const isEleven =
+    clones.find((c) => c.voiceId === input.voiceId)?.provider === "elevenlabs";
+  let speech: Uint8Array;
+  let mime: "audio/wav" | "audio/mpeg" = "audio/wav";
+  if (isEleven) {
+    const { elevenConfigured, ttsForVoiceNote } = await import("./lib/elevenlabs");
+    if (!elevenConfigured()) {
+      throw new Error(
+        "NOT_CONFIGURED: ElevenLabs isn't connected yet (ELEVENLABS_API_KEY).",
+      );
+    }
+    ({ bytes: speech, mime } = await ttsForVoiceNote(input.voiceId, input.text));
+  } else {
+    if (!blandConfigured()) {
+      throw new Error(
+        "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
+      );
+    }
+    speech = await ttsWav(input.voiceId, input.text);
+  }
+  const rendered =
+    mime === "audio/wav" ? await renderVoiceNote(speech, input.ambiance) : speech;
   return await ctx.storage.store(
     new Blob(
       [
@@ -323,7 +350,7 @@ async function renderAndStoreVoiceNote(
           rendered.byteOffset + rendered.byteLength,
         ) as ArrayBuffer,
       ],
-      { type: "audio/wav" },
+      { type: mime },
     ),
   );
 }
@@ -345,7 +372,9 @@ export const previewVoiceNote = action({
     });
     try {
       const storageId = await renderAndStoreVoiceNote(ctx, input);
-      return { storageId, audioUrl: voiceNoteUrl(storageId), credits };
+      const audioUrl = await voiceNoteUrl(ctx, storageId);
+      if (!audioUrl) throw new Error("The rendered audio went missing");
+      return { storageId, audioUrl, credits };
     } catch (error) {
       await ctx.runMutation(internal.igDms.refundVoiceNote, { credits });
       throw error;
@@ -377,9 +406,6 @@ export const sendVoiceNote = action({
     let audioStorageId: Id<"_storage">;
     if (args.renderedStorageId) {
       // Already rendered (and billed) by the preview.
-      if (!(await ctx.storage.getUrl(args.renderedStorageId))) {
-        throw new Error("That preview is gone — render it again");
-      }
       audioStorageId = args.renderedStorageId;
     } else {
       ({ credits } = await ctx.runMutation(internal.igDms.chargeVoiceNote, {
@@ -394,7 +420,8 @@ export const sendVoiceNote = action({
     }
 
     try {
-      const audioUrl = voiceNoteUrl(audioStorageId);
+      const audioUrl = await voiceNoteUrl(ctx, audioStorageId);
+      if (!audioUrl) throw new Error("That preview is gone — render it again");
       const token = await freshLocationToken(ctx, data.account);
       let result: { messageId?: string };
       try {
@@ -455,7 +482,12 @@ function toMillis(value: unknown): number {
  * the location's whole IG history (first connect / manual backfill).
  */
 export const syncConversations = internalAction({
-  args: { ghlLocationId: v.string(), deep: v.optional(v.boolean()) },
+  args: {
+    ghlLocationId: v.string(),
+    deep: v.optional(v.boolean()),
+    // Deep continuation cursor (last row's lastMessageDate).
+    startAfterDate: v.optional(v.number()),
+  },
   handler: async (
     ctx,
     args,
@@ -464,6 +496,7 @@ export const syncConversations = internalAction({
     conversationsSeen: number;
     threadsFetched: number;
     messagesAdded: number;
+    continues: boolean;
   }> => {
     const { searchConversations, getConversationMessages } = await import(
       "./lib/ghl"
@@ -480,9 +513,13 @@ export const syncConversations = internalAction({
       locationRefreshToken: account.locationRefreshToken ?? null,
     });
     const pageSize = args.deep ? 100 : 30;
-    const maxPages = args.deep ? 30 : 1;
+    // Deep runs chunk themselves: a few pages per invocation, then the
+    // action reschedules itself with the cursor — a multi-thousand-thread
+    // history does not fit inside one 10-minute action.
+    const maxPages = args.deep ? 4 : 1;
     const messageLimit = args.deep ? 100 : 30;
-    let startAfterDate: number | undefined;
+    let startAfterDate = args.startAfterDate;
+    let nextCursor: number | undefined;
     let pages = 0;
     let conversationsSeen = 0;
     let threadsFetched = 0;
@@ -585,8 +622,26 @@ export const syncConversations = internalAction({
         break;
       }
       startAfterDate = cursor;
+      if (page === maxPages - 1) nextCursor = cursor;
     }
-    return { pages, conversationsSeen, threadsFetched, messagesAdded };
+    if (args.deep && nextCursor !== undefined) {
+      await ctx.scheduler.runAfter(
+        1000,
+        internal.igDmsActions.syncConversations,
+        {
+          ghlLocationId: args.ghlLocationId,
+          deep: true,
+          startAfterDate: nextCursor,
+        },
+      );
+    }
+    return {
+      pages,
+      conversationsSeen,
+      threadsFetched,
+      messagesAdded,
+      continues: nextCursor !== undefined,
+    };
   },
 });
 

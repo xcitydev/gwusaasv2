@@ -6,7 +6,7 @@ import { Menu, ShieldCheck } from "lucide-react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { hasClerk, hasConvex } from "@/lib/runtime";
-import { APP_NAV, ADMIN_NAV } from "@/lib/nav";
+import { APP_NAV, ADMIN_NAV, filterNav } from "@/lib/nav";
 import { BrandMark } from "@/components/shell/brand-mark";
 import { NavLinks } from "@/components/shell/nav-links";
 import { CreditsPill } from "@/components/shell/credits-pill";
@@ -32,6 +32,17 @@ function AdminLinkInner() {
   );
 }
 
+/** The app nav, minus invite-only sections until the user has access. */
+function AppNav({ onNavigate }: { onNavigate?: () => void }) {
+  const me = useQuery(api.users.me);
+  return (
+    <NavLinks
+      sections={filterNav(APP_NAV, { formsAccess: Boolean(me?.formsAccess) })}
+      onNavigate={onNavigate}
+    />
+  );
+}
+
 function SidebarContent({
   variant,
   onNavigate,
@@ -51,7 +62,11 @@ function SidebarContent({
         )}
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-2">
-        <NavLinks sections={sections} onNavigate={onNavigate} />
+        {variant === "app" && hasConvex && hasClerk ? (
+          <AppNav onNavigate={onNavigate} />
+        ) : (
+          <NavLinks sections={sections} onNavigate={onNavigate} />
+        )}
       </div>
       <div className="pb-4 pt-2">
         {variant === "app" ? (

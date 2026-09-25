@@ -19,6 +19,18 @@ export const igPriorityValidator = v.union(
   v.literal("warm"),
   v.literal("cold"),
 );
+// AI Note Taker: one bot's life, scheduled → done.
+export const meetingStatusValidator = v.union(
+  v.literal("scheduled"),
+  v.literal("joining"),
+  v.literal("waiting_room"),
+  v.literal("recording"),
+  v.literal("processing"),
+  v.literal("done"),
+  v.literal("failed"),
+  v.literal("cancelled"),
+);
+
 export const igStageValidator = v.union(
   v.literal("new"),
   v.literal("qualified"),
@@ -38,6 +50,12 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("locked")),
     referralCode: v.string(),
     referredBy: v.optional(v.id("users")),
+    // GWU Onboarding Forms are invite-only: unlocked by redeeming an invite
+    // code or by an admin grant. Admins always have access (see lib/auth).
+    formsAccess: v.optional(v.boolean()),
+    formsAccessSource: v.optional(v.union(v.literal("invite"), v.literal("admin"))),
+    formsAccessAt: v.optional(v.number()),
+    formsInviteCodeId: v.optional(v.id("inviteCodes")),
   })
     .index("by_clerk_id", ["clerkId"])
     .index("by_email", ["email"])
@@ -77,6 +95,29 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_token", ["token"])
     .index("by_email", ["email"]),
+
+  // Codes that unlock the GWU Onboarding Forms (distinct from team invites).
+  inviteCodes: defineTable({
+    // Canonical: uppercase alphanumerics, no dashes (see lib/invite-codes.ts).
+    code: v.string(),
+    label: v.optional(v.string()),
+    createdBy: v.id("users"),
+    // Undefined = unlimited.
+    maxUses: v.optional(v.number()),
+    uses: v.number(),
+    expiresAt: v.optional(v.number()),
+    status: v.union(v.literal("active"), v.literal("revoked")),
+  }).index("by_code", ["code"]),
+
+  // AI Hub chat: one thread per user per workspace (UI messages + the
+  // plan-card → generation map so result cards survive a refresh).
+  hubThreads: defineTable({
+    userId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    messages: v.any(),
+    jobs: v.optional(v.any()),
+    updatedAt: v.number(),
+  }).index("by_user_workspace", ["userId", "workspaceId"]),
 
   config: defineTable({
     key: v.string(),
@@ -361,7 +402,12 @@ export default defineSchema({
   generations: defineTable({
     workspaceId: v.id("workspaces"),
     userId: v.id("users"),
-    kind: v.union(v.literal("image"), v.literal("video"), v.literal("edit")),
+    kind: v.union(
+      v.literal("image"),
+      v.literal("video"),
+      v.literal("edit"),
+      v.literal("motion"),
+    ),
     model: v.string(),
     prompt: v.string(),
     params: v.any(), // resolution, duration, references…
@@ -375,7 +421,13 @@ export default defineSchema({
     resultUrl: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
     error: v.optional(v.string()),
-  }).index("by_workspace", ["workspaceId"]),
+    // Which engine ran it; absent = fal (rows from before Studio existed).
+    provider: v.optional(v.union(v.literal("fal"), v.literal("higgsfield"))),
+    // Upstream job id — how a webhook finds its row.
+    providerRequestId: v.optional(v.string()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_provider_request", ["providerRequestId"]),
 
   // Admin-curated carousel design systems — same token shape as the built-in
   // templates in lib/carousel-templates.ts; users pick them from the library.
@@ -612,6 +664,9 @@ export default defineSchema({
     userId: v.id("users"),
     voiceId: v.string(),
     name: v.string(),
+    // Clone engine; absent = Bland (rows from before ElevenLabs existed).
+    // ElevenLabs clones are TTS-only: previews + IG voice notes, not calls.
+    provider: v.optional(v.union(v.literal("bland"), v.literal("elevenlabs"))),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_voice", ["voiceId"]),
@@ -669,4 +724,136 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_qualifier_campaign", ["qualifierCampaignId"])
     .index("by_bland_call", ["blandCallId"]),
+
+  // ── AI Note Taker (Recall.ai meeting bots) ────────────────────────────
+  noteTakerSettings: defineTable({
+    workspaceId: v.id("workspaces"),
+    botName: v.optional(v.string()),
+    // Post a recording disclosure in the meeting chat when the bot joins.
+    announce: v.optional(v.boolean()),
+    // Recap email: whoever sent the bot, the invitees too, or nobody.
+    recapAudience: v.optional(
+      v.union(v.literal("host"), v.literal("attendees"), v.literal("none")),
+    ),
+    recapExtraEmails: v.optional(v.array(v.string())),
+    // Recording + transcript lifetime at Recall (their retention timer).
+    retentionDays: v.optional(v.number()),
+    // Calendar events: record everything with a link, or pick by hand.
+    autoJoin: v.optional(v.union(v.literal("all"), v.literal("manual"))),
+    // Secret path token for the Cal.com booking webhook.
+    calcomToken: v.optional(v.string()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_calcom_token", ["calcomToken"]),
+
+  // Calendars handed to Recall's Calendar V2 (it holds the refresh token).
+  noteTakerCalendars: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    platform: v.union(
+      v.literal("google_calendar"),
+      v.literal("microsoft_outlook"),
+    ),
+    recallCalendarId: v.string(),
+    email: v.optional(v.string()),
+    status: v.union(v.literal("connected"), v.literal("disconnected")),
+    // Cursor for incremental event sync (ISO timestamp).
+    lastSyncedTs: v.optional(v.string()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_recall_id", ["recallCalendarId"]),
+
+  // One-shot CSRF states for the calendar OAuth round-trip.
+  noteTakerOauthStates: defineTable({
+    state: v.string(),
+    userId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    platform: v.union(
+      v.literal("google_calendar"),
+      v.literal("microsoft_outlook"),
+    ),
+  }).index("by_state", ["state"]),
+
+  meetings: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    title: v.string(),
+    // True until the user (or the calendar) names it — AI may retitle.
+    autoTitle: v.optional(v.boolean()),
+    meetingUrl: v.string(),
+    platform: v.optional(v.string()),
+    source: v.union(
+      v.literal("manual"),
+      v.literal("calendar"),
+      v.literal("calcom"),
+    ),
+    // Calendar event id / Cal.com booking uid — one bot per real meeting.
+    dedupKey: v.optional(v.string()),
+    calendarId: v.optional(v.id("noteTakerCalendars")),
+    recallEventId: v.optional(v.string()),
+    recallBotId: v.optional(v.string()),
+    status: meetingStatusValidator,
+    statusDetail: v.optional(v.string()),
+    scheduledFor: v.optional(v.number()),
+    startedAt: v.optional(v.number()),
+    endedAt: v.optional(v.number()),
+    durationSec: v.optional(v.number()),
+    costCredits: v.optional(v.number()),
+    attendees: v.optional(
+      v.array(v.object({ name: v.string(), email: v.optional(v.string()) })),
+    ),
+    // AI write-up (MeetingNotes) + talk-time stats (MeetingAnalytics).
+    notes: v.optional(v.any()),
+    notesStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("ready"), v.literal("failed")),
+    ),
+    analytics: v.optional(v.any()),
+    // Title + summary + key points, flattened for the search index.
+    searchText: v.optional(v.string()),
+    recapSentAt: v.optional(v.number()),
+    // Set once the recording is stored + billed (idempotency guard).
+    finalizedAt: v.optional(v.number()),
+    mediaDeleted: v.optional(v.boolean()),
+    dispatchAttempts: v.optional(v.number()),
+    pollCount: v.optional(v.number()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_bot", ["recallBotId"])
+    .index("by_dedup", ["workspaceId", "dedupKey"])
+    .index("by_status", ["status"])
+    .searchIndex("search_meta", {
+      searchField: "searchText",
+      filterFields: ["workspaceId"],
+    }),
+
+  // The transcript, ~150 speaker segments per row: keeps `meetings` light
+  // and lets a search hit point at the moment it was said.
+  meetingTranscriptParts: defineTable({
+    meetingId: v.id("meetings"),
+    workspaceId: v.id("workspaces"),
+    part: v.number(),
+    segments: v.array(
+      v.object({
+        speaker: v.string(),
+        start: v.number(),
+        end: v.number(),
+        text: v.string(),
+      }),
+    ),
+    text: v.string(),
+  })
+    .index("by_meeting", ["meetingId", "part"])
+    .searchIndex("search_text", {
+      searchField: "text",
+      filterFields: ["workspaceId"],
+    }),
+
+  // "Ask this meeting" conversation.
+  meetingChats: defineTable({
+    meetingId: v.id("meetings"),
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    role: v.union(v.literal("user"), v.literal("assistant")),
+    content: v.string(),
+  }).index("by_meeting", ["meetingId"]),
 });

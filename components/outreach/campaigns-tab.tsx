@@ -196,7 +196,7 @@ export function CampaignsTab() {
             <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
               The sequence and lead assignments are removed. Your leads stay in
-              Find Customers. This can&apos;t be undone.
+              Find Leads. This can&apos;t be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

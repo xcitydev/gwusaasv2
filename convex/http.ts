@@ -154,7 +154,7 @@ http.route({
 });
 
 /**
- * Voice-note audio for GHL/Meta to fetch. Served under a ".wav" path so
+ * Voice-note audio for GHL/Meta to fetch. Served under a ".wav"/".mp3" path so
  * attachment-type detection works — Convex's raw storage URLs carry no
  * extension. Ids are unguessable, same exposure as the storage URL itself.
  */
@@ -163,7 +163,7 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const name = new URL(request.url).pathname.split("/").pop() ?? "";
-    const storageId = name.replace(/.wav$/, "");
+    const storageId = name.replace(/\.(wav|mp3)$/, "");
     if (!storageId) return new Response("Not found", { status: 404 });
     let blob: Blob | null = null;
     try {
@@ -175,11 +175,154 @@ http.route({
     return new Response(blob, {
       status: 200,
       headers: {
-        "Content-Type": "audio/wav",
+        // WAV from Bland / PCM-tier ElevenLabs, MP3 from ElevenLabs otherwise.
+        "Content-Type": blob.type.includes("mpeg") ? "audio/mpeg" : "audio/wav",
         "Content-Length": String(blob.size),
         "Cache-Control": "public, max-age=31536000, immutable",
       },
     });
+  }),
+});
+
+// ── AI Note Taker (Recall.ai) ───────────────────────────────────────────
+
+/**
+ * Recall bot / transcript / calendar webhooks. The payload is only a poke:
+ * state is always re-read from Recall's API, so a forged request can at
+ * worst trigger a refresh. The signature is enforced once
+ * RECALL_WEBHOOK_SECRET is set.
+ */
+http.route({
+  path: "/notes/recall-webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const raw = await request.text();
+    const secret = process.env.RECALL_WEBHOOK_SECRET;
+    if (secret) {
+      const { verifyRecallSignature } = await import("./lib/recall");
+      const h = request.headers;
+      const valid = await verifyRecallSignature({
+        secret,
+        id: h.get("webhook-id") ?? h.get("svix-id"),
+        timestamp: h.get("webhook-timestamp") ?? h.get("svix-timestamp"),
+        signatureHeader: h.get("webhook-signature") ?? h.get("svix-signature"),
+        rawBody: raw,
+      });
+      if (!valid) return new Response("bad signature", { status: 401 });
+    }
+    let payload: {
+      event?: string;
+      data?: {
+        bot?: { id?: string };
+        calendar_id?: string;
+        last_updated_ts?: string;
+      };
+    };
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return new Response("ok", { status: 200 });
+    }
+    const event = String(payload.event ?? "");
+    const botId = payload.data?.bot?.id;
+    const calendarId = payload.data?.calendar_id;
+    if (botId && /^(bot|transcript|recording)\./.test(event)) {
+      await ctx.scheduler.runAfter(0, internal.noteTakerActions.onBotEvent, {
+        recallBotId: botId,
+      });
+    } else if (calendarId && event.startsWith("calendar.")) {
+      await ctx.scheduler.runAfter(0, internal.noteTakerActions.onCalendarEvent, {
+        recallCalendarId: calendarId,
+        event,
+        lastUpdatedTs: payload.data?.last_updated_ts,
+      });
+    }
+    return new Response("ok", { status: 200 });
+  }),
+});
+
+/** Calendar OAuth landing (Google / Microsoft) → hand the grant to Recall. */
+for (const provider of ["google", "microsoft"] as const) {
+  http.route({
+    path: `/notes/oauth/${provider}/callback`,
+    method: "GET",
+    handler: httpAction(async (ctx, request) => {
+      const params = new URL(request.url).searchParams;
+      const code = params.get("code");
+      const state = params.get("state");
+      const page = (title: string, detail: string) =>
+        new Response(
+          `<html><body style='font-family:system-ui;background:#0a0a0a;color:#eee;display:grid;place-items:center;height:100vh'><div style='text-align:center;max-width:420px'><h2>${title}</h2><p style='color:#999'>${detail}</p></div></body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      if (!code || !state) {
+        return page(
+          "Calendar not connected",
+          params.get("error_description") ?? params.get("error") ?? "Missing code.",
+        );
+      }
+      try {
+        await ctx.runAction(internal.noteTakerActions.completeCalendarConnect, {
+          provider,
+          code,
+          state,
+        });
+        return page("✓ Calendar connected", "You can close this tab.");
+      } catch (error) {
+        return page(
+          "Calendar not connected",
+          error instanceof Error ? error.message : "Something went wrong.",
+        );
+      }
+    }),
+  });
+}
+
+/**
+ * Cal.com booking webhook, one secret URL per workspace
+ * (/notes/calcom/<token>): BOOKING_CREATED / RESCHEDULED / CANCELLED keep a
+ * bot scheduled for every booking that has a meeting link.
+ */
+http.route({
+  pathPrefix: "/notes/calcom/",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const token = new URL(request.url).pathname.split("/").pop() ?? "";
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return new Response("bad json", { status: 400 });
+    }
+    if (!token) return new Response("not found", { status: 404 });
+    await ctx.scheduler.runAfter(0, internal.noteTakerActions.onCalcomBooking, {
+      token,
+      body,
+    });
+    return new Response("ok", { status: 200 });
+  }),
+});
+
+/**
+ * Higgsfield job webhook (Studio tab). Unsigned, so the payload is only a
+ * poke: the job's true state is re-read from its status URL.
+ */
+http.route({
+  path: "/create/higgsfield-webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    let payload: { request_id?: string };
+    try {
+      payload = (await request.json()) as { request_id?: string };
+    } catch {
+      return new Response("ok", { status: 200 });
+    }
+    if (typeof payload.request_id === "string" && payload.request_id) {
+      await ctx.scheduler.runAfter(0, internal.studioActions.onWebhook, {
+        requestId: payload.request_id,
+      });
+    }
+    return new Response("ok", { status: 200 });
   }),
 });
 

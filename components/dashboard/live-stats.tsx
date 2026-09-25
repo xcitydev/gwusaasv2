@@ -20,14 +20,18 @@ function StatsGrid({
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => (
-        <Card key={card.label}>
-          <CardContent className="flex items-center gap-4">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <Card key={card.label} className="relative overflow-hidden">
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -right-8 -top-10 size-28 rounded-full bg-gradient-to-br from-primary/25 to-transparent blur-2xl"
+          />
+          <CardContent className="relative flex items-center gap-4">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/30 to-primary/5 text-primary">
               <card.icon className="size-5" />
             </span>
             <div>
               <p className="text-xs text-muted-foreground">{card.label}</p>
-              <p className="text-xl font-semibold">
+              <p className="text-2xl font-bold tracking-tight">
                 {card.value === undefined ? "—" : card.value.toLocaleString()}
               </p>
             </div>

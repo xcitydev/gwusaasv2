@@ -517,7 +517,7 @@ export function QualifierClient() {
               {leadsWithPhone.length === 0 ? (
                 <p className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">
                   None of your leads have phone numbers yet — import leads with a
-                  phone column in Find Customers.
+                  phone column in Find Leads.
                 </p>
               ) : (
                 <div className="max-h-48 divide-y divide-border overflow-y-auto rounded-lg border">

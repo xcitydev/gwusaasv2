@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -72,7 +71,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -98,7 +96,7 @@ function detectLinkKind(url: string): string {
   return "Audio link";
 }
 
-function AuditTab() {
+export function AuditTab() {
   const auditsQuery = useQuery(api.tools.listAudits);
   const audits = auditsQuery ?? [];
   const runAudit = useAction(api.ai.runAudit);
@@ -384,7 +382,7 @@ function FixQuoteDialog({
   );
 }
 
-function TranscribeTab() {
+export function TranscribeTab() {
   const transcriptsQuery = useQuery(api.tools.listTranscripts);
   const transcripts = transcriptsQuery ?? [];
   const transcribe = useAction(api.ai.transcribe);
@@ -852,7 +850,7 @@ function DeckViewer({ carousel }: { carousel: Doc<"carousels"> }) {
   );
 }
 
-function CarouselTab() {
+export function CarouselTab() {
   const carouselsQuery = useQuery(api.carousels.list);
   const carousels = carouselsQuery ?? [];
   const pricing = useQuery(api.generations.pricing);
@@ -1262,37 +1260,5 @@ function CarouselTab() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-const TOOL_TABS = ["audit", "carousel", "transcribe"];
-
-export function ToolsClient() {
-  // The sidebar deep-links straight to a tool (/tools?tab=carousel), so the
-  // URL owns the active tab.
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const param = searchParams.get("tab");
-  const tab = param && TOOL_TABS.includes(param) ? param : "audit";
-  return (
-    <Tabs
-      value={tab}
-      onValueChange={(v) => router.replace(`/tools?tab=${v}`, { scroll: false })}
-    >
-      <TabsList className="mb-4">
-        <TabsTrigger value="audit" className="gap-1.5">
-          <ScanSearch className="size-4" /> Get Found by AI
-        </TabsTrigger>
-        <TabsTrigger value="carousel" className="gap-1.5">
-          <GalleryHorizontalEnd className="size-4" /> IG Carousels
-        </TabsTrigger>
-        <TabsTrigger value="transcribe" className="gap-1.5">
-          <AudioLines className="size-4" /> Audio to Text
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent value="audit"><AuditTab /></TabsContent>
-      <TabsContent value="carousel"><CarouselTab /></TabsContent>
-      <TabsContent value="transcribe"><TranscribeTab /></TabsContent>
-    </Tabs>
   );
 }

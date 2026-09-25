@@ -753,7 +753,7 @@ function Composer({
             <p className="text-[11px] font-medium text-muted-foreground">
               Voice
             </p>
-            <VoicePicker value={voiceId} onChange={setVoiceId} />
+            <VoicePicker value={voiceId} onChange={setVoiceId} includeTts />
           </div>
           <div className="space-y-1">
             <p className="text-[11px] font-medium text-muted-foreground">

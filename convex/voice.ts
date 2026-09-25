@@ -197,7 +197,11 @@ export const listNumbers = query({
 });
 
 export const recordClonedVoice = internalMutation({
-  args: { voiceId: v.string(), name: v.string() },
+  args: {
+    voiceId: v.string(),
+    name: v.string(),
+    provider: v.optional(v.union(v.literal("bland"), v.literal("elevenlabs"))),
+  },
   handler: async (ctx, args) => {
     const { user, workspace } = await requireWorkspaceStrict(ctx);
     await ctx.db.insert("clonedVoices", {
@@ -205,7 +209,39 @@ export const recordClonedVoice = internalMutation({
       userId: user._id,
       voiceId: args.voiceId,
       name: args.name,
+      provider: args.provider,
     });
+  },
+});
+
+/** Which clone engines are switched on — drives the engine toggle. */
+export const cloneProviders = query({
+  args: {},
+  handler: async () => ({
+    bland: Boolean(process.env.BLAND_API_KEY),
+    elevenlabs: Boolean(process.env.ELEVENLABS_API_KEY),
+  }),
+});
+
+/** This workspace's clones with their engine (Bland when unset). */
+export const listWorkspaceClones = internalQuery({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{ voiceId: string; name: string; provider: "bland" | "elevenlabs" }[]> => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    if (!workspace) return [];
+    const rows = await ctx.db
+      .query("clonedVoices")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+      .collect();
+    return rows.map((r) => ({
+      voiceId: r.voiceId,
+      name: r.name,
+      provider: r.provider ?? "bland",
+    }));
   },
 });
 

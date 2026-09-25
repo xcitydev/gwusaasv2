@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { getCurrentUser, getPrimaryWorkspace } from "./lib/auth";
+import { getCurrentUser, getPrimaryWorkspace, hasFormsAccess } from "./lib/auth";
 
 /**
  * Idempotent sign-in hook: called from the client once a Clerk session exists.
@@ -96,6 +96,9 @@ export const me = query({
       adminRole: user.adminRole,
       status: user.status,
       referralCode: user.referralCode,
+      // Invite-only GWU Onboarding Forms.
+      formsAccess: hasFormsAccess(user),
+      formsAccessSource: user.formsAccessSource,
       workspace: workspace
         ? {
             _id: workspace._id,

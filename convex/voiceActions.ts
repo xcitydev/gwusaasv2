@@ -17,29 +17,49 @@ import {
  * (possibly unsaved) prompt and hand the client a single-use session token.
  * The browser SDK connects mic + speakers directly to the agent.
  */
-/** Voices the account can use, best first (curated V3 = studio quality). */
+type VoiceProvider = "bland" | "elevenlabs";
+
+const providerValidator = v.union(v.literal("bland"), v.literal("elevenlabs"));
+
+type VoiceOption = {
+  id: string;
+  name: string;
+  description: string | null;
+  curated: boolean;
+  owned: boolean;
+  provider: VoiceProvider;
+};
+
+/**
+ * Voices the account can use, best first (curated V3 = studio quality).
+ * `includeElevenLabs` adds the workspace's ElevenLabs clones — only for
+ * text-to-speech surfaces (voices page, IG voice notes). Call pickers leave
+ * it off: phone calls run on Bland and can't speak an ElevenLabs voice.
+ */
 export const listVoices = action({
-  args: {},
-  handler: async (
-    ctx,
-  ): Promise<
-    {
-      id: string;
-      name: string;
-      description: string | null;
-      curated: boolean;
-      owned: boolean;
-    }[]
-  > => {
+  args: { includeElevenLabs: v.optional(v.boolean()) },
+  handler: async (ctx, args): Promise<VoiceOption[]> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
-    if (!blandConfigured()) return [];
+    const clones = await ctx.runQuery(internal.voice.listWorkspaceClones, {});
+    const elevenClones: VoiceOption[] = args.includeElevenLabs
+      ? clones
+          .filter((c) => c.provider === "elevenlabs")
+          .map((c) => ({
+            id: c.voiceId,
+            name: c.name,
+            description: "Your voice — ElevenLabs clone",
+            curated: false,
+            owned: true,
+            provider: "elevenlabs" as const,
+          }))
+      : [];
+    if (!blandConfigured()) return elevenClones;
     const { listVoices: fetchVoices } = await import("./lib/bland");
-    const [voices, ownedIds] = await Promise.all([
-      fetchVoices(),
-      ctx.runQuery(internal.voice.listWorkspaceCloneIds, {}),
-    ]);
-    const ownedSet = new Set(ownedIds);
-    return voices
+    const voices = await fetchVoices();
+    const ownedSet = new Set(
+      clones.filter((c) => c.provider === "bland").map((c) => c.voiceId),
+    );
+    const blandVoices = voices
       .map((voice) => ({
         id: voice.id,
         name: voice.name,
@@ -67,26 +87,36 @@ export const listVoices = action({
         description,
         curated,
         owned,
+        provider: "bland" as const,
       }));
+    return [...elevenClones, ...blandVoices];
   },
 });
 
 /**
  * Clone the user's voice from a browser recording (uploaded to storage as
- * WAV). One ~10s clean sample is all Bland's V3 engine needs; the clone
- * lands in the org voice library and every voice picker immediately.
+ * WAV) on the chosen engine. Bland's V3 engine wants one ~10s clean sample
+ * and its clones work everywhere, calls included. ElevenLabs improves with
+ * a minute or more and is TTS-only (previews, IG voice notes).
  */
 export const cloneMyVoice = action({
   args: {
     name: v.string(),
     storageId: v.id("_storage"),
     gender: v.optional(v.string()),
+    provider: v.optional(providerValidator),
   },
   handler: async (ctx, args): Promise<{ voiceId: string }> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
-    if (!blandConfigured()) {
+    const provider: VoiceProvider = args.provider ?? "bland";
+    const { elevenConfigured, cloneVoice: elevenClone } = await import(
+      "./lib/elevenlabs"
+    );
+    if (provider === "elevenlabs" ? !elevenConfigured() : !blandConfigured()) {
       throw new Error(
-        "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
+        provider === "elevenlabs"
+          ? "NOT_CONFIGURED: ElevenLabs isn't connected yet (ELEVENLABS_API_KEY)."
+          : "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
       );
     }
     const name = args.name.trim().slice(0, 30);
@@ -94,17 +124,32 @@ export const cloneMyVoice = action({
     const audio = await ctx.storage.get(args.storageId);
     if (!audio) throw new Error("Recording not found — try recording again");
     if (audio.size > 10 * 1024 * 1024) {
-      throw new Error("Recording is over 10MB — keep it to ~15 seconds");
+      throw new Error("Recording is over 10MB — keep it shorter");
     }
-    const { cloneVoice } = await import("./lib/bland");
-    const voiceId = await cloneVoice({
+    let voiceId: string;
+    if (provider === "elevenlabs") {
+      voiceId = await elevenClone({
+        name,
+        audio,
+        filename: "sample.wav",
+        gender: args.gender,
+        description: "Cloned in-app from a browser recording",
+      });
+    } else {
+      const { cloneVoice } = await import("./lib/bland");
+      voiceId = await cloneVoice({
+        name,
+        audio,
+        filename: "sample.wav",
+        gender: args.gender,
+        description: "Cloned in-app from a browser recording",
+      });
+    }
+    await ctx.runMutation(internal.voice.recordClonedVoice, {
+      voiceId,
       name,
-      audio,
-      filename: "sample.wav",
-      gender: args.gender,
-      description: "Cloned in-app from a browser recording",
+      provider,
     });
-    await ctx.runMutation(internal.voice.recordClonedVoice, { voiceId, name });
     return { voiceId };
   },
 });
@@ -114,34 +159,60 @@ export const deleteClonedVoice = action({
   args: { voiceId: v.string() },
   handler: async (ctx, args): Promise<void> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
-    const owned = await ctx.runQuery(internal.voice.listWorkspaceCloneIds, {});
-    if (!owned.includes(args.voiceId)) {
-      throw new Error("That voice isn't in your workspace");
+    const clones = await ctx.runQuery(internal.voice.listWorkspaceClones, {});
+    const clone = clones.find((c) => c.voiceId === args.voiceId);
+    if (!clone) throw new Error("That voice isn't in your workspace");
+    if (clone.provider === "elevenlabs") {
+      const { deleteVoice } = await import("./lib/elevenlabs");
+      await deleteVoice(args.voiceId);
+    } else {
+      const { deleteVoice } = await import("./lib/bland");
+      await deleteVoice(args.voiceId);
     }
-    const { deleteVoice } = await import("./lib/bland");
-    await deleteVoice(args.voiceId);
     await ctx.runMutation(internal.voice.removeClonedVoice, {
       voiceId: args.voiceId,
     });
   },
 });
 
-/** A short spoken sample of one voice (WAV, base64) for in-app preview. */
+const DEFAULT_PREVIEW_LINE =
+  "Hi! This is how I'll sound on your calls. Looking forward to talking to your customers.";
+
+/**
+ * A short spoken sample of one voice (base64 + its mime) for in-app
+ * preview. Pass `text` to hear your own line — how the voices page compares
+ * clones from both engines saying the same thing.
+ */
 export const voicePreview = action({
-  args: { voiceId: v.string() },
-  handler: async (ctx, args): Promise<{ audioBase64: string }> => {
+  args: { voiceId: v.string(), text: v.optional(v.string()) },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ audioBase64: string; mime: string }> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    const text = (args.text?.trim() || DEFAULT_PREVIEW_LINE).slice(0, 300);
+    // Only the caller's own ElevenLabs clones route to ElevenLabs.
+    const clones = await ctx.runQuery(internal.voice.listWorkspaceClones, {});
+    const clone = clones.find((c) => c.voiceId === args.voiceId);
+    if (clone?.provider === "elevenlabs") {
+      const { elevenConfigured, ttsMp3, bytesToBase64 } = await import(
+        "./lib/elevenlabs"
+      );
+      if (!elevenConfigured()) {
+        throw new Error(
+          "NOT_CONFIGURED: ElevenLabs isn't connected yet (ELEVENLABS_API_KEY).",
+        );
+      }
+      const audio = await ttsMp3(args.voiceId, text);
+      return { audioBase64: bytesToBase64(audio), mime: "audio/mpeg" };
+    }
     if (!blandConfigured()) {
       throw new Error(
         "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
       );
     }
     const { ttsPreview } = await import("./lib/bland");
-    const audioBase64 = await ttsPreview(
-      args.voiceId,
-      "Hi! This is how I'll sound on your calls. Looking forward to talking to your customers.",
-    );
-    return { audioBase64 };
+    return { audioBase64: await ttsPreview(args.voiceId, text), mime: "audio/wav" };
   },
 });
 

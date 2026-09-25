@@ -6,8 +6,8 @@ export default function QualifierPage() {
   return (
     <LivePage>
       <PageHeader
-        title="AI Lead Qualifier"
-        description="The AI calls your imported leads and qualifies them before you ever pick up the phone."
+        title="AI Cold Calling"
+        description="Use your cloned voice, set it up to run on auto — the AI calls your leads and tells you who is worth your time."
       />
       <QualifierClient />
     </LivePage>

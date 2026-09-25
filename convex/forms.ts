@@ -9,7 +9,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { getFormDef } from "../lib/forms-def";
-import { requireUser, requireAdmin, getAdminOrNull, getPrimaryWorkspace } from "./lib/auth";
+import { requireAdmin, getAdminOrNull, getPrimaryWorkspace, requireFormsAccess } from "./lib/auth";
 import { encryptString, decryptString } from "./lib/crypto";
 import { sendEmail } from "./lib/email";
 import { notify } from "./notifications";
@@ -79,7 +79,8 @@ export const insertSubmission = internalMutation({
     files: v.optional(fileValidator),
   },
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    // Invite-only: no code (or admin grant), no submission.
+    const user = await requireFormsAccess(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
     const submissionId = await ctx.db.insert("formSubmissions", {

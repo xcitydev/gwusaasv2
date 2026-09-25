@@ -8,8 +8,8 @@ export default function LeadsPage() {
   return (
     <LivePage>
       <PageHeader
-        title="Find Customers"
-        description="Search for leads in plain English, keep them all in one deduped list."
+        title="Find Leads"
+        description="Describe who you want in plain English — the AI scrapes Google Maps, LinkedIn and B2B databases, verifies emails, and keeps everything in one deduped list."
       />
       <Tabs defaultValue="search">
         <TabsList className="mb-4">

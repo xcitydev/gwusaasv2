@@ -30,4 +30,13 @@ crons.interval(
   {},
 );
 
+// AI Note Taker safety net: rescue meetings whose poll chain or webhook
+// was lost, and re-sync connected calendars.
+crons.interval(
+  "sweep note taker",
+  { minutes: 10 },
+  internal.noteTakerActions.sweep,
+  {},
+);
+
 export default crons;

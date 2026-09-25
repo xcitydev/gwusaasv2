@@ -7,7 +7,7 @@ export default function CreatePage() {
     <LivePage>
       <PageHeader
         title="Create with AI"
-        description="Generate images and videos with the most powerful models — priced per generation in credits."
+        description="Tell the AI Hub what you want. It picks the model, shows the price, and renders here. Advanced tabs give you every knob."
       />
       <CreateClient />
     </LivePage>

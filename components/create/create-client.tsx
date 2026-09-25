@@ -7,6 +7,7 @@ import { GridSkeleton } from "@/components/list-skeleton";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import {
+  Bot,
   Clapperboard,
   ClipboardCopy,
   Coins,
@@ -14,6 +15,8 @@ import {
   ExternalLink,
   ImageIcon,
   Library,
+  PersonStanding,
+  Film,
   Link as LinkIcon,
   Loader2,
   Sparkles,
@@ -41,11 +44,17 @@ import {
 } from "@/components/ui/dialog";
 import {
   IMAGE_MODELS,
+  MOTION_MAX_SECONDS,
+  MOTION_MODELS,
   VIDEO_MODELS,
   costInCredits,
   findImageModel,
+  findMotionModel,
   findVideoModel,
+  type MotionOrientation,
 } from "@/lib/ai-models";
+import { cn } from "@/lib/utils";
+import { StudioTab } from "./studio-tab";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -59,9 +68,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HubTab } from "@/components/hub/hub-client";
+import { handleGenerateError, probeVideoDuration } from "@/components/create/generate-helpers";
+
+export { handleGenerateError };
 import { Textarea } from "@/components/ui/textarea";
 
-function CostPill({ credits }: { credits: number }) {
+export function CostPill({ credits }: { credits: number }) {
   return (
     <span className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
       <Coins className="size-3.5" /> {credits.toLocaleString()} credits
@@ -70,7 +83,7 @@ function CostPill({ credits }: { credits: number }) {
 }
 
 /** "Enhance with AI" — rewrites the prompt in place, with undo in the toast. */
-function EnhanceButton({
+export function EnhanceButton({
   kind,
   prompt,
   onEnhanced,
@@ -115,7 +128,7 @@ function EnhanceButton({
 }
 
 /** Reference image: paste a link OR upload a file (stored on Convex). */
-function ReferenceInput({
+export function ReferenceInput({
   value,
   onChange,
   helper,
@@ -199,19 +212,6 @@ function ReferenceInput({
       )}
     </div>
   );
-}
-
-function handleGenerateError(error: unknown) {
-  const message = error instanceof Error ? error.message : "";
-  if (message.includes("NOT_CONFIGURED")) {
-    toast.error("The generation engine isn't connected yet — an admin needs to add the provider key.");
-  } else if (message.includes("INSUFFICIENT_CREDITS")) {
-    toast.error("Not enough credits — top up in Settings.");
-  } else if (message.includes("refunded")) {
-    toast.error("Generation failed — your credits were refunded.");
-  } else {
-    toast.error("Generation failed. Are you signed in?");
-  }
 }
 
 function ImageStudio() {
@@ -435,6 +435,293 @@ function VideoStudio() {
   );
 }
 
+// Driving videos are uploaded to Convex storage; keep them small enough to
+// upload quickly and for fal to fetch without timing out.
+const MAX_VIDEO_UPLOAD_MB = 80;
+
+export function DrivingVideoInput({
+  value,
+  durationSec,
+  onChange,
+}: {
+  value: string;
+  durationSec: number | null;
+  onChange: (url: string, durationSec: number | null) => void;
+}) {
+  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+  const getPublicUrl = useMutation(api.files.getPublicUrl);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFile = async (file: File) => {
+    if (file.size > MAX_VIDEO_UPLOAD_MB * 1024 * 1024) {
+      toast.error(`Keep the video under ${MAX_VIDEO_UPLOAD_MB} MB — trim it to the part you need.`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const objectUrl = URL.createObjectURL(file);
+      const seconds = await probeVideoDuration(objectUrl);
+      URL.revokeObjectURL(objectUrl);
+      const uploadUrl = await generateUploadUrl();
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "video/mp4" },
+        body: file,
+      });
+      if (!res.ok) throw new Error("upload failed");
+      const { storageId } = await res.json();
+      onChange(await getPublicUrl({ storageId }), seconds);
+      toast.success("Motion video uploaded.");
+    } catch {
+      toast.error("Upload failed — try again or paste a link.");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  // A pasted link is measured once the user leaves the field.
+  const measureLink = async () => {
+    const url = value.trim();
+    if (url && durationSec === null) onChange(url, await probeVideoDuration(url));
+  };
+
+  return (
+    <div>
+      <div className="flex gap-2">
+        <Input
+          placeholder="https://… or upload a video"
+          value={value}
+          onChange={(e) => onChange(e.target.value, null)}
+          onBlur={() => void measureLink()}
+          onKeyDown={(e) => e.key === "Enter" && void measureLink()}
+          className="flex-1"
+        />
+        <input
+          ref={fileRef}
+          type="file"
+          accept="video/mp4,video/quicktime,video/webm,video/*"
+          className="hidden"
+          onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          disabled={uploading}
+          onClick={() => fileRef.current?.click()}
+        >
+          {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+          Upload
+        </Button>
+      </div>
+      {value.trim() ? (
+        <div className="mt-2 flex items-center gap-3">
+          <video
+            src={value}
+            muted
+            playsInline
+            className="h-20 w-14 rounded-lg border border-border bg-black object-cover"
+          />
+          <p className="text-xs text-muted-foreground">
+            {durationSec !== null
+              ? `${Math.ceil(durationSec)} second${Math.ceil(durationSec) === 1 ? "" : "s"}`
+              : "Length unknown — it's read from the file when you generate"}
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto text-muted-foreground"
+            onClick={() => onChange("", null)}
+          >
+            <X className="size-3.5" /> Remove
+          </Button>
+        </div>
+      ) : (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          A clip of one person talking or moving — face clearly visible, upper
+          body in frame, steady camera. Its audio is kept so the lips stay in
+          sync.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Character image performs the motion (and speech) of a driving video. */
+function MotionStudio() {
+  const pricing = useQuery(api.generations.pricing);
+  const generate = useAction(api.createActions.generate);
+  const models = MOTION_MODELS.filter((m) => m.available);
+  const [modelId, setModelId] = useState(models[0].id);
+  const [orientation, setOrientation] = useState<MotionOrientation>("video");
+  const [imageUrl, setImageUrl] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [videoSec, setVideoSec] = useState<number | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const model = findMotionModel(modelId)!;
+  const maxSec = MOTION_MAX_SECONDS[orientation];
+  const tooLong = videoSec !== null && videoSec > maxSec;
+  const credits =
+    pricing && videoSec
+      ? costInCredits({
+          kind: "motion",
+          modelId,
+          durationSec: videoSec,
+          markup: pricing.markup,
+          creditPriceUsd: pricing.creditPriceUsd,
+        })
+      : 0;
+
+  const run = async () => {
+    if (!imageUrl.trim()) {
+      toast.error("Add the character image first.");
+      return;
+    }
+    if (!videoUrl.trim()) {
+      toast.error("Add the motion video first.");
+      return;
+    }
+    if (tooLong) {
+      toast.error(`Keep the motion video under ${maxSec} seconds for this background setting.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await generate({
+        kind: "motion",
+        modelId,
+        prompt,
+        resolution: "auto",
+        durationSec: videoSec ?? undefined,
+        referenceUrl: imageUrl.trim(),
+        videoUrl: videoUrl.trim(),
+        characterOrientation: orientation,
+      });
+      toast.success("Motion video generated — see it in your Library.");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "";
+      if (/motion video|character image|under \d+ seconds/.test(message)) {
+        toast.error(message.split("Uncaught Error: ").pop() ?? message);
+      } else {
+        handleGenerateError(e);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 pt-6">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label className="mb-1.5">Character image</Label>
+            <ReferenceInput
+              value={imageUrl}
+              onChange={setImageUrl}
+              helper="One person, face and upper body clearly visible, nothing covering them."
+            />
+          </div>
+          <div>
+            <Label className="mb-1.5">Motion video</Label>
+            <DrivingVideoInput
+              value={videoUrl}
+              durationSec={videoSec}
+              onChange={(url, seconds) => {
+                setVideoUrl(url);
+                setVideoSec(seconds);
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label className="mb-1.5">Model</Label>
+            <Select value={modelId} onValueChange={setModelId}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {models.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1.5 text-xs text-muted-foreground">{model.hint}</p>
+          </div>
+          <div>
+            <Label className="mb-1.5">Scene control — follow the</Label>
+            <div
+              role="radiogroup"
+              aria-label="Background source"
+              className="grid grid-cols-2 gap-1 rounded-lg bg-secondary/60 p-1"
+            >
+              {(
+                [
+                  ["image", "Character image"],
+                  ["video", "Motion video"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={orientation === value}
+                  onClick={() => setOrientation(value)}
+                  className={cn(
+                    "rounded-md px-2 py-1.5 text-sm transition-colors",
+                    orientation === value
+                      ? "bg-background font-medium text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className={cn("mt-1.5 text-xs", tooLong ? "text-destructive" : "text-muted-foreground")}>
+              {orientation === "image"
+                ? `The image leads the framing — best for camera moves. Video up to ${MOTION_MAX_SECONDS.image} s.`
+                : `The video leads the framing — best for complex motion. Video up to ${MOTION_MAX_SECONDS.video} s.`}
+              {tooLong && ` Your clip is ${Math.ceil(videoSec!)} s.`}
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <Label>Prompt (optional)</Label>
+            <EnhanceButton kind="video" prompt={prompt} onEnhanced={setPrompt} />
+          </div>
+          <Textarea
+            rows={2}
+            placeholder="Optional styling notes — the motion and speech come from the video."
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CostPill credits={credits} />
+            {videoSec ? (
+              <span className="text-xs text-muted-foreground">
+                for {Math.ceil(videoSec)} s of output
+              </span>
+            ) : null}
+          </div>
+          <Button onClick={run} disabled={busy || tooLong}>
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <PersonStanding className="size-4" />}
+            {busy ? "Generating… (a few minutes)" : "Generate motion video"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function LibraryGrid() {
   const generationsQuery = useQuery(api.generations.list);
   const generations = generationsQuery ?? [];
@@ -454,7 +741,7 @@ function LibraryGrid() {
       const blob = await res.blob();
       const extension =
         open.resultUrl.split("?")[0].match(/\.(\w{2,4})$/)?.[1] ??
-        (open.kind === "video" ? "mp4" : "png");
+        (open.kind === "video" || open.kind === "motion" ? "mp4" : "png");
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -507,7 +794,7 @@ function LibraryGrid() {
           >
             <div className="relative aspect-square overflow-hidden rounded-lg border border-border bg-secondary transition-colors group-hover:border-primary/50">
               {g.status === "done" && g.resultUrl ? (
-                g.kind === "video" ? (
+                g.kind === "video" || g.kind === "motion" ? (
                   <video src={g.resultUrl} muted className="h-full w-full object-cover" />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -518,14 +805,21 @@ function LibraryGrid() {
                   <StatusBadge status={g.status} />
                 </div>
               )}
-              {g.kind === "video" && (
+              {(g.kind === "video" || g.kind === "motion") && (
                 <span className="absolute right-1.5 top-1.5 rounded-md bg-black/60 p-1 text-white">
-                  <Clapperboard className="size-3.5" />
+                  {g.kind === "motion" ? (
+                    <PersonStanding className="size-3.5" />
+                  ) : (
+                    <Clapperboard className="size-3.5" />
+                  )}
                 </span>
               )}
             </div>
             <p className="mt-1.5 truncate text-xs">{g.prompt}</p>
             <p className="truncate text-[11px] text-muted-foreground">
+              {g.provider === "higgsfield" && (
+                <span className="mr-1 rounded bg-primary/15 px-1 text-[10px] text-primary">Studio</span>
+              )}
               {g.costCredits} cr · {new Date(g._creationTime).toLocaleDateString()}
             </p>
           </button>
@@ -546,7 +840,7 @@ function LibraryGrid() {
 
           <div className="min-h-0 flex-1 overflow-y-auto">
             {open?.status === "done" && open.resultUrl ? (
-              open.kind === "video" ? (
+              open.kind === "video" || open.kind === "motion" ? (
                 <video
                   src={open.resultUrl}
                   controls
@@ -639,21 +933,37 @@ function LibraryGrid() {
 }
 
 export function CreateClient() {
+  const [tab, setTab] = useState("hub");
   return (
-    <Tabs defaultValue="image">
+    <Tabs value={tab} onValueChange={setTab}>
       <TabsList className="mb-4">
+        <TabsTrigger value="hub" className="gap-1.5">
+          <Bot className="size-4" /> AI Hub
+        </TabsTrigger>
         <TabsTrigger value="image" className="gap-1.5">
           <ImageIcon className="size-4" /> Image
         </TabsTrigger>
         <TabsTrigger value="video" className="gap-1.5">
           <Clapperboard className="size-4" /> Video
         </TabsTrigger>
+        <TabsTrigger value="motion" className="gap-1.5">
+          <PersonStanding className="size-4" /> Motion
+        </TabsTrigger>
+        <TabsTrigger value="studio" className="gap-1.5">
+          <Film className="size-4" /> Studio
+        </TabsTrigger>
         <TabsTrigger value="library" className="gap-1.5">
           <Library className="size-4" /> Library
         </TabsTrigger>
       </TabsList>
+      {/* Kept mounted so in-flight hub renders keep their cards while you peek at other tabs. */}
+      <TabsContent value="hub" forceMount className="data-[state=inactive]:hidden">
+        <HubTab onOpenLibrary={() => setTab("library")} />
+      </TabsContent>
       <TabsContent value="image"><ImageStudio /></TabsContent>
       <TabsContent value="video"><VideoStudio /></TabsContent>
+      <TabsContent value="motion"><MotionStudio /></TabsContent>
+      <TabsContent value="studio"><StudioTab /></TabsContent>
       <TabsContent value="library"><LibraryGrid /></TabsContent>
     </Tabs>
   );

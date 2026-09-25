@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { CloneVoiceCard } from "@/components/voice/clone-voice-card";
 import { invalidateVoicesCache } from "@/components/voice/voice-picker";
@@ -27,9 +28,18 @@ type Voice = {
   description: string | null;
   curated: boolean;
   owned: boolean;
+  provider: "bland" | "elevenlabs";
 };
 
 const CLONE_SLOTS = 10;
+
+const ENGINE_BADGES = {
+  bland: { label: "Bland", className: "bg-sky-500/15 text-sky-400" },
+  elevenlabs: {
+    label: "ElevenLabs",
+    className: "bg-violet-500/15 text-violet-300",
+  },
+} as const;
 
 export function VoicesTab() {
   const listVoices = useAction(api.voiceActions.listVoices);
@@ -42,10 +52,12 @@ export function VoicesTab() {
   const [deleteTarget, setDeleteTarget] = useState<Voice | null>(null);
   const [deleting, setDeleting] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Keyed by voice + line, so each clone renders a given sentence once.
   const sampleCache = useRef(new Map<string, string>());
+  const [testLine, setTestLine] = useState("");
 
   const refresh = useCallback(() => {
-    listVoices({})
+    listVoices({ includeElevenLabs: true })
       .then(setVoices)
       .catch(() => setVoices([]));
   }, [listVoices]);
@@ -66,13 +78,19 @@ export function VoicesTab() {
       return;
     }
     stopPlayback();
-    let sample = sampleCache.current.get(voice.id);
+    // The test line only applies to your clones — the comparison at hand.
+    const line = voice.owned ? testLine.trim() : "";
+    const cacheKey = `${voice.id}|${line}`;
+    let sample = sampleCache.current.get(cacheKey);
     if (!sample) {
       setLoadingId(voice.id);
       try {
-        const { audioBase64 } = await voicePreview({ voiceId: voice.id });
-        sample = audioBase64;
-        sampleCache.current.set(voice.id, sample);
+        const { audioBase64, mime } = await voicePreview({
+          voiceId: voice.id,
+          text: line || undefined,
+        });
+        sample = `data:${mime};base64,${audioBase64}`;
+        sampleCache.current.set(cacheKey, sample);
       } catch {
         toast.error("Couldn't load a preview for this voice.");
         return;
@@ -80,7 +98,7 @@ export function VoicesTab() {
         setLoadingId(null);
       }
     }
-    const audio = new Audio(`data:audio/wav;base64,${sample}`);
+    const audio = new Audio(sample);
     audioRef.current = audio;
     setPlayingId(voice.id);
     audio.onended = () => setPlayingId(null);
@@ -94,7 +112,7 @@ export function VoicesTab() {
     try {
       await deleteClonedVoice({ voiceId: deleteTarget.id });
       invalidateVoicesCache();
-      sampleCache.current.delete(deleteTarget.id);
+      sampleCache.current.clear();
       toast.success(`"${deleteTarget.name.trim()}" deleted — slot freed.`);
       setDeleteTarget(null);
       refresh();
@@ -115,7 +133,16 @@ export function VoicesTab() {
       className="flex items-center justify-between gap-3 px-5 py-3.5"
     >
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium">{voice.name.trim()}</p>
+        <p className="flex items-center gap-2 text-sm font-medium">
+          <span className="truncate">{voice.name.trim()}</span>
+          {voice.owned && (
+            <span
+              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none ${ENGINE_BADGES[voice.provider].className}`}
+            >
+              {ENGINE_BADGES[voice.provider].label}
+            </span>
+          )}
+        </p>
         {voice.description && (
           <p className="truncate text-xs text-muted-foreground">
             {voice.description}
@@ -182,6 +209,19 @@ export function VoicesTab() {
       ) : (
         <Card>
           <CardContent className="divide-y divide-border p-0">
+            <div className="space-y-1.5 px-5 py-3.5">
+              <Input
+                value={testLine}
+                maxLength={300}
+                onChange={(e) => setTestLine(e.target.value)}
+                placeholder="Test line — type a sentence, then press play on each clone"
+                aria-label="Test line for your cloned voices"
+              />
+              <p className="text-xs text-muted-foreground">
+                Every clone says the same words, so you can judge Bland against
+                ElevenLabs fairly. Left empty, they read a stock greeting.
+              </p>
+            </div>
             {owned.map((voice) => voiceRow(voice, true))}
           </CardContent>
         </Card>

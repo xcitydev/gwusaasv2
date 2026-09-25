@@ -68,6 +68,12 @@ const CONFIG_META: {
     kind: "number",
   },
   {
+    key: "noteTakerCreditsPerMinute",
+    label: "Note-taker credits per minute",
+    help: "AI Note Taker meetings, billed per recorded minute.",
+    kind: "number",
+  },
+  {
     key: "leadCreditCostMaps",
     label: "Credits per Google Maps lead",
     help: "Charged when importing local-business leads.",

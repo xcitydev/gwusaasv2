@@ -5,7 +5,9 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Doc, Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
-import { Coins, Lock, LockOpen, MoreHorizontal, Search } from "lucide-react";
+import { Coins, KeyRound, Lock, LockOpen, MoreHorizontal, Search } from "lucide-react";
+import { InviteCodesCard } from "@/components/admin/invite-codes";
+import { Badge } from "@/components/ui/badge";
 import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -52,6 +54,8 @@ type AdminUserRow = {
   name?: string;
   status: Doc<"users">["status"];
   adminRole?: Doc<"users">["adminRole"];
+  formsAccess: boolean;
+  formsAccessSource?: Doc<"users">["formsAccessSource"];
   plan: string;
   credits: number;
   workspaceId?: Id<"workspaces">;
@@ -62,6 +66,18 @@ function UsersTable() {
   const users = useQuery(api.admin.listUsers, { search }) ?? [];
   const setUserStatus = useMutation(api.admin.setUserStatus);
   const adjustCredits = useMutation(api.admin.adjustCredits);
+  const setFormsAccess = useMutation(api.inviteCodes.adminSetFormsAccess);
+
+  const toggleForms = async (u: AdminUserRow) => {
+    try {
+      await setFormsAccess({ userId: u._id, hasAccess: !u.formsAccess });
+      toast.success(
+        u.formsAccess ? "Forms access revoked." : "Forms access granted.",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Action failed.");
+    }
+  };
 
   const [lockTarget, setLockTarget] = useState<AdminUserRow | null>(null);
   const [creditTarget, setCreditTarget] = useState<AdminUserRow | null>(null);
@@ -121,6 +137,7 @@ function UsersTable() {
                 <TableHead>User</TableHead>
                 <TableHead>Plan</TableHead>
                 <TableHead>Credits</TableHead>
+                <TableHead>Forms</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Joined</TableHead>
                 <TableHead className="w-10" />
@@ -129,7 +146,7 @@ function UsersTable() {
             <TableBody>
               {users.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                     No users yet.
                   </TableCell>
                 </TableRow>
@@ -150,6 +167,19 @@ function UsersTable() {
                   </TableCell>
                   <TableCell>{u.credits.toLocaleString()}</TableCell>
                   <TableCell>
+                    {u.formsAccess ? (
+                      <Badge variant="outline" className="border-primary/40 text-primary">
+                        {u.adminRole
+                          ? "admin"
+                          : u.formsAccessSource === "invite"
+                            ? "invited"
+                            : "granted"}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <StatusBadge status={u.status} />
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
@@ -166,6 +196,12 @@ function UsersTable() {
                         <DropdownMenuItem onClick={() => setCreditTarget(u)}>
                           <Coins className="size-4" /> Adjust credits
                         </DropdownMenuItem>
+                        {!u.adminRole && (
+                          <DropdownMenuItem onClick={() => toggleForms(u)}>
+                            <KeyRound className="size-4" />
+                            {u.formsAccess ? "Revoke forms access" : "Grant forms access"}
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem
                           variant={u.status === "locked" ? "default" : "destructive"}
                           onClick={() => setLockTarget(u)}
@@ -248,7 +284,11 @@ function UsersTable() {
 export default function AdminUsersPage() {
   return (
     <LivePage>
-      <PageHeader title="Users" description="Every account on the platform." />
+      <PageHeader
+        title="Users"
+        description="Every account on the platform. Invite codes unlock the GWU Onboarding Forms."
+      />
+      <InviteCodesCard />
       <UsersTable />
     </LivePage>
   );

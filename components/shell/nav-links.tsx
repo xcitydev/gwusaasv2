@@ -18,10 +18,12 @@ export function NavLinks({
   return (
     <nav className="flex flex-col gap-5">
       {sections.map(({ section, items }) => (
-        <div key={section}>
-          <p className="mb-1.5 px-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">
-            {section}
-          </p>
+        <div key={section || items[0]?.href}>
+          {section && (
+            <p className="mb-1.5 px-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">
+              {section}
+            </p>
+          )}
           <div className="flex flex-col gap-0.5">
             {items.map((item) => {
               const active =
@@ -35,14 +37,27 @@ export function NavLinks({
                     href={item.href}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                      "flex items-center gap-3 rounded-lg px-3 text-sm transition-colors",
+                      item.description ? "py-1.5" : "py-2",
                       active
                         ? "bg-primary/10 font-medium text-primary"
                         : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                     )}
                   >
                     <item.icon className="size-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
+                    <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                      <span className="truncate">{item.label}</span>
+                      {item.description && (
+                        <span
+                          className={cn(
+                            "whitespace-normal text-[11px] font-normal leading-snug",
+                            active ? "text-primary/70" : "text-muted-foreground/70",
+                          )}
+                        >
+                          {item.description}
+                        </span>
+                      )}
+                    </span>
                     {item.badge && (
                       <Badge
                         variant="outline"

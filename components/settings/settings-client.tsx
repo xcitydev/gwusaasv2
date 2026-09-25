@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
+import { InviteCodeCard } from "@/components/forms/forms-gate";
 import { PricingTable, UserProfile } from "@clerk/nextjs";
 import { toast } from "sonner";
 import {
@@ -42,8 +43,8 @@ const PLANS = [
   {
     id: "free",
     label: "Free",
-    blurb: "Access to service request forms.",
-    features: ["All 6 service forms", "Support tickets"],
+    blurb: "Explore the platform. Onboarding forms unlock with an invite code.",
+    features: ["Onboarding forms (with an invite code)", "Support tickets"],
   },
   {
     id: "personal",
@@ -52,7 +53,7 @@ const PLANS = [
     features: [
       "Everything in Free",
       "Cold email engine",
-      "Find Customers + AI search",
+      "Find Leads + AI search",
       "Create with AI & AI tools",
       "AI receptionist & qualifier",
       "10,000 credits included",
@@ -88,7 +89,9 @@ function AccountTab() {
     );
   }
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-card">
+    <div className="space-y-6">
+      <InviteCodeCard />
+      <div className="overflow-x-auto rounded-xl border border-border bg-card">
       <UserProfile
         routing="hash"
         appearance={{
@@ -130,6 +133,7 @@ function AccountTab() {
           },
         }}
       />
+      </div>
     </div>
   );
 }

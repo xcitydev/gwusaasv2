@@ -1,19 +1,14 @@
-import { Suspense } from "react";
-import { LivePage } from "@/components/live-page";
-import { PageHeader } from "@/components/page-header";
-import { ToolsClient } from "@/components/tools/tools-client";
+import { redirect } from "next/navigation";
 
-export default function ToolsPage() {
-  return (
-    <LivePage>
-      <PageHeader
-        title="AI Tools"
-        description="Audit how AI and Google see your business, find competitors, and transcribe any audio — results saved forever."
-      />
-      {/* Suspense: ToolsClient reads useSearchParams for the active tab. */}
-      <Suspense fallback={null}>
-        <ToolsClient />
-      </Suspense>
-    </LivePage>
-  );
+// The tools each have their own route now; old links and bookmarks land on
+// the first one. Legacy ?tab= deep links map to their new homes.
+export default async function ToolsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab } = await searchParams;
+  if (tab === "carousel") redirect("/carousels");
+  if (tab === "transcribe") redirect("/audio-to-text");
+  redirect("/get-found");
 }

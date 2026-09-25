@@ -89,11 +89,23 @@ async function request<T>(
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(opts.body);
   }
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: opts.method ?? "GET",
-    headers,
-    body,
-  });
+  // One retry on rate limits, server errors and dropped connections — the
+  // deep sync issues hundreds of sequential calls and a single blip must
+  // not abort a whole chunk.
+  const attempt = () =>
+    fetch(`${API_BASE}${path}`, { method: opts.method ?? "GET", headers, body });
+  let res: Response;
+  try {
+    res = await attempt();
+  } catch (error) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    res = await attempt();
+    void error;
+  }
+  if (res.status === 429 || res.status >= 500) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    res = await attempt();
+  }
   const text = await res.text();
   if (!res.ok) {
     throw new Error(`GHL ${res.status} ${path}: ${text.slice(0, 300)}`);

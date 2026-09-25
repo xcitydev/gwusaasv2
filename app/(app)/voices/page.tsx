@@ -6,8 +6,8 @@ export default function VoicesPage() {
   return (
     <LivePage>
       <PageHeader
-        title="Voice Clones"
-        description="Clone your voice from 15 seconds of talking — then your receptionist and qualifier answer calls sounding like you."
+        title="Clone Your Voice"
+        description="Use it across the AI Receptionist, Lead Qualifier, IG DMs and AI Cold Calling — clone it once, then set it up to run on auto."
       />
       <VoicesTab />
     </LivePage>

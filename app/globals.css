@@ -122,3 +122,16 @@
 .cl-userProfile-root .cl-internal-b3fm6y {
   display: none !important;
 }
+
+/* Landing page: seamless marquee (content is rendered twice; scroll half). */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+@utility animate-marquee {
+  animation: marquee 40s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee { animation: none; }
+}
+html { scroll-behavior: smooth; }

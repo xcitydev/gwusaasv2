@@ -504,7 +504,7 @@ function CampaignEditor({
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
                 Just an email, or name and email separated by a comma — order
-                doesn&apos;t matter. They&apos;re saved to Find Customers too.
+                doesn&apos;t matter. They&apos;re saved to Find Leads too.
               </p>
             </div>
           </div>
@@ -527,7 +527,7 @@ function CampaignEditor({
             <AlertDialogTitle>Delete {campaign.name}?</AlertDialogTitle>
             <AlertDialogDescription>
               The sequence and lead assignments are removed. Your leads stay in
-              Find Customers. This can&apos;t be undone.
+              Find Leads. This can&apos;t be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
