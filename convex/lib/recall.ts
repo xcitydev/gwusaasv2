@@ -101,7 +101,15 @@ export function botBehavior(opts: {
   retentionHours: number;
   /** Hard cap on recording length — bounds per-meeting cost. */
   maxRecordingSec: number;
+  /**
+   * Agenda Coach: stream transcript segments to this URL during the call
+   * (switches Recall's engine to its low-latency mode). Null = off.
+   */
+  realtimeWebhookUrl?: string | null;
+  /** Agenda Coach: show this public page as the bot's camera. Null = off. */
+  outputMediaUrl?: string | null;
 }): Record<string, unknown> {
+  const live = Boolean(opts.realtimeWebhookUrl);
   return {
     bot_name: opts.botName.slice(0, 100),
     metadata: opts.metadata,
@@ -109,16 +117,31 @@ export function botBehavior(opts: {
       transcript: {
         provider: {
           // Accuracy mode: transcript lands a few minutes after the call,
-          // any language, with Recall's own engine ($0.15/h).
+          // any language, with Recall's own engine ($0.15/h). Live coaching
+          // needs words within seconds, so it uses the low-latency mode.
           recallai_streaming: {
-            mode: "prioritize_accuracy",
-            language_code: "auto",
+            mode: live ? "prioritize_low_latency" : "prioritize_accuracy",
+            language_code: live ? "en" : "auto",
           },
         },
         diarization: { use_separate_streams_when_available: true },
       },
       retention: { type: "timed", hours: Math.max(1, opts.retentionHours) },
+      ...(live && {
+        realtime_endpoints: [
+          {
+            type: "webhook",
+            url: opts.realtimeWebhookUrl,
+            events: ["transcript.data"],
+          },
+        ],
+      }),
     },
+    ...(opts.outputMediaUrl && {
+      output_media: {
+        camera: { kind: "webpage", config: { url: opts.outputMediaUrl } },
+      },
+    }),
     // Leave on our terms, not Recall's hour-long defaults: nobody shows,
     // everyone left, a dead-silent room, or the credit-bounded max length.
     automatic_leave: {
@@ -165,6 +188,36 @@ export async function leaveCall(botId: string): Promise<void> {
 export async function deleteScheduledBot(botId: string): Promise<void> {
   await request(`/api/v1/bot/${encodeURIComponent(botId)}/`, {
     method: "DELETE",
+  });
+}
+
+/**
+ * Post a message into the meeting chat as the bot. Zoom / Teams allow
+ * 4,096 characters, Google Meet 500; Webex and GoTo have no bot chat.
+ */
+export async function sendChatMessage(
+  botId: string,
+  message: string,
+  to: "everyone" | "host" = "everyone",
+): Promise<void> {
+  await request(`/api/v1/bot/${encodeURIComponent(botId)}/send_chat_message/`, {
+    method: "POST",
+    body: { to, message: message.slice(0, 500) },
+  });
+}
+
+/** Start showing a public web page as the bot's camera on a live bot. */
+export async function startOutputMedia(botId: string, url: string): Promise<void> {
+  await request(`/api/v1/bot/${encodeURIComponent(botId)}/output_media/`, {
+    method: "POST",
+    body: { camera: { kind: "webpage", config: { url } } },
+  });
+}
+
+export async function stopOutputMedia(botId: string): Promise<void> {
+  await request(`/api/v1/bot/${encodeURIComponent(botId)}/output_media/`, {
+    method: "DELETE",
+    body: { camera: true },
   });
 }
 

@@ -42,7 +42,7 @@ export function ReferralsClient() {
             </p>
             <div className="mt-5 flex gap-2">
               <Input readOnly value={link} className="font-mono text-xs" />
-              <Button onClick={copy}>
+              <Button onClick={copy} data-tour="referrals-copy">
                 <Copy className="size-4" /> Copy
               </Button>
             </div>

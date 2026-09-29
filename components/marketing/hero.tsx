@@ -27,7 +27,7 @@ export function Hero() {
             aria-hidden
             className="pointer-events-none absolute inset-0 rounded-[2rem] sm:rounded-[2.75rem] bg-[radial-gradient(110%_70%_at_50%_-10%,rgba(255,255,255,0.08),transparent_60%)]"
           />
-          <div className="relative aspect-[16/10] overflow-hidden rounded-[1.4rem] bg-black sm:aspect-[2.3/1] sm:rounded-[2rem]">
+          <div className="relative aspect-[4/5] overflow-hidden rounded-[1.4rem] bg-black sm:aspect-[2.3/1] sm:rounded-[2rem]">
             <video
               className="absolute inset-0 h-full w-full object-cover"
               src="/hero.mp4"
@@ -58,7 +58,7 @@ export function Hero() {
                 animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
                 transition={{ duration: 1.1, delay: 0.25, ease: EASE }}
                 className="font-black uppercase leading-[0.9] tracking-[-0.04em] drop-shadow-[0_18px_40px_rgba(0,0,0,0.7)]"
-                style={{ fontSize: "clamp(2.6rem, 9.5vw, 8.5rem)" }}
+                style={{ fontSize: "clamp(2.4rem, 9.5vw, 8.5rem)" }}
               >
                 <span className="bg-gradient-to-b from-[#fff4c2] via-primary to-[#8a6905] bg-clip-text text-transparent">
                   Grow With Us
@@ -68,7 +68,7 @@ export function Hero() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.7, delay: 0.7, ease: EASE }}
-                className="mt-4 rounded-full border border-white/25 bg-black/35 px-5 py-2 text-xs font-medium uppercase tracking-[0.2em] text-white/90 backdrop-blur-md sm:mt-5 sm:text-sm"
+                className="mt-4 whitespace-nowrap rounded-full border border-white/25 bg-black/35 px-3 py-2 text-[9px] font-medium uppercase tracking-[0.08em] text-white/90 backdrop-blur-md sm:mt-5 sm:px-5 sm:text-sm sm:tracking-[0.2em]"
               >
                 Your whole growth team · run by AI
               </motion.span>
@@ -76,12 +76,12 @@ export function Hero() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.7, delay: 0.9, ease: EASE }}
-                className="mt-8 sm:mt-10"
+                className="mt-6 sm:mt-10"
               >
                 <Button
                   asChild
                   size="lg"
-                  className="h-13 rounded-xl px-10 text-lg font-bold shadow-[0_0_50px_-8px_oklch(0.86_0.17_93/0.8)] transition-transform hover:scale-[1.03]"
+                  className="h-12 rounded-xl px-8 text-base font-bold shadow-[0_0_50px_-8px_oklch(0.86_0.17_93/0.8)] transition-transform hover:scale-[1.03] sm:h-13 sm:px-10 sm:text-lg"
                 >
                   <Link href="/sign-up">Try now</Link>
                 </Button>

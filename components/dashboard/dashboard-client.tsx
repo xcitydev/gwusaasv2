@@ -18,6 +18,8 @@ import {
   TileVideo,
 } from "@/components/marketing/primitives";
 import { LiveStats } from "@/components/dashboard/live-stats";
+import { TourLauncher } from "@/components/tour/tour";
+import { WELCOME_TOUR } from "@/components/tour/tours";
 
 /** Section accents so the shortcut wall reads as a map, not a list. */
 const SECTION_STYLE: Record<string, { blob: string; label: string }> = {
@@ -58,22 +60,29 @@ export function DashboardClient() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: EASE }}
+        className="flex flex-wrap items-start justify-between gap-3"
       >
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          {greeting()}
-          {firstName ? `, ${firstName}` : ""}.
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Everything happening across your workspace, at a glance.
-        </p>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            {greeting()}
+            {firstName ? `, ${firstName}` : ""}.
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Everything happening across your workspace, at a glance.
+          </p>
+        </div>
+        {isConfigured && <TourLauncher tour={WELCOME_TOUR} />}
       </motion.div>
 
-      <LiveStats />
+      <div data-tour="dash-stats">
+        <LiveStats />
+      </div>
 
       {/* AI Hub banner */}
       <Reveal>
         <Link
           href="/create"
+          data-tour="dash-aihub"
           className="group relative block overflow-hidden rounded-3xl border border-primary/25 bg-black shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)] transition-colors hover:border-primary/60"
         >
           <div className="absolute inset-0">
@@ -88,7 +97,7 @@ export function DashboardClient() {
           <div className="relative flex min-h-[300px] flex-col justify-between gap-8 p-6 sm:min-h-[340px] sm:p-10">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <Eyebrow>
-                <Bot className="size-3.5" /> Your AI Hub
+                <Bot className="size-3.5" /> Create with AI
               </Eyebrow>
               <div className="hidden flex-wrap justify-end gap-1.5 sm:flex">
                 {HERO_MODELS.map((m) => (
@@ -120,7 +129,7 @@ export function DashboardClient() {
       </Reveal>
 
       {/* Shortcut wall */}
-      <section>
+      <section data-tour="dash-shortcuts">
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Everything in your workspace</h2>

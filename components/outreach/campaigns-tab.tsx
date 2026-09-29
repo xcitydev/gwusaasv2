@@ -73,7 +73,7 @@ export function CampaignsTab() {
           {campaigns.filter((c) => c.status === "active").length} active ·{" "}
           {campaigns.length} total
         </p>
-        <Button onClick={() => setWizardOpen(true)}>
+        <Button onClick={() => setWizardOpen(true)} data-tour="outreach-new-campaign">
           <Plus className="size-4" /> New campaign
         </Button>
       </div>

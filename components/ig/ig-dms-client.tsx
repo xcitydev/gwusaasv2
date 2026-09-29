@@ -110,7 +110,7 @@ function EnableHero() {
           Every DM to your Instagram lands in this inbox — reply yourself or
           let AI draft answers in your brand voice. Setup takes two minutes.
         </p>
-        <Button className="mt-1" onClick={doEnable} disabled={enabling}>
+        <Button className="mt-1" onClick={doEnable} disabled={enabling} data-tour="igdms-enable">
           {enabling && <Loader2 className="size-4 animate-spin" />} Enable
           Instagram DMs
         </Button>

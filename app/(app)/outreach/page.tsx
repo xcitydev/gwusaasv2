@@ -10,39 +10,50 @@ import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TourLauncher } from "@/components/tour/tour";
+import { OUTREACH_TOUR } from "@/components/tour/tours";
 import { InboxesTab } from "@/components/outreach/inboxes-tab";
 import { CampaignsTab } from "@/components/outreach/campaigns-tab";
 import { MasterInboxTab } from "@/components/outreach/master-inbox-tab";
 import { AnalyticsTab } from "@/components/outreach/analytics-tab";
 import { SettingsTab } from "@/components/outreach/settings-tab";
 
-export default function OutreachPage() {
+const OUTREACH_TABS = ["inboxes", "campaigns", "master-inbox", "analytics", "settings"] as const;
+
+/** Deep links like /outreach?tab=campaigns open on that tab (dashboard stats use them). */
+export default async function OutreachPage({ searchParams }: PageProps<"/outreach">) {
+  const { tab } = await searchParams;
+  const initialTab =
+    typeof tab === "string" && (OUTREACH_TABS as readonly string[]).includes(tab) ? tab : "inboxes";
   return (
     <LivePage>
       <PageHeader
         title="Outreach"
         description="Cold email engine — inboxes, campaigns, unified replies and analytics."
         actions={
-          <Badge variant="outline" className="border-primary/40 text-primary">
-            <MessageSquareText className="size-3" /> SMS — Coming soon
-          </Badge>
+          <>
+            <Badge variant="outline" className="border-primary/40 text-primary">
+              <MessageSquareText className="size-3" /> SMS — Coming soon
+            </Badge>
+            <TourLauncher tour={OUTREACH_TOUR} />
+          </>
         }
       />
-      <Tabs defaultValue="inboxes">
+      <Tabs defaultValue={initialTab}>
         <TabsList className="mb-4 w-full justify-start overflow-x-auto scrollbar-none">
           <TabsTrigger value="inboxes" className="gap-1.5">
             <Inbox className="size-4" /> Inboxes
           </TabsTrigger>
-          <TabsTrigger value="campaigns" className="gap-1.5">
+          <TabsTrigger value="campaigns" className="gap-1.5" data-tour="outreach-tab-campaigns">
             <Megaphone className="size-4" /> Campaigns
           </TabsTrigger>
-          <TabsTrigger value="master-inbox" className="gap-1.5">
+          <TabsTrigger value="master-inbox" className="gap-1.5" data-tour="outreach-tab-master-inbox">
             <MailOpen className="size-4" /> Master Inbox
           </TabsTrigger>
-          <TabsTrigger value="analytics" className="gap-1.5">
+          <TabsTrigger value="analytics" className="gap-1.5" data-tour="outreach-tab-analytics">
             <BarChart3 className="size-4" /> Analytics
           </TabsTrigger>
-          <TabsTrigger value="settings" className="gap-1.5">
+          <TabsTrigger value="settings" className="gap-1.5" data-tour="outreach-tab-settings">
             <Settings2 className="size-4" /> Settings
           </TabsTrigger>
         </TabsList>

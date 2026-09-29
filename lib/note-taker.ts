@@ -72,6 +72,21 @@ export function detectPlatform(url: string): MeetingPlatform | null {
   return null;
 }
 
+/**
+ * True for a Zoom join link with no embedded passcode (?pwd=…). Most Zoom
+ * meetings require one, and the bot can only supply it through the link —
+ * a bare /j/<id> link gets the bot turned away at the door.
+ */
+export function zoomLinkMissingPasscode(url: string): boolean {
+  if (detectPlatform(url) !== "zoom") return false;
+  try {
+    const parsed = new URL(url.trim());
+    return /^\/j\//.test(parsed.pathname) && !parsed.searchParams.get("pwd");
+  } catch {
+    return false;
+  }
+}
+
 /** 75 → "1:15", 3725 → "1:02:05". */
 export function formatClock(totalSec: number): string {
   const sec = Math.max(0, Math.floor(totalSec));
@@ -90,6 +105,46 @@ export function formatDuration(totalSec: number): string {
   const m = Math.round((sec % 3600) / 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
+
+// ── Agenda Coach ────────────────────────────────────────────────────────
+
+export type AgendaItem = { title: string; minutes: number };
+
+export type CoachTalk = { name: string; sec: number; share: number };
+
+/** The live verdict the coach keeps on the meeting row. */
+export type CoachState = {
+  currentItem: number | null;
+  itemLog: { index: number; startedSec: number; endedSec: number | null }[];
+  elapsedSec: number;
+  topic: string | null;
+  offTopic: boolean;
+  suggestion: string | null;
+  nudge: string | null;
+  nudgeKind: "overrun" | "drift" | "balance" | "next" | null;
+  talk: CoachTalk[];
+  updatedAt: number;
+  lastChatNudgeAt: number | null;
+  lastBalanceNudgeAt: number | null;
+  overrunNotifiedPct: number;
+  tickScheduled: boolean;
+  ticks: number;
+  tileOn: boolean;
+};
+
+/** Platforms where Recall bots can post chat / show a camera feed. */
+export const COACH_CHAT_PLATFORMS = ["zoom", "google_meet", "microsoft_teams", "slack"];
+export const COACH_TILE_PLATFORMS = ["zoom", "google_meet", "microsoft_teams", "webex"];
+
+export type TaskRoutingResult = {
+  provider: "trello" | "asana" | "webhook";
+  ok: boolean;
+  created: number;
+  error?: string;
+  links: { task: string; url: string | null }[];
+};
+
+export type TaskRouting = { at: number; results: TaskRoutingResult[] };
 
 /** What the AI pass produces for every meeting. */
 export type MeetingNotes = {

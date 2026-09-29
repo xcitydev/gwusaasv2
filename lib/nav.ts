@@ -60,7 +60,7 @@ export const APP_NAV: { section: string; items: NavItem[] }[] = [
         label: "Outreach",
         href: "/outreach",
         icon: Send,
-        description: "Cold email campaigns and replies",
+        description: "Email campaigns & unified replies",
       },
       {
         label: "Scrape Leads",
@@ -90,7 +90,6 @@ export const APP_NAV: { section: string; items: NavItem[] }[] = [
         label: "IG DMs & AI Voice",
         href: "/ig-dms",
         icon: MessageCircle,
-        badge: "New",
         description: "Manage messages, Automations and Send AI Voice DM's",
       },
     ],
@@ -102,7 +101,6 @@ export const APP_NAV: { section: string; items: NavItem[] }[] = [
         label: "AI Note Taker",
         href: "/note-taker",
         icon: NotebookPen,
-        badge: "New",
         description:
           "Automatically records, transcribes, and summarizes conversations across Zoom, Google Meet, Microsoft Teams",
       },

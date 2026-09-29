@@ -93,12 +93,14 @@ const fadeUp = {
 function MotionCard({
   className,
   children,
+  "data-tour": dataTour,
 }: {
   className?: string;
   children: ReactNode;
+  "data-tour"?: string;
 }) {
   return (
-    <motion.div variants={fadeUp} className={className}>
+    <motion.div variants={fadeUp} className={className} data-tour={dataTour}>
       <Card className="h-full">{children}</Card>
     </motion.div>
   );
@@ -526,7 +528,7 @@ function ReceptionistEditor({
         initial="initial"
         animate="animate"
       >
-        <MotionCard className="lg:col-span-3">
+        <MotionCard className="lg:col-span-3" data-tour="receptionist-setup">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <PhoneCall className="size-4 text-primary" /> Receptionist setup
@@ -587,7 +589,7 @@ function ReceptionistEditor({
         </MotionCard>
 
         <div className="space-y-4 sm:space-y-6 lg:col-span-2">
-          <MotionCard>
+          <MotionCard data-tour="receptionist-test">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Headphones className="size-4 text-primary" /> Test in browser
@@ -651,7 +653,7 @@ function ReceptionistEditor({
             </CardContent>
           </MotionCard>
 
-          <MotionCard>
+          <MotionCard data-tour="receptionist-bookings">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <CalendarCheck className="size-4 text-primary" /> Auto-schedule bookings
@@ -738,7 +740,7 @@ function ReceptionistEditor({
               <CardTitle className="flex items-center gap-2 text-base">
                 <Phone className="size-4 text-primary" /> Phone numbers
               </CardTitle>
-              <Button size="sm" onClick={openBuy}>Buy number</Button>
+              <Button size="sm" onClick={openBuy} data-tour="receptionist-buy-number">Buy number</Button>
             </CardHeader>
             <CardContent>
               {numbers.length === 0 ? (

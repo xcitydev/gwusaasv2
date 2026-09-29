@@ -937,10 +937,10 @@ export function CreateClient() {
   return (
     <Tabs value={tab} onValueChange={setTab}>
       <TabsList className="mb-4">
-        <TabsTrigger value="hub" className="gap-1.5">
+        <TabsTrigger value="hub" className="gap-1.5" data-tour="create-tab-hub">
           <Bot className="size-4" /> AI Hub
         </TabsTrigger>
-        <TabsTrigger value="image" className="gap-1.5">
+        <TabsTrigger value="image" className="gap-1.5" data-tour="create-tab-image">
           <ImageIcon className="size-4" /> Image
         </TabsTrigger>
         <TabsTrigger value="video" className="gap-1.5">
@@ -952,7 +952,7 @@ export function CreateClient() {
         <TabsTrigger value="studio" className="gap-1.5">
           <Film className="size-4" /> Studio
         </TabsTrigger>
-        <TabsTrigger value="library" className="gap-1.5">
+        <TabsTrigger value="library" className="gap-1.5" data-tour="create-tab-library">
           <Library className="size-4" /> Library
         </TabsTrigger>
       </TabsList>

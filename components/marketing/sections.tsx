@@ -6,12 +6,14 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowRight,
   AudioWaveform,
+  CalendarCheck,
   Check,
   ChevronDown,
   MessageCircle,
   NotebookPen,
   PhoneCall,
   PhoneOutgoing,
+  Search,
   Send,
   Sparkles,
   Users,
@@ -119,6 +121,138 @@ function TriageVisual() {
   );
 }
 
+function Bars({ count = 24, className }: { count?: number; className?: string }) {
+  return (
+    <div className={cn("flex items-end gap-[3px]", className)}>
+      {Array.from({ length: count }).map((_, i) => (
+        <motion.span
+          key={i}
+          className="flex-1 rounded-full bg-primary/60"
+          animate={{ height: ["25%", `${35 + ((i * 47) % 60)}%`, "25%"] }}
+          transition={{ duration: 1.1 + (i % 5) * 0.14, repeat: Infinity, ease: "easeInOut", delay: (i % 7) * 0.07 }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function LeadsVisual() {
+  return (
+    <div className="mt-5 space-y-2">
+      <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
+        <Search className="size-3.5 shrink-0 text-primary" />
+        <span className="truncate text-muted-foreground">“med spas in Miami”</span>
+        <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary">142 found</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {["Google Maps", "LinkedIn", "B2B data", "Emails verified"].map((s) => (
+          <span key={s} className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] text-muted-foreground">
+            {s}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CallVisual() {
+  return (
+    <div className="mt-5 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-2 font-medium">
+          <span className="relative flex size-1.5">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
+          </span>
+          Incoming · 2:14 AM
+        </span>
+        <span className="text-muted-foreground">0:47</span>
+      </div>
+      <Bars count={22} className="mt-2.5 h-6" />
+      <p className="mt-2.5 flex items-center gap-1.5 text-[10px] text-emerald-400">
+        <CalendarCheck className="size-3" /> Booked · Tue 10:30 · invite sent
+      </p>
+    </div>
+  );
+}
+
+const QUALIFIER_ROWS: [string, number, string][] = [
+  ["Sarah · Bloom Clinic", 92, "Hot"],
+  ["Mike · Apex Gym", 64, "Warm"],
+  ["Front desk · no answer", 12, "Skip"],
+];
+
+function QualifierVisual() {
+  return (
+    <div className="mt-5 space-y-2 text-xs">
+      {QUALIFIER_ROWS.map(([who, score, tag]) => (
+        <div key={who} className="flex items-center gap-2.5 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
+          <span className="truncate">{who}</span>
+          <span className="ml-auto h-1 w-12 shrink-0 overflow-hidden rounded-full bg-white/10">
+            <span className="block h-full rounded-full bg-primary" style={{ width: `${score}%` }} />
+          </span>
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2 py-0.5 text-[10px]",
+              tag === "Hot" && "bg-primary/15 text-primary",
+              tag === "Warm" && "bg-white/10 text-foreground/80",
+              tag === "Skip" && "bg-white/5 text-muted-foreground",
+            )}
+          >
+            {tag}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VoiceVisual() {
+  return (
+    <div className="mt-5 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5">
+      <Bars count={26} className="h-8" />
+      <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="size-1.5 animate-pulse rounded-full bg-red-400" /> 0:15
+        </span>
+        <span className="rounded-full bg-primary/15 px-2 py-0.5 text-primary">Your voice · ready</span>
+      </div>
+    </div>
+  );
+}
+
+function NotesVisual() {
+  return (
+    <div className="mt-5 space-y-1.5 text-xs">
+      {[
+        ["Summary & decisions", "written"],
+        ["3 action items", "→ Trello"],
+        ["Follow-up email", "drafted"],
+      ].map(([item, state]) => (
+        <div key={item} className="flex items-center justify-between gap-2 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
+          <span className="flex min-w-0 items-center gap-2">
+            <Check className="size-3 shrink-0 text-primary" />
+            <span className="truncate">{item}</span>
+          </span>
+          <span className="shrink-0 text-[10px] text-muted-foreground">{state}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ToolsVisual() {
+  return (
+    <div className="mt-5 grid grid-cols-2 gap-2 text-[11px]">
+      {["Get found by AI", "IG carousels", "Audio → text", "Competitor scan"].map((t) => (
+        <span key={t} className="rounded-lg border border-white/5 bg-white/[0.03] px-2.5 py-2 text-foreground/80">
+          {t}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function StudioVisual() {
   return (
     <div className="mt-5 grid grid-cols-4 gap-2">
@@ -146,21 +280,25 @@ const FEATURES: Feature[] = [
     icon: Users,
     title: "Find your customers",
     blurb: "Say who you want — “med spas in Miami” — and AI searches Google Maps, LinkedIn and B2B databases. Deduped, with verified emails.",
+    visual: <LeadsVisual />,
   },
   {
     icon: PhoneCall,
     title: "AI Receptionist",
     blurb: "Answers every call, 24/7, books straight onto your calendar, and hands you the transcript and summary.",
+    visual: <CallVisual />,
   },
   {
     icon: PhoneOutgoing,
     title: "Lead Qualifier",
     blurb: "Calls your leads, asks your questions, and tells you exactly who is worth your time.",
+    visual: <QualifierVisual />,
   },
   {
     icon: AudioWaveform,
     title: "Clone Your Voice",
     blurb: "15 seconds of talking. Then every call and voice DM sounds like you — Bland or ElevenLabs, your pick.",
+    visual: <VoiceVisual />,
   },
   {
     icon: MessageCircle,
@@ -173,6 +311,7 @@ const FEATURES: Feature[] = [
     icon: NotebookPen,
     title: "AI Note Taker",
     blurb: "Joins Zoom, Meet and Teams, writes the summary, decisions and action items, then answers questions about the meeting.",
+    visual: <NotesVisual />,
   },
   {
     icon: Sparkles,
@@ -185,6 +324,7 @@ const FEATURES: Feature[] = [
     icon: Wrench,
     title: "AI Tools",
     blurb: "Get found by AI, competitor analysis, audio-to-text, and Instagram carousels designed for you.",
+    visual: <ToolsVisual />,
   },
 ];
 
@@ -510,7 +650,9 @@ export function FinalCta() {
             <span className="font-display font-normal italic text-primary">to AI?</span>
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-pretty text-muted-foreground sm:text-lg">
-            Start on the free plan, clone your voice, and let the first call answer itself.
+            Start on the free plan — cold email, lead finding, calls answered in
+            your cloned voice, Instagram DMs, meeting notes and a full creative
+            studio, all in one workspace.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Button asChild size="lg" className="h-12 rounded-full px-7 text-base">

@@ -184,7 +184,7 @@ export function VoicesTab() {
     <div>
       <CloneVoiceCard onCloned={refresh} />
 
-      <div className="mt-6 mb-2 flex items-center justify-between">
+      <div className="mt-6 mb-2 flex items-center justify-between" data-tour="voices-owned">
         <h2 className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
           Your cloned voices
         </h2>

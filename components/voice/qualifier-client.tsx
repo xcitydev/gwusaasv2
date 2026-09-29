@@ -381,7 +381,7 @@ export function QualifierClient() {
         <p className="text-sm text-muted-foreground">
           {campaigns.length} campaign{campaigns.length === 1 ? "" : "s"}
         </p>
-        <Button onClick={() => setCreateOpen(true)}>
+        <Button onClick={() => setCreateOpen(true)} data-tour="qualifier-new">
           <Plus className="size-4" /> New qualifier
         </Button>
       </div>

@@ -742,6 +742,14 @@ export default defineSchema({
     autoJoin: v.optional(v.union(v.literal("all"), v.literal("manual"))),
     // Secret path token for the Cal.com booking webhook.
     calcomToken: v.optional(v.string()),
+    // Agenda Coach: live drift / timebox nudges during the call.
+    coachEnabled: v.optional(v.boolean()),
+    // Post nudges into the meeting chat (Zoom / Meet / Teams).
+    coachChat: v.optional(v.boolean()),
+    // Show the live coach card as the bot's camera feed.
+    coachTile: v.optional(v.boolean()),
+    // Minimum minutes between two chat nudges.
+    coachNudgeMin: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_calcom_token", ["calcomToken"]),
@@ -816,11 +824,19 @@ export default defineSchema({
     mediaDeleted: v.optional(v.boolean()),
     dispatchAttempts: v.optional(v.number()),
     pollCount: v.optional(v.number()),
+    // Agenda Coach: the plan (items + minute budgets), the secret token the
+    // real-time webhook and the public coach card use, and the live verdict.
+    agenda: v.optional(v.array(v.object({ title: v.string(), minutes: v.number() }))),
+    coachToken: v.optional(v.string()),
+    coachState: v.optional(v.any()),
+    // Action items pushed to Trello / Asana / a webhook after the notes.
+    taskRouting: v.optional(v.any()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_bot", ["recallBotId"])
     .index("by_dedup", ["workspaceId", "dedupKey"])
     .index("by_status", ["status"])
+    .index("by_coach_token", ["coachToken"])
     .searchIndex("search_meta", {
       searchField: "searchText",
       filterFields: ["workspaceId"],
@@ -848,6 +864,50 @@ export default defineSchema({
       filterFields: ["workspaceId"],
     }),
 
+  // Live transcript segments streamed by Recall during the call (the
+  // Agenda Coach reads these; the final transcript still lands in
+  // meetingTranscriptParts after the call).
+  meetingLiveSegments: defineTable({
+    meetingId: v.id("meetings"),
+    workspaceId: v.id("workspaces"),
+    speaker: v.string(),
+    start: v.number(),
+    end: v.number(),
+    text: v.string(),
+  }).index("by_meeting", ["meetingId", "start"]),
+
+  // Every nudge the coach produced, and where it went.
+  coachEvents: defineTable({
+    meetingId: v.id("meetings"),
+    workspaceId: v.id("workspaces"),
+    at: v.number(),
+    kind: v.union(
+      v.literal("overrun"),
+      v.literal("drift"),
+      v.literal("balance"),
+      v.literal("next"),
+      v.literal("manual"),
+      v.literal("tile"),
+    ),
+    message: v.string(),
+    channels: v.array(v.string()),
+  }).index("by_meeting", ["meetingId"]),
+
+  // Task tools connected in Settings → Integrations. Secrets are encrypted.
+  integrations: defineTable({
+    workspaceId: v.id("workspaces"),
+    provider: v.union(v.literal("trello"), v.literal("asana"), v.literal("webhook")),
+    status: v.union(v.literal("connected"), v.literal("error")),
+    label: v.optional(v.string()),
+    secret: v.string(),
+    // Provider target (board/list, workspace/project, url) — never secret.
+    config: v.any(),
+    autoRoute: v.boolean(),
+    connectedBy: v.id("users"),
+    updatedAt: v.number(),
+    lastError: v.optional(v.string()),
+  }).index("by_workspace_provider", ["workspaceId", "provider"]),
+
   // "Ask this meeting" conversation.
   meetingChats: defineTable({
     meetingId: v.id("meetings"),
@@ -856,4 +916,13 @@ export default defineSchema({
     role: v.union(v.literal("user"), v.literal("assistant")),
     content: v.string(),
   }).index("by_meeting", ["meetingId"]),
+
+  // Guided product tours — where each user is in each walkthrough.
+  tourProgress: defineTable({
+    userId: v.id("users"),
+    tourId: v.string(),
+    step: v.number(),
+    completedAt: v.optional(v.number()),
+    skippedAt: v.optional(v.number()),
+  }).index("by_user_tour", ["userId", "tourId"]),
 });

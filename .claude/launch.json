@@ -4,6 +4,10 @@
     {
       "name": "attach",
       "url": "http://localhost:3000"
+    },
+    {
+      "name": "attach-3001",
+      "url": "http://localhost:3001"
     }
   ]
 }

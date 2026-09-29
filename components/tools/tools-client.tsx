@@ -153,7 +153,7 @@ export function AuditTab() {
             />
           </div>
           <div className="flex justify-end">
-            <Button onClick={run} disabled={busy}>
+            <Button onClick={run} disabled={busy} data-tour="getfound-run">
               {busy ? <Loader2 className="size-4 animate-spin" /> : <ScanSearch className="size-4" />}
               Run audit
             </Button>
@@ -473,7 +473,7 @@ export function TranscribeTab() {
                   className="pl-9"
                 />
               </div>
-              <Button onClick={submitLink} disabled={busy}>
+              <Button onClick={submitLink} disabled={busy} data-tour="transcribe-link">
                 {busy ? <Loader2 className="size-4 animate-spin" /> : <AudioLines className="size-4" />}
                 Transcribe
               </Button>
@@ -494,6 +494,7 @@ export function TranscribeTab() {
             className="w-full"
             onClick={() => fileRef.current?.click()}
             disabled={busy}
+            data-tour="transcribe-upload"
           >
             <Upload className="size-4" /> Upload an audio file
           </Button>
@@ -1082,7 +1083,7 @@ export function CarouselTab() {
                 ? `${totalCredits.toLocaleString()} credits`
                 : `Plan free · ${totalCredits.toLocaleString()} credits to render`}
             </span>
-            <Button onClick={run} disabled={busy}>
+            <Button onClick={run} disabled={busy} data-tour="carousels-run">
               {busy ? <Loader2 className="size-4 animate-spin" /> : <GalleryHorizontalEnd className="size-4" />}
               {busy
                 ? classic

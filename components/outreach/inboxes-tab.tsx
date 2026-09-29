@@ -232,7 +232,7 @@ export function InboxesTab() {
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button>
+            <Button data-tour="outreach-add-inboxes">
               <Mail className="size-4" /> Add inboxes <ChevronDown className="size-4" />
             </Button>
           </DropdownMenuTrigger>

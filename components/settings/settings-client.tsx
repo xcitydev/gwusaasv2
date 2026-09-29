@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { InviteCodeCard } from "@/components/forms/forms-gate";
+import { IntegrationsTab } from "@/components/settings/integrations-tab";
 import { PricingTable, UserProfile } from "@clerk/nextjs";
 import { toast } from "sonner";
 import {
@@ -13,6 +14,7 @@ import {
   ChevronRight,
   Coins,
   CreditCard,
+  Plug,
   UserRound,
 } from "lucide-react";
 import { isConfigured } from "@/lib/runtime";
@@ -379,19 +381,27 @@ function BillingTab() {
   );
 }
 
-export function SettingsClient() {
+export function SettingsClient({
+  defaultTab = "billing",
+}: {
+  defaultTab?: "billing" | "account" | "integrations";
+}) {
   return (
-    <Tabs defaultValue="billing">
+    <Tabs defaultValue={defaultTab}>
       <TabsList className="mb-4">
-        <TabsTrigger value="billing" className="gap-1.5">
+        <TabsTrigger value="billing" className="gap-1.5" data-tour="settings-tab-billing">
           <CreditCard className="size-4" /> Plan & Credits
         </TabsTrigger>
-        <TabsTrigger value="account" className="gap-1.5">
+        <TabsTrigger value="account" className="gap-1.5" data-tour="settings-tab-account">
           <UserRound className="size-4" /> Account
+        </TabsTrigger>
+        <TabsTrigger value="integrations" className="gap-1.5" data-tour="settings-tab-integrations">
+          <Plug className="size-4" /> Integrations
         </TabsTrigger>
       </TabsList>
       <TabsContent value="billing"><BillingTab /></TabsContent>
       <TabsContent value="account"><AccountTab /></TabsContent>
+      <TabsContent value="integrations"><IntegrationsTab /></TabsContent>
     </Tabs>
   );
 }

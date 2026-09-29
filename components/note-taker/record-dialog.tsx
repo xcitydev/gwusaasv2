@@ -18,7 +18,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { detectPlatform, MEETING_PLATFORMS } from "@/lib/note-taker";
+import {
+  detectPlatform,
+  MEETING_PLATFORMS,
+  zoomLinkMissingPasscode,
+} from "@/lib/note-taker";
 import { cn } from "@/lib/utils";
 import { friendlyError, type Overview } from "./shared";
 
@@ -40,6 +44,7 @@ export function RecordDialog({
 
   const platform = url.trim() ? detectPlatform(url) : null;
   const badLink = url.trim().length > 8 && !platform;
+  const zoomNoPwd = platform === "zoom" && zoomLinkMissingPasscode(url);
   const hours =
     overview.creditsPerMinute > 0
       ? overview.credits / overview.creditsPerMinute / 60
@@ -80,7 +85,7 @@ export function RecordDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button disabled={!overview.configured}>
+        <Button disabled={!overview.configured} data-tour="notetaker-record">
           <Video className="size-4" /> Record a meeting
         </Button>
       </DialogTrigger>
@@ -106,14 +111,20 @@ export function RecordDialog({
             <p
               className={cn(
                 "text-xs",
-                badLink ? "text-destructive" : "text-muted-foreground",
+                badLink
+                  ? "text-destructive"
+                  : zoomNoPwd
+                    ? "text-amber-400"
+                    : "text-muted-foreground",
               )}
             >
-              {platform
-                ? `${MEETING_PLATFORMS[platform]} link ✓`
-                : badLink
-                  ? "That isn't a Zoom, Google Meet, Teams, Webex or GoTo link."
-                  : "Zoom, Google Meet, Microsoft Teams, Webex and GoTo work."}
+              {badLink
+                ? "That isn't a Zoom, Google Meet, Teams, Webex or GoTo link."
+                : zoomNoPwd
+                  ? "This Zoom link is missing its passcode, so the bot may be turned away. In Zoom use “Copy invite link” — the full link ends with ?pwd=…"
+                  : platform
+                    ? `${MEETING_PLATFORMS[platform]} link ✓`
+                    : "Zoom, Google Meet, Microsoft Teams, Webex and GoTo work."}
             </p>
           </div>
 

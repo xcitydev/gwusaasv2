@@ -206,7 +206,7 @@ export function AiSearch() {
                 className="h-11 w-24 shrink-0 text-center"
                 title="How many leads to fetch (up to 1000). Empty = Auto (50, or the number in your query)."
               />
-              <Button onClick={() => start()} disabled={starting} className="h-11 px-5">
+              <Button onClick={() => start()} disabled={starting} className="h-11 px-5" data-tour="leads-search">
                 {starting ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (

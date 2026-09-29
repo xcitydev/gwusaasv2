@@ -64,7 +64,18 @@ function isLive(status: MeetingStatus): boolean {
 
 function behaviorFor(info: DispatchInfo): Record<string, unknown> {
   const { meeting, settings } = info;
+  // Agenda Coach: stream the transcript live and (optionally) show the
+  // coach card as the bot camera. Both need the meeting's coach token.
+  const site = process.env.CONVEX_SITE_URL?.replace(/\/$/, "");
+  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+  const coach = settings.coachEnabled && meeting.coachToken;
+  const realtimeWebhookUrl =
+    coach && site ? `${site}/notes/realtime?token=${meeting.coachToken}` : null;
+  const outputMediaUrl =
+    coach && settings.coachTile && appUrl ? `${appUrl}/coach/${meeting.coachToken}` : null;
   return botBehavior({
+    realtimeWebhookUrl,
+    outputMediaUrl,
     botName: settings.botName,
     metadata: {
       meetingId: meeting._id,
@@ -89,7 +100,8 @@ function friendlyFailure(subCode?: string | null, message?: string | null): stri
       "This meeting requires registration — the bot can't sign up for it.",
     meeting_requires_sign_in:
       "This meeting only admits signed-in accounts — the bot couldn't get in.",
-    meeting_password_incorrect: "The meeting password in the link is wrong.",
+    meeting_password_incorrect:
+      "The meeting passcode is missing or wrong — in Zoom use “Copy invite link” and paste the full link ending in ?pwd=…, then try again.",
     meeting_locked: "The meeting was locked, so the bot couldn't join.",
     meeting_full: "The meeting was full.",
     bot_kicked_from_waiting_room: "The host declined the bot in the waiting room.",

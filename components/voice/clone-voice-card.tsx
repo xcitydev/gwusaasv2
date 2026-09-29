@@ -255,7 +255,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
               </p>
             </div>
           </div>
-          <Button onClick={() => setOpen(true)}>
+          <Button onClick={() => setOpen(true)} data-tour="voices-clone">
             <Mic className="size-4" /> Clone my voice
           </Button>
         </CardContent>

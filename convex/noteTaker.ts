@@ -15,6 +15,7 @@ import { getConfigValue } from "./config";
 import { meetingStatusValidator } from "./schema";
 import { flattenTranscript, snippetAround, type Segment } from "./lib/transcript";
 import { ACTIVE_STATUSES } from "../lib/note-taker";
+import { newCoachToken } from "./noteTakerCoach";
 
 /**
  * AI Note Taker — data layer. A `meetings` row follows one bot through its
@@ -48,6 +49,11 @@ function resolveSettings(
     retentionDays: row?.retentionDays ?? SETTINGS_DEFAULTS.retentionDays,
     autoJoin: row?.autoJoin ?? SETTINGS_DEFAULTS.autoJoin,
     calcomToken: row?.calcomToken ?? null,
+    // Agenda Coach (live nudges) — off until the workspace switches it on.
+    coachEnabled: row?.coachEnabled ?? false,
+    coachChat: row?.coachChat ?? true,
+    coachTile: row?.coachTile ?? false,
+    coachNudgeMin: row?.coachNudgeMin ?? 3,
   };
 }
 
@@ -122,6 +128,8 @@ export const overview = query({
       },
       isAdmin: Boolean(user.adminRole),
       webhookUrl: site ? `${site}/notes/recall-webhook` : null,
+      // Agenda Coach needs the app's public address for the bot camera card.
+      appUrlConfigured: Boolean(process.env.APP_URL),
       credits: workspace.credits,
       creditsPerMinute,
       minCredits: creditsPerMinute * MIN_BILLABLE_MINUTES,
@@ -430,6 +438,7 @@ export const createMeeting = internalMutation({
       source: "manual",
       status: args.scheduledFor ? "scheduled" : "joining",
       scheduledFor: args.scheduledFor,
+      coachToken: newCoachToken(),
     });
   },
 });
@@ -485,6 +494,7 @@ export const upsertSystemMeeting = internalMutation({
       status: "scheduled",
       scheduledFor: args.scheduledFor,
       attendees: args.attendees,
+      coachToken: newCoachToken(),
     });
   },
 });
@@ -730,6 +740,10 @@ export const storeNotes = internalMutation({
       ]
         .join("\n")
         .slice(0, 8000),
+    });
+    // Action items → connected task tools (Trello / Asana / webhook).
+    await ctx.scheduler.runAfter(0, internal.integrations.routeActionItems, {
+      meetingId: args.meetingId,
     });
   },
 });

@@ -326,4 +326,59 @@ http.route({
   }),
 });
 
+/**
+ * Recall real-time transcript feed for the Agenda Coach. The bot is
+ * configured with this URL (+ the meeting's secret token) and posts one
+ * transcript.data event per finished utterance. Must answer 2xx fast —
+ * Recall retries up to 60 times a second apart.
+ */
+http.route({
+  path: "/notes/realtime",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const token = new URL(request.url).searchParams.get("token");
+    if (!token) return new Response("missing token", { status: 401 });
+    let payload: {
+      event?: string;
+      data?: {
+        data?: {
+          words?: {
+            text?: string;
+            start_timestamp?: { relative?: number } | null;
+            end_timestamp?: { relative?: number } | null;
+          }[];
+          participant?: { name?: string | null } | null;
+        };
+        bot?: { id?: string };
+      };
+    };
+    try {
+      payload = await request.json();
+    } catch {
+      return new Response("ok", { status: 200 });
+    }
+    if (payload.event !== "transcript.data") return new Response("ok", { status: 200 });
+    const words = payload.data?.data?.words ?? [];
+    if (words.length === 0) return new Response("ok", { status: 200 });
+    const text = words.map((w) => w.text ?? "").join(" ").replace(/\s+/g, " ").trim();
+    const start = words[0]?.start_timestamp?.relative ?? 0;
+    const last = words[words.length - 1];
+    const end = last?.end_timestamp?.relative ?? last?.start_timestamp?.relative ?? start;
+    const result = await ctx.runMutation(internal.noteTakerCoach.ingestRealtime, {
+      token,
+      botId: payload.data?.bot?.id,
+      speaker: payload.data?.data?.participant?.name || "Speaker",
+      start,
+      end,
+      text,
+    });
+    if (result?.scheduleTick) {
+      await ctx.scheduler.runAfter(0, internal.noteTakerCoachAi.tick, {
+        meetingId: result.meetingId,
+      });
+    }
+    return new Response("ok", { status: 200 });
+  }),
+});
+
 export default http;

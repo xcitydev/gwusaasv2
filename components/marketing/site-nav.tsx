@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { ArrowRight, Menu } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -84,27 +84,65 @@ export function SiteNav() {
               <Menu className="size-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="right" className="w-[300px] border-white/10 bg-background">
-            <SheetTitle className="font-display text-2xl italic">{BRAND.name}</SheetTitle>
-            <nav className="mt-6 flex flex-col gap-1">
-              {LINKS.map((link) => (
-                <a
-                  key={link.href}
-                  href={link.href}
-                  onClick={() => setOpen(false)}
-                  className="rounded-lg px-3 py-2.5 text-base text-foreground/90 hover:bg-white/5"
-                >
-                  {link.label}
-                </a>
-              ))}
-            </nav>
-            <div className="mt-8 flex flex-col gap-2">
-              <Button asChild className="rounded-full">
-                <Link href="/sign-up">Start free</Link>
-              </Button>
-              <Button asChild variant="outline" className="rounded-full">
-                <Link href="/sign-in">Sign in</Link>
-              </Button>
+          <SheetContent
+            side="right"
+            className="w-[320px] max-w-[88vw] gap-0 overflow-hidden border-white/10 bg-[#0b0a08] p-0 data-[side=right]:w-[320px]"
+          >
+            {/* Gold glow backdrop */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background:
+                  "radial-gradient(320px 220px at 85% 0%, oklch(0.86 0.17 93 / 0.14), transparent 70%), radial-gradient(360px 260px at 50% 110%, oklch(0.86 0.17 93 / 0.1), transparent 70%)",
+              }}
+            />
+            <div className="relative flex h-full flex-col px-6 pb-6 pt-5">
+              <SheetTitle className="flex items-baseline gap-2.5 font-display text-2xl font-normal italic">
+                {BRAND.name}
+                <span className="font-sans text-[9px] font-medium uppercase not-italic tracking-[0.22em] text-muted-foreground">
+                  Grow With Us
+                </span>
+              </SheetTitle>
+              <nav className="mt-8 flex flex-col">
+                {LINKS.map((link, i) => (
+                  <motion.a
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setOpen(false)}
+                    initial={{ opacity: 0, x: 24 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.45, delay: 0.08 + i * 0.06, ease: [0.22, 1, 0.36, 1] }}
+                    className="group flex items-center justify-between border-b border-white/[0.07] py-4"
+                  >
+                    <span className="flex items-baseline gap-3.5">
+                      <span className="font-display text-sm italic text-primary/70">
+                        0{i + 1}
+                      </span>
+                      <span className="text-xl font-medium tracking-tight">{link.label}</span>
+                    </span>
+                    <ArrowUpRight className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                  </motion.a>
+                ))}
+              </nav>
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.42, ease: [0.22, 1, 0.36, 1] }}
+                className="mt-auto flex flex-col gap-2.5"
+              >
+                <Button asChild size="lg" className="h-12 rounded-full text-base font-semibold">
+                  <Link href="/sign-up">
+                    Start free <ArrowRight className="size-4" />
+                  </Link>
+                </Button>
+                <Button asChild size="lg" variant="outline" className="h-12 rounded-full text-base">
+                  <Link href="/sign-in">Sign in</Link>
+                </Button>
+                <p className="mt-3 whitespace-nowrap text-center text-[8px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  Your whole growth team · run by AI
+                </p>
+              </motion.div>
             </div>
           </SheetContent>
         </Sheet>

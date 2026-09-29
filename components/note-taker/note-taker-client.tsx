@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAction, usePaginatedQuery, useQuery } from "convex/react";
+import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
@@ -11,15 +11,32 @@ import {
   NotebookPen,
   Search,
   Square,
+  Trash2,
   TriangleAlert,
   Users,
   X,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { PageHeader } from "@/components/page-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Compass } from "lucide-react";
+import { TourLauncher } from "@/components/tour/tour";
+import { NOTE_TAKER_TOUR } from "@/components/tour/tours";
+import { AgendaCoach } from "./agenda-coach";
 import { formatClock, formatDuration } from "@/lib/note-taker";
 import { MeetingDetail } from "./meeting-detail";
 import { NoteTakerSettings } from "./note-taker-settings";
@@ -69,6 +86,7 @@ export function NoteTakerClient() {
         actions={
           overview ? (
             <>
+              <TourLauncher tour={NOTE_TAKER_TOUR} />
               <NoteTakerSettings overview={overview} />
               <RecordDialog
                 overview={overview}
@@ -81,7 +99,22 @@ export function NoteTakerClient() {
       {overview === undefined ? (
         <ListSkeleton rows={4} />
       ) : overview === null ? null : (
-        <Home overview={overview} onOpen={setOpen} />
+        <Tabs defaultValue="meetings">
+          <TabsList className="mb-4">
+            <TabsTrigger value="meetings" className="gap-1.5">
+              <NotebookPen className="size-4" /> Meetings
+            </TabsTrigger>
+            <TabsTrigger value="coach" className="gap-1.5" data-tour="notetaker-tab-coach">
+              <Compass className="size-4" /> Agenda Coach
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="meetings">
+            <Home overview={overview} onOpen={setOpen} />
+          </TabsContent>
+          <TabsContent value="coach">
+            <AgendaCoach overview={overview} />
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
@@ -137,6 +170,7 @@ function Home({
           placeholder="Search every meeting — titles, notes, and what was said…"
           className="pl-8 pr-8"
           aria-label="Search meetings"
+          data-tour="notetaker-search"
         />
         {search && (
           <button
@@ -248,51 +282,90 @@ function MeetingRowButton({
   atSec?: number | null;
   onOpen: () => void;
 }) {
+  const remove = useMutation(api.noteTaker.deleteMeeting);
   const people = meeting.attendees?.length ?? 0;
   return (
-    <button
-      onClick={onOpen}
-      className="flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-accent"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="min-w-0 truncate text-sm font-medium">{meeting.title}</p>
-        {meeting.status !== "done" && <StatusBadge status={meeting.status} />}
-        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-          {whenLabel(meeting.startedAt ?? meeting.scheduledFor ?? meeting._creationTime)}
-        </span>
-      </div>
-      {snippet ? (
-        <p className="line-clamp-2 text-xs text-foreground/80">
-          {atSec !== null && atSec !== undefined && (
-            <span className="mr-1.5 rounded bg-primary/15 px-1 py-0.5 font-mono text-[10px] text-primary">
-              {formatClock(atSec)}
+    <div className="flex items-center gap-2 pr-3 transition-colors hover:bg-accent">
+      <button
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 flex-col gap-1 px-4 py-3 text-left"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="min-w-0 truncate text-sm font-medium">{meeting.title}</p>
+          {meeting.status !== "done" && <StatusBadge status={meeting.status} />}
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+            {whenLabel(meeting.startedAt ?? meeting.scheduledFor ?? meeting._creationTime)}
+          </span>
+        </div>
+        {snippet ? (
+          <p className="line-clamp-2 text-xs text-foreground/80">
+            {atSec !== null && atSec !== undefined && (
+              <span className="mr-1.5 rounded bg-primary/15 px-1 py-0.5 font-mono text-[10px] text-primary">
+                {formatClock(atSec)}
+              </span>
+            )}
+            {snippet}
+          </p>
+        ) : meeting.summary ? (
+          <p className="line-clamp-2 text-xs text-muted-foreground">
+            {meeting.summary}
+          </p>
+        ) : meeting.statusDetail ? (
+          <p className="text-xs text-muted-foreground">{meeting.statusDetail}</p>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          <span>{platformLabel(meeting.platform)}</span>
+          {meeting.durationSec ? <span>{formatDuration(meeting.durationSec)}</span> : null}
+          {people > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <Users className="size-3" /> {people}
             </span>
           )}
-          {snippet}
-        </p>
-      ) : meeting.summary ? (
-        <p className="line-clamp-2 text-xs text-muted-foreground">
-          {meeting.summary}
-        </p>
-      ) : meeting.statusDetail ? (
-        <p className="text-xs text-muted-foreground">{meeting.statusDetail}</p>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        <span>{platformLabel(meeting.platform)}</span>
-        {meeting.durationSec ? <span>{formatDuration(meeting.durationSec)}</span> : null}
-        {people > 0 && (
-          <span className="inline-flex items-center gap-1">
-            <Users className="size-3" /> {people}
-          </span>
-        )}
-        {meeting.actionItemCount > 0 && (
-          <span className="inline-flex items-center gap-1">
-            <ListChecks className="size-3" /> {meeting.actionItemCount} action
-            {meeting.actionItemCount === 1 ? " item" : " items"}
-          </span>
-        )}
-      </div>
-    </button>
+          {meeting.actionItemCount > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <ListChecks className="size-3" /> {meeting.actionItemCount} action
+              {meeting.actionItemCount === 1 ? " item" : " items"}
+            </span>
+          )}
+        </div>
+      </button>
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 text-muted-foreground hover:text-destructive"
+            aria-label={`Delete “${meeting.title}”`}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{meeting.title}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The notes, transcript, chat and the stored recording are removed
+              for good. Credits already spent aren&apos;t refunded.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                try {
+                  await remove({ meetingId: meeting._id });
+                  toast.success("Meeting deleted.");
+                } catch (e) {
+                  toast.error(friendlyError(e, "Couldn't delete the meeting."));
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }
 
