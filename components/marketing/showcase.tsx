@@ -82,7 +82,7 @@ function ShowcaseBlock({
             {eyebrow}
           </p>
           <h2 className="mt-3 text-balance text-4xl font-black uppercase leading-[0.95] tracking-tight sm:text-5xl xl:text-6xl">
-            <span className="bg-gradient-to-b from-[#fff4c2] via-primary to-[#8a6905] bg-clip-text text-transparent">
+            <span className="bg-gradient-to-b from-[#5cc3ff] via-[#8a5cfc] to-[#e24ff9] bg-clip-text text-transparent">
               {title}
             </span>
           </h2>

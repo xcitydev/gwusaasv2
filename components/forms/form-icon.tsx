@@ -8,6 +8,7 @@ import {
   ClipboardList,
   ScanSearch,
   MessagesSquare,
+  CalendarDays,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ const ICONS: Record<string, LucideIcon> = {
   Megaphone,
   ScanSearch,
   MessagesSquare,
+  CalendarDays,
 };
 
 export function formIcon(name: string): LucideIcon {

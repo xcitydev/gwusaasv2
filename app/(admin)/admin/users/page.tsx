@@ -286,7 +286,7 @@ export default function AdminUsersPage() {
     <LivePage>
       <PageHeader
         title="Users"
-        description="Every account on the platform. Invite codes unlock the GWU Onboarding Forms."
+        description="Every account on the platform. Invite codes unlock the Creatily Onboarding Forms."
       />
       <InviteCodesCard />
       <UsersTable />

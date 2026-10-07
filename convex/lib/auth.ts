@@ -19,7 +19,7 @@ export async function requireUser(ctx: Ctx): Promise<Doc<"users">> {
   return user;
 }
 
-/** GWU Onboarding Forms are invite-only; admins always see them. */
+/** Creatily Onboarding Forms are invite-only; admins always see them. */
 export function hasFormsAccess(user: Doc<"users">): boolean {
   return Boolean(user.formsAccess) || Boolean(user.adminRole);
 }
@@ -28,7 +28,7 @@ export async function requireFormsAccess(ctx: Ctx): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
   if (!hasFormsAccess(user)) {
     throw new Error(
-      "GWU Onboarding Forms are invite-only. Enter your invite code in Settings or ask the team for access.",
+      "Creatily Onboarding Forms are invite-only. Enter your invite code in Settings or ask the team for access.",
     );
   }
   return user;

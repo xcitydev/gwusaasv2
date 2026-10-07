@@ -17,6 +17,10 @@ import { notify } from "./notifications";
 export const syncPlan = mutation({
   args: { plan: planValidator },
   handler: async (ctx, args) => {
+    // Whop live = Whop webhooks are the only writer of plan state. A Clerk
+    // free plan reported by the browser must never downgrade a paid
+    // workspace, so the whole Clerk Billing sync becomes a no-op.
+    if (process.env.WHOP_API_KEY) return { changed: false };
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");

@@ -1,9 +1,12 @@
 import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
+import { planGate } from "@/lib/plan-gate";
 import { TeamClient } from "@/components/team/team-client";
 import { Badge } from "@/components/ui/badge";
 
-export default function TeamPage() {
+export default async function TeamPage() {
+  const gate = await planGate("/team");
+  if (gate) return gate;
   return (
     <LivePage>
       <PageHeader

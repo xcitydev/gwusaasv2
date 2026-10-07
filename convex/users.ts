@@ -55,6 +55,7 @@ export const ensureUser = mutation({
       status: "active",
       referralCode: generateReferralCode(),
       referredBy,
+      planQuizPending: true,
     });
 
     if (referredBy) {
@@ -99,6 +100,9 @@ export const me = query({
       // Invite-only GWU Onboarding Forms.
       formsAccess: hasFormsAccess(user),
       formsAccessSource: user.formsAccessSource,
+      // New sign-ups are routed to /welcome once; admins never are.
+      planQuizPending: Boolean(user.planQuizPending) && !user.adminRole,
+      planQuiz: user.planQuiz ?? null,
       workspace: workspace
         ? {
             _id: workspace._id,
@@ -109,6 +113,53 @@ export const me = query({
           }
         : null,
     };
+  },
+});
+
+const QUIZ_AUDIENCES = ["business", "agency", "creator", "sales"] as const;
+const QUIZ_TEAM_SIZES = ["solo", "small", "large"] as const;
+const QUIZ_GOALS = ["leads", "calls", "dms", "notes", "studio", "voice"] as const;
+
+/**
+ * Save the /welcome plan quiz (or a skip) and return the recommended plan.
+ * Agencies and anyone with a team get Team; everyone else gets Personal.
+ */
+export const savePlanQuiz = mutation({
+  args: {
+    audience: v.string(),
+    teamSize: v.string(),
+    goals: v.array(v.string()),
+    skipped: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<"personal" | "team"> => {
+    const user = await getCurrentUser(ctx);
+    if (!user) throw new Error("Not authenticated");
+    const skipped = args.skipped ?? false;
+    if (!skipped) {
+      if (!(QUIZ_AUDIENCES as readonly string[]).includes(args.audience)) {
+        throw new Error("Pick what best describes you");
+      }
+      if (!(QUIZ_TEAM_SIZES as readonly string[]).includes(args.teamSize)) {
+        throw new Error("Pick how many people will use Creatily");
+      }
+    }
+    const goals = args.goals.filter((g) => (QUIZ_GOALS as readonly string[]).includes(g));
+    const recommended =
+      args.audience === "agency" || args.teamSize === "small" || args.teamSize === "large"
+        ? ("team" as const)
+        : ("personal" as const);
+    await ctx.db.patch(user._id, {
+      planQuizPending: false,
+      planQuiz: {
+        audience: args.audience,
+        teamSize: args.teamSize,
+        goals,
+        recommended,
+        skipped,
+        at: Date.now(),
+      },
+    });
+    return recommended;
   },
 });
 

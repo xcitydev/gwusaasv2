@@ -9,6 +9,7 @@ import {
   CalendarCheck,
   Check,
   ChevronDown,
+  Lock,
   MessageCircle,
   NotebookPen,
   PhoneCall,
@@ -42,7 +43,7 @@ const MODELS = [
   "Luma Ray 2", "MiniMax Hailuo", "Nano Banana",
 ];
 const STACK = [
-  "ElevenLabs voices", "Bland AI calls", "Recall.ai meeting bots",
+  "Voice cloning", "AI phone calls", "Recall.ai meeting bots",
   "Instagram DMs", "Cal.com booking", "Instantly email", "Google Maps leads",
   "LinkedIn leads", "Claude by Anthropic",
 ];
@@ -84,7 +85,7 @@ type Feature = {
   visual?: ReactNode;
 };
 
-function InboxVisual() {
+export function InboxVisual() {
   return (
     <div className="mt-5 space-y-2">
       {[
@@ -106,7 +107,7 @@ function InboxVisual() {
   );
 }
 
-function TriageVisual() {
+export function TriageVisual() {
   return (
     <div className="mt-5 flex flex-wrap gap-2">
       {[
@@ -136,7 +137,7 @@ function Bars({ count = 24, className }: { count?: number; className?: string })
   );
 }
 
-function LeadsVisual() {
+export function LeadsVisual() {
   return (
     <div className="mt-5 space-y-2">
       <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs">
@@ -155,7 +156,7 @@ function LeadsVisual() {
   );
 }
 
-function CallVisual() {
+export function CallVisual() {
   return (
     <div className="mt-5 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5 text-xs">
       <div className="flex items-center justify-between">
@@ -182,7 +183,7 @@ const QUALIFIER_ROWS: [string, number, string][] = [
   ["Front desk · no answer", 12, "Skip"],
 ];
 
-function QualifierVisual() {
+export function QualifierVisual() {
   return (
     <div className="mt-5 space-y-2 text-xs">
       {QUALIFIER_ROWS.map(([who, score, tag]) => (
@@ -207,7 +208,7 @@ function QualifierVisual() {
   );
 }
 
-function VoiceVisual() {
+export function VoiceVisual() {
   return (
     <div className="mt-5 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2.5">
       <Bars count={26} className="h-8" />
@@ -221,7 +222,7 @@ function VoiceVisual() {
   );
 }
 
-function NotesVisual() {
+export function NotesVisual() {
   return (
     <div className="mt-5 space-y-1.5 text-xs">
       {[
@@ -241,7 +242,7 @@ function NotesVisual() {
   );
 }
 
-function ToolsVisual() {
+export function ToolsVisual() {
   return (
     <div className="mt-5 grid grid-cols-2 gap-2 text-[11px]">
       {["Get found by AI", "IG carousels", "Audio → text", "Competitor scan"].map((t) => (
@@ -253,7 +254,7 @@ function ToolsVisual() {
   );
 }
 
-function StudioVisual() {
+export function StudioVisual() {
   return (
     <div className="mt-5 grid grid-cols-4 gap-2">
       {STUDIO_TILES.slice(0, 4).map((tile) => (
@@ -297,7 +298,7 @@ const FEATURES: Feature[] = [
   {
     icon: AudioWaveform,
     title: "Clone Your Voice",
-    blurb: "15 seconds of talking. Then every call and voice DM sounds like you — Bland or ElevenLabs, your pick.",
+    blurb: "15 seconds of talking. Then every call and voice DM sounds like you.",
     visual: <VoiceVisual />,
   },
   {
@@ -333,7 +334,7 @@ export function Features() {
     <Section
       id="features"
       eyebrow="What's inside"
-      title="Nine tools you'd normally rent,"
+      title="10+ tools you'd normally rent,"
       accent="one login."
       description="Each one runs on its own. Together they hand off to each other: a lead found becomes a call booked becomes a client answered."
       className="relative"
@@ -391,10 +392,6 @@ export function VoiceSection() {
             <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
               <span className="flex items-center gap-2">
                 <span className="size-2 animate-pulse rounded-full bg-red-400" /> Recording · 0:15
-              </span>
-              <span className="flex gap-1 rounded-full bg-white/5 p-1">
-                <span className="rounded-full bg-background px-2.5 py-1 text-foreground shadow-sm">Bland</span>
-                <span className="px-2.5 py-1">ElevenLabs</span>
               </span>
             </div>
           </div>
@@ -459,7 +456,7 @@ export function HowItWorks() {
         <svg aria-hidden className="pointer-events-none absolute left-0 top-7 hidden h-px w-full md:block" viewBox="0 0 100 1" preserveAspectRatio="none">
           <motion.line
             x1="0" y1="0.5" x2="100" y2="0.5"
-            stroke="oklch(0.86 0.17 93 / 0.5)" strokeWidth="1" vectorEffect="non-scaling-stroke"
+            stroke="oklch(0.598 0.241 294.3 / 0.5)" strokeWidth="1" vectorEffect="non-scaling-stroke"
             initial={{ pathLength: 0 }}
             whileInView={{ pathLength: 1 }}
             viewport={{ once: true }}
@@ -484,48 +481,69 @@ export function HowItWorks() {
 
 // ── Pricing ─────────────────────────────────────────────────────────────
 
+/*
+ * Paid prices are not on the public site: visitors see the plans, but the
+ * numbers are blurred placeholders (the real figures are never in the HTML).
+ * After sign-up, the /welcome quiz recommends a plan and reveals its price.
+ */
 const PLANS = [
   {
     name: "Free",
     price: "$0",
     period: "",
-    blurb: "Explore the platform. Done-for-you onboarding unlocks with an invite code.",
-    features: ["Onboarding forms (with an invite code)", "Support tickets", "Referral link"],
+    blurb: "Start creating today — pay per use with credits.",
+    features: [
+      "Create with AI + Studio (priced per render)",
+      "Get Found by AI, IG Carousels, Audio to Text",
+      "Buy credits any time",
+      "Referral link",
+    ],
     cta: "Create account",
     featured: false,
+    locked: false,
   },
   {
     name: "Personal",
-    price: "$97",
+    price: "$00",
     period: "/mo",
     blurb: "Every tool, for one business.",
     features: [
-      "10,000 credits every month",
       "Outreach, leads, receptionist & qualifier",
       "Clone Your Voice",
       "IG DMs & AI Voice, AI Note Taker",
       "Create with AI + Studio",
       "Referral payouts",
     ],
-    cta: "Start Personal",
+    cta: "See my price",
     featured: true,
+    locked: true,
   },
   {
     name: "Team / Agency",
-    price: "$297",
+    price: "$000",
     period: "/mo",
     blurb: "Everything, for a team or your clients.",
     features: [
-      "30,000 credits every month",
       "Team members share leads, inboxes & credits",
       "Assign conversations to setters",
       "Agency features",
       "Priority support",
     ],
-    cta: "Start Team",
+    cta: "See my price",
     featured: false,
+    locked: true,
   },
 ];
+
+/** A blurred stand-in; screen readers hear why instead of the placeholder. */
+function Hidden({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <>
+      <span aria-hidden className="select-none blur-[9px]">{children}</span>
+      <span className="sr-only">{label}</span>
+    </>
+  );
+}
 
 export function Pricing() {
   return (
@@ -534,7 +552,7 @@ export function Pricing() {
       eyebrow="Pricing"
       title="Simple plans,"
       accent="one credit balance."
-      description="Credits pay for calls, generations, voice notes and meeting recording. Every price shows before you click, and you can top up any time."
+      description="Create a free account, answer three quick questions, and we'll unlock the plan that fits you — price included — before you pay a thing."
     >
       <Stagger className="grid gap-4 md:grid-cols-3 md:items-stretch">
         {PLANS.map((plan) => (
@@ -543,7 +561,7 @@ export function Pricing() {
               as="article"
               className={cn(
                 "flex h-full flex-col p-6 sm:p-7",
-                plan.featured && "border-primary/50 shadow-[0_0_60px_-20px_oklch(0.86_0.17_93/0.6)]",
+                plan.featured && "border-primary/50 shadow-[0_0_60px_-20px_oklch(0.598_0.241_294.3/0.6)]",
               )}
             >
               {plan.featured && (
@@ -553,11 +571,36 @@ export function Pricing() {
               )}
               <h3 className="text-lg font-semibold">{plan.name}</h3>
               <p className="mt-1 text-sm text-muted-foreground">{plan.blurb}</p>
-              <p className="mt-5 flex items-baseline gap-1">
-                <span className="text-4xl font-semibold tracking-tight">{plan.price}</span>
-                <span className="text-sm text-muted-foreground">{plan.period}</span>
-              </p>
+              {plan.locked ? (
+                <Link
+                  href="/sign-up"
+                  className="group relative mt-5 flex items-center gap-3 rounded-xl"
+                >
+                  <span className="flex items-baseline gap-1">
+                    <span className="text-4xl font-semibold tracking-tight">
+                      <Hidden label="Price shown after you create a free account">{plan.price}</Hidden>
+                    </span>
+                    <span className="text-sm text-muted-foreground">{plan.period}</span>
+                  </span>
+                  <span className="flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                    <Lock className="size-3.5" /> Unlock pricing
+                  </span>
+                </Link>
+              ) : (
+                <p className="mt-5 flex items-baseline gap-1">
+                  <span className="text-4xl font-semibold tracking-tight">{plan.price}</span>
+                  <span className="text-sm text-muted-foreground">{plan.period}</span>
+                </p>
+              )}
               <ul className="mt-6 flex-1 space-y-2.5">
+                {plan.locked && (
+                  <li className="flex items-start gap-2.5 text-sm">
+                    <Check className="mt-0.5 size-4 shrink-0 text-primary" />
+                    <span>
+                      <Hidden label="A monthly credit allowance">00,000</Hidden> credits every month
+                    </span>
+                  </li>
+                )}
                 {plan.features.map((f) => (
                   <li key={f} className="flex items-start gap-2.5 text-sm">
                     <Check className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -566,14 +609,17 @@ export function Pricing() {
                 ))}
               </ul>
               <Button asChild variant={plan.featured ? "default" : "outline"} className="mt-8 rounded-full">
-                <Link href="/sign-up">{plan.cta}</Link>
+                <Link href="/sign-up">
+                  {plan.locked && <Lock className="size-3.5" />}
+                  {plan.cta}
+                </Link>
               </Button>
             </GlowCard>
           </Item>
         ))}
       </Stagger>
       <p className="mt-6 text-center text-xs text-muted-foreground">
-        Prices in USD. Cancel any time. Referrals earn a share of every plan you bring in.
+        Free account, no card required. Your price unlocks after a 30-second quiz. Cancel any time.
       </p>
     </Section>
   );
@@ -586,7 +632,7 @@ const FAQS = [
   ["Does the receptionist really use my voice?", "Yes. Record fifteen seconds of yourself talking. From then on inbound calls, qualifier calls and Instagram voice notes speak in your clone."],
   ["Can I connect my own Instagram?", "Yes — a Professional account (Business or Creator) linked to a Facebook Page, connected with a single Meta authorization click. Every DM lands in your inbox with AI triage."],
   ["Which meeting apps does the Note Taker join?", "Zoom, Google Meet and Microsoft Teams. It joins as a named participant, announces itself, and the notes arrive minutes after the call ends."],
-  ["Do I need my own AI subscriptions?", "No. Kling, Seedance, Higgsfield, Veo, FLUX, ElevenLabs and the rest are already connected and billed per generation from your credits."],
+  ["Do I need my own AI subscriptions?", "No. Kling, Seedance, Higgsfield, Veo, FLUX and the rest are already connected and billed per generation from your credits."],
   ["Can my team use it?", "The Team plan adds members who share leads, inboxes, campaigns and credits, lets you assign conversations to setters, and unlocks agency features."],
 ];
 
@@ -642,7 +688,7 @@ export function FinalCta() {
             className="absolute inset-0 -z-10"
             style={{
               background:
-                "radial-gradient(800px 400px at 50% 120%, oklch(0.86 0.17 93 / 0.35), transparent 70%), linear-gradient(to bottom, oklch(0.17 0.004 90), oklch(0.13 0 0))",
+                "radial-gradient(800px 400px at 50% 120%, oklch(0.675 0.275 320 / 0.3), transparent 70%), radial-gradient(600px 300px at 20% 120%, oklch(0.6 0.2 262 / 0.25), transparent 70%), linear-gradient(to bottom, oklch(0.193 0.008 285.6), oklch(0.156 0.006 285.6))",
             }}
           />
           <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-5xl">

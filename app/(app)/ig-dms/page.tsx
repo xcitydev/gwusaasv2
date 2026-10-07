@@ -1,10 +1,13 @@
 import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
+import { planGate } from "@/lib/plan-gate";
 import { TourLauncher } from "@/components/tour/tour";
 import { IG_DMS_TOUR } from "@/components/tour/tours";
 import { IgDmsClient } from "@/components/ig/ig-dms-client";
 
-export default function IgDmsPage() {
+export default async function IgDmsPage() {
+  const gate = await planGate("/ig-dms");
+  if (gate) return gate;
   return (
     <LivePage>
       <PageHeader

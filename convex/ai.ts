@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { z } from "zod";
+import { assertPlanAction } from "./lib/plan";
 
 /**
  * AI-powered actions. Runs in the Node runtime because the Anthropic SDK
@@ -63,6 +64,7 @@ export const leadSearch = action({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{ searchId: Id<"leadSearches"> }> => {
+    await assertPlanAction(ctx, "personal", "Scrape Leads");
     const queryText = args.query.trim();
     if (!queryText) throw new Error("Describe who you're looking for");
 
@@ -402,6 +404,7 @@ async function runTranscription(
         id: transcriptId,
         status: "done",
         text,
+        durationSec: data.metadata?.duration,
       });
     } catch (error) {
       await ctx.runMutation(internal.tools.finishTranscript, {

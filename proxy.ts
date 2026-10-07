@@ -6,6 +6,8 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  // Admin-shared forms invite links (/join/GWU-XXXX-XXXX).
+  "/join(.*)",
   // Agenda Coach card: token-gated page the meeting bot shows as its camera.
   "/coach(.*)",
 ]);

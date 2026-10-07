@@ -244,7 +244,7 @@ export function SequenceEditor({
           )}
 
           <p className="text-xs text-muted-foreground">
-            <span className="text-primary">Gold</span> = filled from the lead ·{" "}
+            <span className="text-primary">Purple</span> = filled from the lead ·{" "}
             <span className="rounded bg-destructive/15 px-1 font-mono text-[10px] text-destructive">
               red tag
             </span>{" "}

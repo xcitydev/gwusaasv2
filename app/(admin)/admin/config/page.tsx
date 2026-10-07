@@ -92,6 +92,30 @@ const CONFIG_META: {
     kind: "number",
   },
   {
+    key: "igCommentCreditsEach",
+    label: "IG Commenters: credits per comment scraped",
+    help: "Apify comment scraper ≈ $0.0026/comment × 4.5. Billed per job on actual counts.",
+    kind: "number",
+  },
+  {
+    key: "igProfileCreditsEach",
+    label: "IG Commenters: credits per profile found",
+    help: "Apify profile scraper ≈ $0.0016/profile × 4.5. Commenters with no reachable profile are not charged.",
+    kind: "number",
+  },
+  {
+    key: "auditCredits",
+    label: "Credits per Get Found audit",
+    help: "Flat charge when an audit completes (covers the AI tokens).",
+    kind: "number",
+  },
+  {
+    key: "transcribeCreditsPerMinute",
+    label: "Transcription credits per minute",
+    help: "Audio to Text, billed on measured audio length (min 1 minute).",
+    kind: "number",
+  },
+  {
     key: "personalPlanPriceUsd",
     label: "Personal plan price (USD/mo)",
     help: "Used for referral payout math.",

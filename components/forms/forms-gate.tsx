@@ -30,7 +30,7 @@ export function InviteCodeForm({ autoFocus }: { autoFocus?: boolean }) {
       toast.success(
         result.status === "already"
           ? "You already have access to the forms."
-          : "Invite accepted — GWU Onboarding Forms are unlocked.",
+          : "Invite accepted — Creatily Onboarding Forms are unlocked.",
       );
       setCode("");
     } catch (e) {
@@ -74,7 +74,7 @@ export function InviteCodeCard() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <ShieldCheck className="size-4 text-primary" /> GWU Onboarding Forms
+          <ShieldCheck className="size-4 text-primary" /> Creatily Onboarding Forms
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -90,11 +90,11 @@ export function InviteCodeCard() {
             {me?.formsAccessSource === "invite"
               ? " with an invite code"
               : me?.formsAccessSource === "admin"
-                ? " by the GWU team"
+                ? " by the Creatily team"
                 : ""}
             . Find the forms under{" "}
             <Link href="/forms" className="text-primary underline">
-              GWU Onboarding Forms
+              Creatily Onboarding Forms
             </Link>
             .
           </p>
@@ -102,7 +102,7 @@ export function InviteCodeCard() {
           <>
             <p className="text-sm text-muted-foreground">
               The done-for-you service forms are invite-only. Enter the code the
-              GWU team gave you to unlock them.
+              Creatily team gave you to unlock them.
             </p>
             <InviteCodeForm />
           </>
@@ -132,7 +132,7 @@ function LiveGate({ children }: { children: ReactNode }) {
   return (
     <div>
       <PageHeader
-        title="GWU Onboarding Forms"
+        title="Creatily Onboarding Forms"
         description="Done-for-you service requests, available by invitation."
       />
       <div className="flex justify-center py-8">
@@ -144,7 +144,7 @@ function LiveGate({ children }: { children: ReactNode }) {
             <div>
               <p className="font-medium">Invite only</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Enter the invite code you received from the GWU team to unlock
+                Enter the invite code you received from the Creatily team to unlock
                 the onboarding forms. You can also add it later in Settings.
               </p>
             </div>

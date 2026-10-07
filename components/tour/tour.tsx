@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 
 /**
  * Guided product tours. A dark overlay spotlights one real element at a
- * time with a gold ring and a tooltip; "click" steps advance when the user
+ * time with a violet ring and a tooltip; "click" steps advance when the user
  * clicks the highlighted control itself, "next" steps with a button. Mark
  * targets with data-tour="<name>" anywhere in the page. Progress lives in
  * Convex per user: auto-starts on first visit, never returns after Finish
@@ -176,9 +176,9 @@ function TourOverlay({
           <motion.div className={shade} animate={{ left: 0, top: hole.y + hole.h, width: viewport.w, height: Math.max(0, viewport.h - hole.y - hole.h) }} transition={SPRING} initial={false} style={{ left: 0 }} />
           <motion.div className={shade} animate={{ left: 0, top: hole.y, width: hole.x, height: hole.h }} transition={SPRING} initial={false} style={{ left: 0 }} />
           <motion.div className={shade} animate={{ left: hole.x + hole.w, top: hole.y, width: Math.max(0, viewport.w - hole.x - hole.w), height: hole.h }} transition={SPRING} initial={false} />
-          {/* Gold ring on the target. */}
+          {/* Violet ring on the target. */}
           <motion.div
-            className="pointer-events-none fixed rounded-xl border-2 border-primary shadow-[0_0_0_4px_oklch(0.86_0.17_93/0.25),0_0_40px_-4px_oklch(0.86_0.17_93/0.8)]"
+            className="pointer-events-none fixed rounded-xl border-2 border-primary shadow-[0_0_0_4px_oklch(0.598_0.241_294.3/0.25),0_0_40px_-4px_oklch(0.598_0.241_294.3/0.8)]"
             animate={{ left: hole.x, top: hole.y, width: hole.w, height: hole.h }}
             transition={SPRING}
             initial={false}
@@ -209,7 +209,7 @@ function TourOverlay({
           }
           style={{ ...tooltipStyle, ...(!centered && !mobile && { width: TOOLTIP_W }) }}
         >
-          <div className="relative rounded-2xl border border-primary/30 bg-[#141310] p-5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.9),0_0_40px_-20px_oklch(0.86_0.17_93/0.5)]">
+          <div className="relative rounded-2xl border border-primary/30 bg-[#141418] p-5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.9),0_0_40px_-20px_oklch(0.598_0.241_294.3/0.5)]">
             <button
               type="button"
               onClick={onSkip}

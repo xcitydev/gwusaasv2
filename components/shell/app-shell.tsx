@@ -39,6 +39,8 @@ function AppNav({ onNavigate }: { onNavigate?: () => void }) {
     <NavLinks
       sections={filterNav(APP_NAV, { formsAccess: Boolean(me?.formsAccess) })}
       onNavigate={onNavigate}
+      // Admins see everything unlocked; others lock below each item's minPlan.
+      plan={me === undefined ? undefined : me?.adminRole ? "team" : (me?.workspace?.plan ?? "free")}
     />
   );
 }

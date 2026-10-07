@@ -1,5 +1,5 @@
 /**
- * Definitions for the six service request forms. Shared by the client
+ * Definitions for the service request and event forms. Shared by the client
  * renderer and the Convex backend (validation + sensitive-field handling).
  * Icons are name strings mapped to lucide components client-side.
  */
@@ -17,12 +17,17 @@ export type FormFieldDef = {
     | "password"
     | "file"
     | "toggle"
-    | "select";
+    | "select"
+    | "multiselect";
   required?: boolean;
   placeholder?: string;
   helper?: string;
-  /** Choices for type "select". */
+  /** Choices for type "select" / "multiselect". */
   options?: string[];
+  /** Maximum number of choices for type "multiselect" (stored comma-separated). */
+  max?: number;
+  /** Starts a new titled section; rendered as a heading above this field. */
+  section?: { title: string; description?: string };
   /** Highlighted info box rendered under the field. */
   callout?: { title: string; lines: string[] };
   /** Encrypted at rest; masked in the admin panel. */
@@ -43,6 +48,9 @@ export type FormDef = {
   icon: string;
   fields: FormFieldDef[];
   submitLabel?: string;
+  /** Custom confirmation dialog; defaults to the paid-service "Processing" copy. */
+  successTitle?: string;
+  successBody?: string;
 };
 
 const IG_CREDENTIAL_FIELDS: FormFieldDef[] = [
@@ -96,6 +104,200 @@ const ENGAGEMENT_TOGGLES: FormFieldDef[] = [
 ];
 
 export const FORM_DEFS: FormDef[] = [
+  {
+    slug: "mmc-iii-attendee-profile",
+    title: "Miami Mastermind Conference III",
+    formTitle: "MMC III Attendee Profile",
+    category: "Events",
+    icon: "CalendarDays",
+    description:
+      "December 12, 2026 · Miami. We're designing MMC III around both high-level education and the quality of the people in the room — this short profile helps us personalize your experience, plan hospitality and make more relevant introductions throughout the event.",
+    submitLabel: "Submit profile",
+    successTitle: "You're all set.",
+    successBody:
+      "Our team will use your responses to help shape networking, introductions, hospitality and programming for MMC III.\n\nDecember 12 · Miami. We look forward to having you in the room.",
+    fields: [
+      {
+        name: "fullName",
+        label: "Full name",
+        type: "text",
+        required: true,
+        placeholder: "First and last name",
+        section: { title: "About you" },
+      },
+      {
+        name: "ticketEmail",
+        label: "Email used to purchase your ticket",
+        type: "email",
+        required: true,
+        placeholder: "you@company.com",
+      },
+      {
+        name: "phone",
+        label: "Phone number",
+        type: "tel",
+        placeholder: "+1…",
+        half: true,
+      },
+      {
+        name: "instagram",
+        label: "Instagram",
+        type: "text",
+        placeholder: "@handle",
+        half: true,
+      },
+      {
+        name: "company",
+        label: "Company / Brand",
+        type: "text",
+        required: true,
+        half: true,
+      },
+      {
+        name: "jobTitle",
+        label: "Job title / Role",
+        type: "text",
+        required: true,
+        half: true,
+      },
+      {
+        name: "industry",
+        label: "Which industry best describes what you do?",
+        type: "text",
+        required: true,
+        placeholder: "Real estate, e-commerce, SaaS, media, consulting…",
+      },
+      {
+        name: "companyDescription",
+        label: "Briefly describe what you or your company does",
+        type: "textarea",
+        required: true,
+        rows: 3,
+      },
+      {
+        name: "stage",
+        label: "What stage best describes your business or career?",
+        type: "select",
+        options: [
+          "Pre-revenue / Starting",
+          "Under $1M annual revenue",
+          "$1M–$5M",
+          "$5M–$10M",
+          "$10M–$25M",
+          "$25M–$50M",
+          "$50M–$100M",
+          "$100M+",
+          "Investor",
+          "Executive / Operator",
+          "Creator / Personal Brand",
+          "Other",
+        ],
+      },
+      {
+        name: "wantToMeet",
+        label: "Who would you most like to meet at MMC III?",
+        type: "textarea",
+        required: true,
+        rows: 3,
+        section: {
+          title: "Networking preferences",
+          description: "Tell us who you want in your orbit so we can plan the right introductions.",
+        },
+      },
+      {
+        name: "networkingGoals",
+        label: "What specifically are you hoping to accomplish through networking at MMC III?",
+        type: "textarea",
+        required: true,
+        rows: 3,
+        helper:
+          "Examples: raise capital, find distribution, acquire clients, meet investors, explore partnerships, hire talent, enter retail, grow my personal brand, meet other founders, explore real estate opportunities.",
+      },
+      {
+        name: "introRequest",
+        label:
+          "Is there a specific type of person, company, or opportunity you would especially like an introduction to?",
+        type: "textarea",
+        rows: 3,
+      },
+      {
+        name: "canOffer",
+        label: "What can you potentially offer or help other attendees with?",
+        type: "textarea",
+        required: true,
+        rows: 3,
+        helper:
+          "Capital, marketing expertise, distribution, introductions, real estate opportunities, media exposure, technology, mentorship, partnerships, etc.",
+      },
+      {
+        name: "topics",
+        label: "Which topics are you most interested in learning about at MMC III?",
+        type: "multiselect",
+        required: true,
+        max: 4,
+        helper: "Choose up to 4.",
+        options: [
+          "Business Growth & Scaling",
+          "Marketing",
+          "Personal Branding",
+          "Artificial Intelligence",
+          "Raising Capital",
+          "E-Commerce",
+          "Retail & Mass Distribution",
+          "Real Estate",
+          "Investing",
+          "SaaS",
+          "Customer Acquisition",
+          "Sales",
+          "Operations",
+          "Leadership",
+          "M&A / Exits",
+          "Content & Social Media",
+          "Other",
+        ],
+        section: { title: "What you want to learn" },
+      },
+      {
+        name: "topQuestion",
+        label: "What is the #1 business question or challenge you would love addressed at MMC III?",
+        type: "textarea",
+        required: true,
+        rows: 3,
+        helper: "This could actually help shape the speakers' content.",
+      },
+      {
+        name: "speakerQuestion",
+        label: "If you had 2 minutes with one of our speakers, what would you ask them?",
+        type: "textarea",
+        rows: 3,
+      },
+      {
+        name: "dietary",
+        label: "Do you have any dietary restrictions or food allergies?",
+        type: "select",
+        required: true,
+        options: [
+          "None",
+          "Vegetarian",
+          "Vegan",
+          "Gluten-free",
+          "Dairy-free",
+          "Kosher",
+          "Halal",
+          "Nut allergy",
+          "Shellfish allergy",
+          "Other",
+        ],
+        section: { title: "Dinner & hospitality" },
+      },
+      {
+        name: "dietaryDetails",
+        label: "If \u201cOther\u201d: please explain any allergies or dietary requirements we should know about",
+        type: "textarea",
+        rows: 3,
+      },
+    ],
+  },
   {
     slug: "design-my-posts",
     title: "Content Creation",

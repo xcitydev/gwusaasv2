@@ -2,66 +2,135 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import { verifyWhopSignature } from "./lib/whop";
 
 const http = httpRouter();
 
 /**
- * Bland AI posts here when a call ends. We look the call up via the
- * metadata.convexCallId we attach when initiating, bill per-second credits,
- * and store the transcript.
+ * Whop payments webhook — the only writer of plan state. Svix wire format:
+ * signature over `${webhook-id}.${webhook-timestamp}.${raw body}`, so the
+ * body must be read raw BEFORE parsing. Handlers are idempotent (Whop
+ * delivers at-least-once and retries for ~3 days); unknown event types are
+ * acknowledged so retries don't pile up, but our own failures return 500 so
+ * Whop retries them.
+ */
+http.route({
+  path: "/whop-webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const secret = process.env.WHOP_WEBHOOK_SECRET;
+    if (!secret) return new Response("not configured", { status: 503 });
+    const rawBody = await request.text();
+    const ok = await verifyWhopSignature({
+      secret,
+      id: request.headers.get("webhook-id"),
+      timestamp: request.headers.get("webhook-timestamp"),
+      signatureHeader: request.headers.get("webhook-signature"),
+      rawBody,
+    });
+    if (!ok) return new Response("invalid signature", { status: 401 });
+
+    const event = JSON.parse(rawBody) as {
+      id?: string;
+      type?: string;
+      data?: {
+        id?: string;
+        status?: string;
+        substatus?: string;
+        billing_reason?: string;
+        membership?: { id?: string } | null;
+        metadata?: Record<string, unknown> | null;
+        usd_total?: number;
+      } | null;
+    };
+    const data = event.data ?? {};
+
+    if (event.type === "payment.succeeded" && data.id) {
+      const result = await ctx.runMutation(internal.whop.handlePaymentSucceeded, {
+        paymentId: data.id,
+        billingReason: data.billing_reason,
+        membershipId: data.membership?.id,
+        metadata: data.metadata ?? undefined,
+        usdTotal: typeof data.usd_total === "number" ? data.usd_total : undefined,
+      });
+      console.log("WHOP-WEBHOOK:", event.type, data.id, result.handled);
+      return new Response("ok", { status: 200 });
+    }
+
+    if (event.type?.startsWith("membership.") && data.id) {
+      const result = await ctx.runMutation(internal.whop.handleMembershipUpdate, {
+        eventId: event.id ?? `${event.type}:${data.id}:${data.status ?? ""}`,
+        membershipId: data.id,
+        membershipStatus: data.status,
+      });
+      console.log("WHOP-WEBHOOK:", event.type, data.id, result.handled);
+      return new Response("ok", { status: 200 });
+    }
+
+    // Refunds/disputes and anything else: acknowledge, keep a trace.
+    console.log("WHOP-WEBHOOK: ignored", event.type ?? "unknown", event.id ?? "");
+    return new Response("ignored", { status: 200 });
+  }),
+});
+
+/**
+ * Bland AI posts here when a call ends. The request must carry the shared
+ * secret in its URL (BLAND_WEBHOOK_SECRET, set when the URL is registered),
+ * and the body is treated purely as a notification: the call is re-read from
+ * Bland's API in voiceActions.reconcileFromWebhook, which bills per-second
+ * credits once and stores the transcript. Outbound calls are matched via the
+ * metadata.convexCallId we attach when initiating; web sessions via the
+ * callRecordId query param; real inbound calls via Bland's call id.
  */
 http.route({
   path: "/bland-webhook",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const payload = (await request.json()) as {
-      call_id?: string;
-      to?: string;
-      from?: string;
-      inbound?: boolean;
-      call_length?: number; // minutes
-      corrected_duration?: number; // seconds
-      concatenated_transcript?: string;
-      completed?: boolean;
-      metadata?: { convexCallId?: string };
-      analysis?: unknown;
-    };
-    const durationSec = Math.round(
-      payload.corrected_duration ?? (payload.call_length ?? 0) * 60,
-    );
-    // Outbound calls carry the id in metadata; web-agent sessions can't set
-    // metadata, so their webhook URL carries it as a query param instead.
-    const convexCallId =
-      payload.metadata?.convexCallId ??
-      new URL(request.url).searchParams.get("callRecordId");
-    if (convexCallId) {
-      await ctx.runMutation(internal.voice.completeCall, {
-        callId: convexCallId as Id<"calls">,
-        durationSec,
-        transcript: payload.concatenated_transcript,
-        result: payload.analysis,
-        failed: payload.completed === false,
-      });
-    } else if (payload.call_id && payload.to) {
-      // A real inbound call — nothing pre-created a record for it, so make
-      // one now and finish it (billing, transcript, analysis, auto-booking).
-      const callId = await ctx.runMutation(internal.voice.recordInboundCall, {
-        blandCallId: payload.call_id,
-        toNumber: payload.to,
-        fromNumber: payload.from ?? undefined,
-      });
-      if (callId) {
-        await ctx.runMutation(internal.voice.completeCall, {
-          callId,
-          durationSec,
-          transcript: payload.concatenated_transcript,
-          failed: payload.completed === false,
-        });
-      }
+    const url = new URL(request.url);
+    // Bland does not sign webhooks, so the registered URL carries a shared
+    // secret. When one is configured, anything without it is dropped.
+    const secret = process.env.BLAND_WEBHOOK_SECRET;
+    if (secret && !safeEqual(url.searchParams.get("key") ?? "", secret)) {
+      return new Response("unauthorized", { status: 401 });
     }
+    let payload: { call_id?: unknown; metadata?: { convexCallId?: unknown } };
+    try {
+      payload = (await request.json()) as typeof payload;
+    } catch {
+      return new Response("bad json", { status: 400 });
+    }
+    // The body is only a poke. Nothing in it is trusted: duration, transcript,
+    // numbers and outcome are re-read from Bland's API before any credits
+    // move (voiceActions.reconcileFromWebhook).
+    const blandCallId =
+      typeof payload.call_id === "string" && payload.call_id.trim()
+        ? payload.call_id.trim()
+        : undefined;
+    // Outbound calls carry the record id in metadata; web-agent sessions
+    // can't set metadata, so their webhook URL carries it as a query param.
+    const fromMetadata = payload.metadata?.convexCallId;
+    const callRecordId =
+      (typeof fromMetadata === "string" ? fromMetadata : undefined) ??
+      url.searchParams.get("callRecordId") ??
+      undefined;
+    if (!blandCallId && !callRecordId) {
+      return new Response("ok", { status: 200 });
+    }
+    await ctx.scheduler.runAfter(0, internal.voiceActions.reconcileFromWebhook, {
+      blandCallId,
+      callRecordId: callRecordId as Id<"calls"> | undefined,
+    });
     return new Response("ok", { status: 200 });
   }),
 });
+
+/** Constant-time string comparison for shared secrets. */
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 /** GHL agency OAuth redirect: exchange the code, store agency tokens.
  *  Path says "crm" because GHL's white-label rules reject URLs containing

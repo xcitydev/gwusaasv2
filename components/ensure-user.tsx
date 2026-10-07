@@ -2,7 +2,8 @@
 
 import { useEffect } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { useConvexAuth, useMutation } from "convex/react";
+import { usePathname, useRouter } from "next/navigation";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { INVITE_STORAGE_KEY } from "@/lib/invite-codes";
@@ -19,6 +20,9 @@ export function EnsureUser() {
   const ensureUser = useMutation(api.users.ensureUser);
   const redeemInvite = useMutation(api.inviteCodes.redeem);
   const syncPlan = useMutation(api.billing.syncPlan);
+  const me = useQuery(api.users.me, isAuthenticated ? {} : "skip");
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     try {
@@ -54,8 +58,10 @@ export function EnsureUser() {
       try {
         const result = await redeemInvite({ code: invite });
         if (result.status === "unlocked") {
-          toast.success("Invite accepted — GWU Onboarding Forms are unlocked.");
+          toast.success("Invite accepted — Creatily Onboarding Forms are unlocked.");
         }
+        // They followed an invite link to get here: take them to the forms.
+        router.push("/forms");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "That invite code is not valid.");
       } finally {
@@ -66,7 +72,19 @@ export function EnsureUser() {
         }
       }
     });
-  }, [isAuthenticated, ensureUser, redeemInvite]);
+  }, [isAuthenticated, ensureUser, redeemInvite, router]);
+
+  // First visit after sign-up: the plan quiz at /welcome (shown once). An
+  // invite waiting to be redeemed wins — invited customers skip the quiz.
+  useEffect(() => {
+    if (!me?.planQuizPending || pathname === "/welcome") return;
+    try {
+      if (localStorage.getItem(INVITE_STORAGE_KEY)) return;
+    } catch {
+      // Storage unavailable — fall through to the quiz.
+    }
+    router.replace("/welcome");
+  }, [me?.planQuizPending, pathname, router]);
 
   // Mirror the Clerk Billing plan into Convex (grants plan credits once,
   // qualifies the referrer's one-time 30% payout).

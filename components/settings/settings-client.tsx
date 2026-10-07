@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useEffect, useState } from "react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { InviteCodeCard } from "@/components/forms/forms-gate";
@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Coins,
   CreditCard,
+  Loader2,
   Plug,
   UserRound,
 } from "lucide-react";
@@ -97,19 +98,19 @@ function AccountTab() {
       <UserProfile
         routing="hash"
         appearance={{
-          // Match the platform's gold/black theme so nothing reads as
+          // Match the platform's violet/black (creatily.ai) theme so nothing reads as
           // stock Clerk. Hex values mirror the oklch tokens in globals.css.
           options: { unsafe_disableDevelopmentModeWarnings: true },
           variables: {
-            colorPrimary: "#eac54f",
-            colorPrimaryForeground: "#1d1a10",
-            colorBackground: "#1a1917",
+            colorPrimary: "#8e50fd",
+            colorPrimaryForeground: "#ffffff",
+            colorBackground: "#141418",
             colorForeground: "#f7f7f7",
-            colorMutedForeground: "#a3a19c",
-            colorMuted: "#242320",
-            colorInput: "#131211",
+            colorMutedForeground: "#9a9aa6",
+            colorMuted: "#1c1c22",
+            colorInput: "#121214",
             colorInputForeground: "#f7f7f7",
-            colorBorder: "#33322e",
+            colorBorder: "#2c2c34",
             colorNeutral: "#f7f7f7",
             colorDanger: "#e05d44",
             colorSuccess: "#4fbf7c",
@@ -136,6 +137,85 @@ function AccountTab() {
         }}
       />
       </div>
+    </div>
+  );
+}
+
+/** Live plan cards when Whop payments are connected — Upgrade goes straight
+ *  to a server-created Whop checkout stamped with this workspace's ids. */
+function WhopPlanCards({
+  currentPlan,
+  isOwner,
+}: {
+  currentPlan: string;
+  isOwner: boolean;
+}) {
+  const startCheckout = useAction(api.whopActions.startPlanCheckout);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const upgrade = async (plan: "personal" | "team") => {
+    setBusy(plan);
+    try {
+      const { url } = await startCheckout({ plan });
+      window.location.assign(url);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message.replace(/^Uncaught Error:\s*/, "") : "";
+      toast.error(
+        msg.includes("NOT_CONFIGURED")
+          ? "Payments aren't switched on yet — try again soon."
+          : msg || "Couldn't open checkout.",
+      );
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-3">
+      {PLANS.map((plan) => {
+        const isCurrent = plan.id === currentPlan;
+        return (
+          <Card
+            key={plan.id}
+            className={cn(isCurrent && "border-primary/50 bg-primary/5")}
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between text-base">
+                {plan.label}
+                {isCurrent && (
+                  <Badge className="bg-primary text-primary-foreground">Current</Badge>
+                )}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">{plan.blurb}</p>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-1.5 text-sm">
+                {plan.features.map((feature) => (
+                  <li key={feature} className="flex items-start gap-2">
+                    <Check className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+              {!isCurrent && plan.id !== "free" && (
+                <Button
+                  className="mt-4 w-full"
+                  variant={plan.id === "team" ? "default" : "outline"}
+                  disabled={busy !== null || !isOwner}
+                  title={isOwner ? undefined : "Only the workspace owner can upgrade"}
+                  onClick={() => void upgrade(plan.id as "personal" | "team")}
+                >
+                  {busy === plan.id ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <CreditCard className="size-4" />
+                  )}
+                  Upgrade
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -219,14 +299,47 @@ function BillingTab() {
     Math.ceil((ledgerData?.total ?? 0) / (ledgerData?.pageSize ?? 10)),
   );
   const topUp = useMutation(api.billing.topUp);
+  const whop = useQuery(api.whop.status);
+  const startTopup = useAction(api.whopActions.startTopupCheckout);
   const [topUpOpen, setTopUpOpen] = useState(false);
   const [amount, setAmount] = useState("5000");
+  const [payingTopUp, setPayingTopUp] = useState(false);
 
   const currentPlan = me?.workspace?.plan ?? "free";
+  const topUpCredits = Math.max(0, Math.round(Number(amount) || 0));
+  const topUpUsd =
+    whop?.creditPriceUsd !== undefined
+      ? Math.round(topUpCredits * whop.creditPriceUsd * 100) / 100
+      : null;
+
+  // Back from a Whop checkout — the webhook applies the purchase within
+  // seconds and the balance/plan update reactively.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("purchase") === "success") {
+      toast.success("Payment received — your plan and credits update in a few seconds.");
+      params.delete("purchase");
+      const query = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    }
+  }, []);
 
   const doTopUp = async () => {
+    if (whop?.topups) {
+      setPayingTopUp(true);
+      try {
+        const { url } = await startTopup({ credits: topUpCredits });
+        window.location.assign(url);
+        return;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.replace(/^Uncaught Error:\s*/, "") : "";
+        toast.error(msg || "Couldn't open checkout.");
+        setPayingTopUp(false);
+      }
+      return;
+    }
     try {
-      await topUp({ credits: Number(amount) || 0 });
+      await topUp({ credits: topUpCredits });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
       toast.error(
@@ -261,7 +374,13 @@ function BillingTab() {
         <h2 className="mb-3 text-sm font-medium uppercase tracking-widest text-muted-foreground">
           Plans
         </h2>
-        {isConfigured ? (
+        {whop?.plans ? (
+          // Whop checkout — metadata-stamped sessions, webhook fulfillment.
+          <WhopPlanCards
+            currentPlan={currentPlan}
+            isOwner={me?.workspace?.isOwner ?? false}
+          />
+        ) : isConfigured ? (
           // Clerk Billing's live checkout — plans come from the Clerk dashboard.
           <PricingTable />
         ) : (
@@ -371,9 +490,19 @@ function BillingTab() {
             onChange={(e) => setAmount(e.target.value)}
             placeholder="5000"
           />
+          {whop?.topups && topUpUsd !== null && topUpCredits > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {topUpCredits.toLocaleString()} credits ≈{" "}
+              <span className="text-foreground">${topUpUsd.toFixed(2)}</span>
+              {whop.sandbox && " · sandbox mode"}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setTopUpOpen(false)}>Cancel</Button>
-            <Button onClick={doTopUp}>Continue to payment</Button>
+            <Button onClick={doTopUp} disabled={payingTopUp || topUpCredits <= 0}>
+              {payingTopUp && <Loader2 className="size-4 animate-spin" />}
+              Continue to payment
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

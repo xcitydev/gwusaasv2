@@ -4,6 +4,7 @@ import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { spendCredits, grantCredits } from "./lib/credits";
+import { assertPlanDb } from "./lib/plan";
 import { getConfigValue } from "./config";
 import { notify } from "./notifications";
 
@@ -129,6 +130,7 @@ export const saveReceptionist = mutation({
     greeting: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await assertPlanDb(ctx, "personal", "AI Receptionist");
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
@@ -428,6 +430,7 @@ export const createQualifierCampaign = mutation({
     leadIds: v.array(v.id("leads")),
   },
   handler: async (ctx, args) => {
+    await assertPlanDb(ctx, "personal", "AI Cold Calling");
     const { workspace } = await requireWorkspaceStrict(ctx);
     if (!args.name.trim() || !args.prompt.trim()) {
       throw new Error("Name and qualification prompt are required");
@@ -572,7 +575,14 @@ export const listCalls = query({
   },
 });
 
-/** Webhook-driven: finalize a call's duration and bill credits per second. */
+/** Longest call we will ever bill (4 hours). Anything above is a bad payload. */
+const MAX_BILLABLE_CALL_SEC = 4 * 60 * 60;
+
+/**
+ * Finalize a call's duration and bill credits per second. Idempotent: a call
+ * that is already completed or failed is never billed again, and when the
+ * caller knows which Bland call it is reconciling, it must match the record.
+ */
 export const completeCall = internalMutation({
   args: {
     callId: v.id("calls"),
@@ -580,25 +590,42 @@ export const completeCall = internalMutation({
     transcript: v.optional(v.string()),
     result: v.optional(v.any()),
     failed: v.optional(v.boolean()),
+    /** Bland's id for the call being reconciled; ignored when the record has none yet. */
+    blandCallId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const callDoc = await ctx.db.get(args.callId);
     if (!callDoc) return;
+    if (callDoc.status === "completed" || callDoc.status === "failed") return;
+    if (
+      args.blandCallId &&
+      callDoc.blandCallId &&
+      callDoc.blandCallId !== args.blandCallId
+    ) {
+      console.warn(
+        `completeCall: Bland call ${args.blandCallId} does not belong to record ${args.callId}; ignored`,
+      );
+      return;
+    }
+    const durationSec = Math.min(
+      MAX_BILLABLE_CALL_SEC,
+      Math.max(0, Math.round(Number.isFinite(args.durationSec) ? args.durationSec : 0)),
+    );
     const perSecond = await getConfigValue(ctx, "voiceCreditsPerSecond");
     // Browser tests are never billed.
     const credits =
-      args.failed || callDoc.isTest ? 0 : Math.ceil(args.durationSec * perSecond);
+      args.failed || callDoc.isTest ? 0 : Math.ceil(durationSec * perSecond);
     if (credits > 0) {
       await spendCredits(ctx, {
         workspaceId: callDoc.workspaceId,
         amount: credits,
         feature: callDoc.kind === "receptionist" ? "receptionist" : "qualifier",
-        description: `${callDoc.kind} call — ${args.durationSec}s`,
+        description: `${callDoc.kind} call — ${durationSec}s`,
       });
     }
     await ctx.db.patch(args.callId, {
       status: args.failed ? "failed" : "completed",
-      durationSec: args.durationSec,
+      durationSec,
       costCredits: credits,
       transcript: args.transcript,
       result: args.result,

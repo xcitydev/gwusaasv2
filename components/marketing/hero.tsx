@@ -7,12 +7,16 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Counter, EASE, Eyebrow, Item, Stagger, TileVideo, WIDE } from "./primitives";
 import { STUDIO_TILES } from "./sections";
+import { ServiceDock, ServiceLauncher, ServiceRail, useServiceFocus } from "./services";
 
 /**
  * The hero is a screen: a bezel-framed, full-bleed video with one giant
- * chrome title, one pill, one button — then an "Explore models" strip.
+ * chrome title, one pill, one button — with the services docked along
+ * its floor (desktop) or launched from a grid under it (mobile), then the
+ * service rail and the "Explore models" strip.
  */
 export function Hero() {
+  const { active, focus, railRef } = useServiceFocus();
   return (
     <section className="relative pt-24 sm:pt-28">
       <div className={WIDE}>
@@ -27,7 +31,7 @@ export function Hero() {
             aria-hidden
             className="pointer-events-none absolute inset-0 rounded-[2rem] sm:rounded-[2.75rem] bg-[radial-gradient(110%_70%_at_50%_-10%,rgba(255,255,255,0.08),transparent_60%)]"
           />
-          <div className="relative aspect-[4/5] overflow-hidden rounded-[1.4rem] bg-black sm:aspect-[2.3/1] sm:rounded-[2rem]">
+          <div className="relative aspect-square overflow-hidden rounded-[1.4rem] bg-black sm:aspect-[2.3/1] sm:rounded-[2rem] lg:aspect-auto lg:h-[clamp(520px,72vh,780px)]">
             <video
               className="absolute inset-0 h-full w-full object-cover"
               src="/hero.mp4"
@@ -46,13 +50,13 @@ export function Hero() {
               initial={{ opacity: 0, x: 12 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.6, delay: 0.8, ease: EASE }}
-              className="absolute right-4 top-4 rounded-md bg-primary px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-primary-foreground shadow-[0_0_30px_-6px_oklch(0.86_0.17_93/0.9)] sm:right-6 sm:top-6 sm:text-xs"
+              className="absolute right-4 top-4 rounded-md bg-primary bg-gradient-to-br from-[#4079fc] to-[#dc42fc] px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-primary-foreground shadow-[0_0_30px_-6px_oklch(0.598_0.241_294.3/0.9)] sm:right-6 sm:top-6 sm:text-xs"
             >
               New
             </motion.span>
 
             {/* Title stack */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center lg:pb-36">
               <motion.h1
                 initial={{ opacity: 0, y: 30, scale: 0.94, filter: "blur(10px)" }}
                 animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
@@ -60,8 +64,8 @@ export function Hero() {
                 className="font-black uppercase leading-[0.9] tracking-[-0.04em] drop-shadow-[0_18px_40px_rgba(0,0,0,0.7)]"
                 style={{ fontSize: "clamp(2.4rem, 9.5vw, 8.5rem)" }}
               >
-                <span className="bg-gradient-to-b from-[#fff4c2] via-primary to-[#8a6905] bg-clip-text text-transparent">
-                  Grow With Us
+                <span className="bg-gradient-to-b from-[#5cc3ff] via-[#8a5cfc] to-[#e24ff9] bg-clip-text text-transparent">
+                  Creatily
                 </span>
               </motion.h1>
               <motion.span
@@ -76,27 +80,33 @@ export function Hero() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.7, delay: 0.9, ease: EASE }}
-                className="mt-6 sm:mt-10"
+                className="mt-5 sm:mt-10"
               >
                 <Button
                   asChild
                   size="lg"
-                  className="h-12 rounded-xl px-8 text-base font-bold shadow-[0_0_50px_-8px_oklch(0.86_0.17_93/0.8)] transition-transform hover:scale-[1.03] sm:h-13 sm:px-10 sm:text-lg"
+                  className="h-12 rounded-xl bg-gradient-to-br from-[#4079fc] via-[#8e50fd] to-[#dc42fc] px-8 text-base font-bold shadow-[0_0_50px_-8px_oklch(0.598_0.241_294.3/0.8)] transition-transform hover:scale-[1.03] sm:h-13 sm:px-10 sm:text-lg"
                 >
                   <Link href="/sign-up">Try now</Link>
                 </Button>
               </motion.div>
             </div>
+
+            <ServiceDock active={active} onSelect={focus} />
           </div>
         </motion.div>
+
+        <ServiceLauncher active={active} onSelect={focus} />
+        <ServiceRail active={active} railRef={railRef} />
 
         {/* Explore models */}
         <div id="studio" className="scroll-mt-28">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 1.1, ease: EASE }}
-            className="mt-8 flex items-end justify-between gap-4 sm:mt-10"
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-60px" }}
+            transition={{ duration: 0.7, ease: EASE }}
+            className="mt-10 flex items-end justify-between gap-4 sm:mt-14"
           >
             <div>
               <h2 className="text-lg font-black uppercase tracking-tight sm:text-xl">
@@ -146,7 +156,7 @@ export function Hero() {
 const HEADLINE = ["Your", "whole", "growth", "team,"];
 
 const STATS: { value: number; suffix: string; label: string }[] = [
-  { value: 9, suffix: "", label: "AI modules, one workspace" },
+  { value: 10, suffix: "+", label: "AI modules, one workspace" },
   { value: 20, suffix: "+", label: "image & video models" },
   { value: 24, suffix: "/7", label: "calls answered in your voice" },
   { value: 15, suffix: "s", label: "to clone your voice" },
@@ -161,7 +171,7 @@ export function Statement() {
           className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(900px 480px at 50% 30%, oklch(0.86 0.17 93 / 0.14), transparent 70%)",
+              "radial-gradient(900px 480px at 50% 30%, oklch(0.598 0.241 294.3 / 0.14), transparent 70%)",
           }}
         />
       </div>

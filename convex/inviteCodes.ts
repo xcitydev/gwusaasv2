@@ -55,8 +55,39 @@ export const redeem = mutation({
       formsAccessSource: "invite",
       formsAccessAt: Date.now(),
       formsInviteCodeId: invite._id,
+      // Invited customers go straight to their forms, not the plan quiz.
+      planQuizPending: false,
     });
     return { status: "unlocked" };
+  },
+});
+
+/**
+ * Public check for the /join/<code> landing page. Says only whether the code
+ * can still be redeemed — never its label, creator or usage numbers.
+ */
+export const lookup = query({
+  args: { code: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ status: "valid" | "invalid" | "expired" | "used" }> => {
+    const code = normalizeInviteCode(args.code);
+    if (code.length < INVITE_CODE_MIN || code.length > INVITE_CODE_MAX) {
+      return { status: "invalid" };
+    }
+    const invite = await ctx.db
+      .query("inviteCodes")
+      .withIndex("by_code", (q) => q.eq("code", code))
+      .unique();
+    if (!invite || invite.status !== "active") return { status: "invalid" };
+    if (invite.expiresAt !== undefined && invite.expiresAt < Date.now()) {
+      return { status: "expired" };
+    }
+    if (invite.maxUses !== undefined && invite.uses >= invite.maxUses) {
+      return { status: "used" };
+    }
+    return { status: "valid" };
   },
 });
 

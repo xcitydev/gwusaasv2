@@ -15,6 +15,7 @@ import {
 import { blandConfigured, ttsWav } from "./lib/bland";
 import { renderVoiceNote } from "./lib/audio";
 import { isAmbiance, VOICE_NOTE_MAX_CHARS, type Ambiance } from "../lib/ig-dms";
+import { assertPlanAction } from "./lib/plan";
 
 const NOT_CONFIGURED =
   "NOT_CONFIGURED: Instagram DMs aren't switched on yet (GHL keys pending).";
@@ -152,6 +153,7 @@ export const enableIgDms = action({
   args: {},
   handler: async (ctx): Promise<{ status: string }> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    await assertPlanAction(ctx, "personal", "IG DMs & AI Voice");
     if (!ghlConfigured("provisioner")) throw new Error(NOT_CONFIGURED);
     const caller = await ctx.runQuery(internal.igDms.getAccountForCaller, {});
     if (!caller) throw new Error("No workspace");
@@ -160,7 +162,7 @@ export const enableIgDms = action({
     const locationId = await createLocation({
       agencyToken: agency.accessToken,
       companyId: agency.companyId,
-      name: `GWU — ${caller.workspaceName}`.slice(0, 60),
+      name: `Creatily — ${caller.workspaceName}`.slice(0, 60),
     });
     await ctx.runMutation(internal.igDms.insertAccount, {
       workspaceId: caller.workspaceId,
@@ -224,6 +226,7 @@ async function freshLocationToken(
 export const sendReply = action({
   args: { conversationId: v.id("igConversations"), text: v.string() },
   handler: async (ctx, args): Promise<void> => {
+    await assertPlanAction(ctx, "personal", "IG DMs & AI Voice");
     if (!ghlConfigured("messenger")) throw new Error(NOT_CONFIGURED);
     const text = args.text.trim();
     if (!text) throw new Error("Write a message first");
@@ -396,6 +399,7 @@ export const sendVoiceNote = action({
     renderedStorageId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args): Promise<{ credits: number }> => {
+    await assertPlanAction(ctx, "personal", "IG DMs & AI Voice");
     const input = validateVoiceNoteInput(args);
     const data = await ctx.runQuery(internal.igDms.getConversationForReply, {
       conversationId: args.conversationId,
@@ -675,6 +679,7 @@ export const startIgConnect = action({
   args: {},
   handler: async (ctx): Promise<{ url: string }> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    await assertPlanAction(ctx, "personal", "IG DMs & AI Voice");
     if (!ghlConfigured("messenger")) throw new Error(NOT_CONFIGURED);
     const caller = await ctx.runQuery(internal.igDms.getAccountForCaller, {});
     if (!caller?.account) throw new Error("Enable Instagram DMs first");

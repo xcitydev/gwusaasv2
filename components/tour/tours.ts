@@ -10,7 +10,7 @@ export const WELCOME_TOUR: TourDefinition = {
   id: "welcome",
   steps: [
     {
-      title: "Welcome to GWU 👋",
+      title: "Welcome to Creatily 👋",
       body: "Your whole growth team, run by AI. Here's a quick lay of the land — takes half a minute.",
     },
     {
@@ -36,7 +36,7 @@ export const LEADS_TOUR: TourDefinition = {
   steps: [
     {
       title: "Find your customers",
-      body: "Describe who you want in plain English — the AI searches Google Maps, LinkedIn and B2B databases, dedupes everything and verifies emails. Found leads cost 1 credit each.",
+      body: "Describe who you want in plain English — the AI searches Google Maps, LinkedIn and B2B databases, dedupes everything and verifies emails. Leads cost a few credits each, priced by source before you import.",
     },
     {
       target: "leads-search",
@@ -252,7 +252,7 @@ export const SETTINGS_TOUR: TourDefinition = {
     },
     {
       title: "Profile & access",
-      body: "Your profile, workspace details, and the invite code entry for GWU Onboarding Forms.",
+      body: "Your profile, workspace details, and the invite code entry for Creatily Onboarding Forms.",
     },
     {
       target: "settings-tab-integrations",

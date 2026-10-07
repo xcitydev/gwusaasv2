@@ -28,7 +28,11 @@ async function copy(text: string, what: string) {
   }
 }
 
-/** Mint, share and revoke the codes that unlock the GWU Onboarding Forms. */
+/** The page a customer lands on: works whether they sign up or sign in. */
+const inviteLink = (code: string) =>
+  `${window.location.origin}/join/${formatInviteCode(code)}`;
+
+/** Mint, share and revoke the codes that unlock the Creatily Onboarding Forms. */
 export function InviteCodesCard() {
   const codes = useQuery(api.inviteCodes.adminList) ?? [];
   const create = useMutation(api.inviteCodes.adminCreate);
@@ -58,7 +62,13 @@ export function InviteCodesCard() {
         expiresInDays: days,
         code: customCode.trim() || undefined,
       });
-      toast.success(`Invite code ${formatInviteCode(code)} created.`);
+      // Copy the shareable link straight away — that's what admins send out.
+      try {
+        await navigator.clipboard.writeText(inviteLink(code));
+        toast.success(`Invite link for ${formatInviteCode(code)} copied — paste it to your customer.`);
+      } catch {
+        toast.success(`Invite code ${formatInviteCode(code)} created.`);
+      }
       setLabel("");
       setCustomCode("");
     } catch (e) {
@@ -68,9 +78,6 @@ export function InviteCodesCard() {
     }
   };
 
-  const inviteLink = (code: string) =>
-    `${window.location.origin}/sign-up?invite=${formatInviteCode(code)}`;
-
   return (
     <Card className="mb-6">
       <CardHeader>
@@ -78,9 +85,10 @@ export function InviteCodesCard() {
           <KeyRound className="size-4 text-primary" /> Invite codes
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Redeeming a code unlocks the GWU Onboarding Forms for that account.
-          Share the code itself or the sign-up link. Leave uses empty for a
-          reusable code.
+          Redeeming a code unlocks the Creatily Onboarding Forms for that account.
+          Send customers the invite link — it works for new sign-ups and for
+          existing accounts (they just sign in). Leave uses empty for a
+          reusable link.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -182,8 +190,8 @@ export function InviteCodesCard() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label="Copy sign-up link"
-                            onClick={() => copy(inviteLink(c.code), "Sign-up link")}
+                            aria-label="Copy invite link"
+                            onClick={() => copy(inviteLink(c.code), "Invite link")}
                           >
                             <Link2 className="size-4" />
                           </Button>

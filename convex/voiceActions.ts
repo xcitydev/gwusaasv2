@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import {
   blandConfigured,
+  blandWebhookUrl,
   purchaseNumber,
   configureInbound,
   createWebAgent,
@@ -11,6 +12,7 @@ import {
   getCallDetails,
   sendCall,
 } from "./lib/bland";
+import { assertPlanAction } from "./lib/plan";
 
 /**
  * "Test in browser": spin up a throwaway Bland web agent with the current
@@ -108,6 +110,7 @@ export const cloneMyVoice = action({
   },
   handler: async (ctx, args): Promise<{ voiceId: string }> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    await assertPlanAction(ctx, "personal", "Clone Your Voice");
     const provider: VoiceProvider = args.provider ?? "bland";
     const { elevenConfigured, cloneVoice: elevenClone } = await import(
       "./lib/elevenlabs"
@@ -233,6 +236,7 @@ export const startBrowserTest = action({
     blandCallId: string;
     callRecordId: Id<"calls">;
   }> => {
+    await assertPlanAction(ctx, "personal", "AI Receptionist");
     if (!blandConfigured()) {
       throw new Error(
         "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
@@ -246,15 +250,12 @@ export const startBrowserTest = action({
     );
     // Web sessions can't carry metadata, so the webhook URL itself links the
     // Bland call back to our record.
-    const site = process.env.CONVEX_SITE_URL;
     const agentId = await createWebAgent({
       prompt: args.prompt,
       voice: args.voice,
       firstSentence: args.greeting,
       backgroundTrack: args.backgroundTrack,
-      webhookUrl: site
-        ? `${site}/bland-webhook?callRecordId=${callRecordId}`
-        : undefined,
+      webhookUrl: blandWebhookUrl({ callRecordId }),
     });
     const sessionToken = await authorizeWebAgent(agentId);
     // Safety net: if the tab closes without a clean hang-up, finalize anyway.
@@ -341,6 +342,80 @@ export const finalizeBrowserCall = internalAction({
   },
 });
 
+/**
+ * Webhook reconciliation. The Bland webhook body is never trusted: this
+ * re-reads the call from Bland's API (the only source billing uses) and then
+ * finalizes the matching record. A forged poke can at most trigger a re-read
+ * of a real call, which completeCall ignores once the record is finalized.
+ */
+export const reconcileFromWebhook = internalAction({
+  args: {
+    blandCallId: v.optional(v.string()),
+    callRecordId: v.optional(v.id("calls")),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    let callRecordId: Id<"calls"> | null = args.callRecordId ?? null;
+    let blandCallId: string | null = args.blandCallId ?? null;
+
+    if (callRecordId) {
+      const existing = await ctx.runQuery(internal.voice.getCallForAnalysis, {
+        callId: callRecordId,
+      });
+      if (!existing) return; // unknown or forged record id
+      if (existing.status === "completed" || existing.status === "failed") return;
+      if (existing.blandCallId) {
+        if (blandCallId && blandCallId !== existing.blandCallId) {
+          console.warn(
+            `reconcileFromWebhook: call ${blandCallId} does not belong to record ${callRecordId}; ignored`,
+          );
+          return;
+        }
+        blandCallId = existing.blandCallId;
+      }
+    } else if (blandCallId) {
+      callRecordId = await ctx.runQuery(internal.voice.findCallByBlandId, { blandCallId });
+      if (callRecordId) {
+        // Replays of a finished call must not even cost us a Bland API read.
+        const existing = await ctx.runQuery(internal.voice.getCallForAnalysis, {
+          callId: callRecordId,
+        });
+        if (!existing || existing.status === "completed" || existing.status === "failed") return;
+      }
+    }
+    if (!blandCallId) return; // nothing we can verify against Bland
+
+    let details: Awaited<ReturnType<typeof getCallDetails>>;
+    try {
+      details = await getCallDetails(blandCallId);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`reconcileFromWebhook: Bland has no usable record for ${blandCallId}; ignored (${msg})`);
+      return;
+    }
+
+    if (!callRecordId) {
+      // A real inbound call: nothing pre-created a record. Only the number
+      // Bland reports as dialed is trusted, never anything posted to us.
+      if (!details.to) return;
+      callRecordId = await ctx.runMutation(internal.voice.recordInboundCall, {
+        blandCallId,
+        toNumber: details.to,
+        fromNumber: details.from,
+      });
+      if (!callRecordId) return; // not one of our numbers, or already recorded
+    }
+
+    await ctx.runMutation(internal.voice.completeCall, {
+      callId: callRecordId,
+      blandCallId,
+      durationSec: details.durationSec,
+      transcript: details.transcript || undefined,
+      result: details.analysis,
+      failed: details.completed === false,
+    });
+  },
+});
+
 /** Browse the numbers actually in stock, priced in the user's credits. */
 export const listAvailable = action({
   args: { areaCode: v.optional(v.string()) },
@@ -376,6 +451,7 @@ export const buyNumber = action({
     ctx,
     args,
   ): Promise<{ id: Id<"phoneNumbers">; number: string }> => {
+    await assertPlanAction(ctx, "personal", "AI Receptionist");
     if (!blandConfigured()) {
       throw new Error(
         "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
@@ -446,6 +522,7 @@ export const startQualifierBrowserTest = action({
     blandCallId: string;
     callRecordId: Id<"calls">;
   }> => {
+    await assertPlanAction(ctx, "personal", "AI Cold Calling");
     if (!blandConfigured()) {
       throw new Error(
         "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
@@ -466,14 +543,11 @@ export const startQualifierBrowserTest = action({
       internal.voice.createQualifierBrowserCall,
       { blandCallId, campaignId: args.campaignId },
     );
-    const site = process.env.CONVEX_SITE_URL;
     const agentId = await createWebAgent({
       prompt: task,
       voice: dispatch.voice ?? "maya",
       backgroundTrack: dispatch.backgroundTrack ?? undefined,
-      webhookUrl: site
-        ? `${site}/bland-webhook?callRecordId=${callRecordId}`
-        : undefined,
+      webhookUrl: blandWebhookUrl({ callRecordId }),
     });
     const sessionToken = await authorizeWebAgent(agentId);
     await ctx.scheduler.runAfter(
@@ -493,6 +567,7 @@ export const startQualifierCampaign = action({
     args,
   ): Promise<{ dispatched: number; skipped: number }> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    await assertPlanAction(ctx, "personal", "AI Cold Calling");
     if (!blandConfigured()) {
       throw new Error(
         "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
@@ -511,9 +586,7 @@ export const startQualifierCampaign = action({
       id: args.campaignId,
       status: "running",
     });
-    const webhookUrl = process.env.CONVEX_SITE_URL
-      ? `${process.env.CONVEX_SITE_URL}/bland-webhook`
-      : undefined;
+    const webhookUrl = blandWebhookUrl();
     let dispatched = 0;
     let skipped = 0;
     for (const target of dispatch.pending) {
@@ -653,15 +726,10 @@ export const syncReceptionist = action({
       voice: args.voice,
       backgroundTrack: args.backgroundTrack,
       firstSentence: args.greeting,
-      webhookUrl: webhookUrl(),
+      webhookUrl: blandWebhookUrl(),
     });
   },
 });
-
-function webhookUrl(): string | undefined {
-  const site = process.env.CONVEX_SITE_URL;
-  return site ? `${site}/bland-webhook` : undefined;
-}
 
 /** Save auto-booking settings — users just paste their Cal.com booking link. */
 export const saveBookingSettings = action({

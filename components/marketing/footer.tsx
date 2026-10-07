@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
 
@@ -36,7 +37,13 @@ export function SiteFooter() {
     <footer className="border-t border-white/10">
       <div className="mx-auto grid w-full max-w-[2200px] gap-10 px-4 py-14 sm:px-6 lg:px-9 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <div>
-          <p className="font-display text-3xl italic">{BRAND.name}</p>
+          <Image
+            src={BRAND.logo.wordmarkFull}
+            alt={`${BRAND.name} by Grow With Us Agency`}
+            width={867}
+            height={246}
+            className="-ml-1.5 h-16 w-auto"
+          />
           <p className="mt-2 max-w-xs text-sm text-muted-foreground">{BRAND.tagline}</p>
         </div>
         {COLUMNS.map((column) => (

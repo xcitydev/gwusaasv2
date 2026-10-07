@@ -13,6 +13,10 @@ export const APIFY_ACTORS = {
   linkedin: "harvestapi~linkedin-profile-search",
   // cleansyntax/realtor-com-agents-scraper
   realtor_agents: "cleansyntax~realtor-com-agents-scraper",
+  // apify/instagram-comment-scraper — post/reel URL → comments (+ ownerUsername)
+  ig_comments: "apify~instagram-comment-scraper",
+  // apify/instagram-profile-scraper — usernames → bio, followers, link in bio
+  ig_profiles: "apify~instagram-profile-scraper",
 } as const;
 
 export function apifyConfigured(): boolean {
@@ -339,3 +343,93 @@ export function mapRealtorItem(item: Record<string, unknown>): FoundLead {
     phone: str(item.phone) || str(item.phoneNumber) || str(item.mobile),
   };
 }
+
+// ── Instagram commenter pipeline (Leads → IG Commenters) ────────────────
+
+export function igCommentsInput(args: { postUrl: string; limit: number }): unknown {
+  // Input schema per the actor's store page (2026-10-06): directUrls[],
+  // resultsLimit (per URL), includeNestedComments (replies; paid plans).
+  return { directUrls: [args.postUrl], resultsLimit: args.limit, includeNestedComments: false };
+}
+
+export function igProfilesInput(args: { usernames: string[] }): unknown {
+  return { usernames: args.usernames };
+}
+
+const num = (v: unknown): number => (typeof v === "number" ? v : Number(v) || 0);
+
+export type IgComment = {
+  username: string;
+  text: string;
+  likes: number;
+  timestamp: string;
+  profilePicUrl: string;
+  /** How many comments this user left on the post (rows are deduped by user). */
+  commentCount: number;
+};
+
+/**
+ * One comment item → IgComment (null when the author is missing). Field names
+ * live-verified 2026-10-06 against apify/instagram-scraper's comments output
+ * (text, ownerUsername, ownerProfilePicUrl, timestamp, likesCount, owner.*);
+ * the dedicated comment scraper documents the same shape.
+ */
+export function mapIgCommentItem(item: Record<string, unknown>): IgComment | null {
+  const owner = (item.owner ?? {}) as Record<string, unknown>;
+  const username = (str(item.ownerUsername) || str(owner.username)).replace(/^@/, "");
+  if (!username) return null;
+  return {
+    username,
+    text: str(item.text),
+    likes: num(item.likesCount),
+    timestamp: str(item.timestamp),
+    profilePicUrl: str(item.ownerProfilePicUrl) || str(owner.profile_pic_url),
+    commentCount: 1,
+  };
+}
+
+export type IgProfile = {
+  username: string;
+  fullName: string;
+  biography: string;
+  followersCount: number;
+  followsCount: number;
+  postsCount: number;
+  externalUrl: string;
+  verified: boolean;
+  isPrivate: boolean;
+  isBusinessAccount: boolean;
+  businessCategoryName: string;
+  profilePicUrl: string;
+};
+
+/** One profile-scraper item → IgProfile (null when the username is missing). */
+export function mapIgProfileItem(item: Record<string, unknown>): IgProfile | null {
+  const username = str(item.username).replace(/^@/, "");
+  if (!username) return null;
+  return {
+    username,
+    fullName: str(item.fullName) || str(item.full_name),
+    biography: str(item.biography) || str(item.bio),
+    followersCount: num(item.followersCount),
+    followsCount: num(item.followsCount),
+    postsCount: num(item.postsCount),
+    externalUrl: str(item.externalUrl) || str(item.external_url),
+    verified: Boolean(item.verified ?? item.isVerified),
+    isPrivate: Boolean(item.private ?? item.isPrivate),
+    isBusinessAccount: Boolean(item.isBusinessAccount),
+    businessCategoryName: str(item.businessCategoryName),
+    profilePicUrl: str(item.profilePicUrlHD) || str(item.profilePicUrl),
+  };
+}
+
+/** Final row shown in the IG Commenters table and exported to CSV. */
+export type IgCommenterRow = IgProfile & {
+  profileUrl: string;
+  comment: string;
+  commentLikes: number;
+  commentAt: string;
+  commentCount: number;
+  /** True when the profile scraper returned nothing for this user (private/deleted). */
+  profileMissing: boolean;
+};

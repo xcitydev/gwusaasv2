@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { decryptString, encryptString } from "./lib/crypto";
+import { assertPlanAction } from "./lib/plan";
 import { toInstantlyTags } from "../lib/merge-tags";
 import { toEngineTimezone } from "../lib/timezones";
 import {
@@ -66,6 +67,7 @@ export const connectInboxes = action({
     ctx,
     args,
   ): Promise<{ added: number; skipped: number; engineErrors: string[] }> => {
+    await assertPlanAction(ctx, "personal", "Outreach");
     const prepared = await Promise.all(
       args.inboxes.map(async (inbox) => {
         let credentials: { encrypted: string } | undefined;
@@ -181,6 +183,7 @@ export const setCampaignStatus = action({
     status: v.union(v.literal("active"), v.literal("paused"), v.literal("completed")),
   },
   handler: async (ctx, args): Promise<void> => {
+    await assertPlanAction(ctx, "personal", "Outreach");
     if (!instantlyConfigured()) {
       await ctx.runMutation(internal.outreach.setCampaignStatusLocal, {
         id: args.id,
@@ -327,6 +330,7 @@ export const updateCampaign = action({
 export const sendReply = action({
   args: { id: v.id("replies"), body: v.string() },
   handler: async (ctx, args): Promise<{ relayed: boolean }> => {
+    await assertPlanAction(ctx, "personal", "Outreach");
     if (!args.body.trim()) throw new Error("Write a reply first");
     const reply = await ctx.runMutation(internal.outreach.markReplied, {
       id: args.id,

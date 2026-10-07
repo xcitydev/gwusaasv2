@@ -13,7 +13,7 @@ import {
 import { SiteFooter } from "./footer";
 import { Showcases } from "./showcase";
 
-/** The public homepage — a cinematic screen up top, gold light, motion on every reveal. */
+/** The public homepage — a cinematic screen up top, violet light, motion on every reveal. */
 export function Landing() {
   return (
     <div className="relative min-h-dvh overflow-x-clip bg-background text-foreground">

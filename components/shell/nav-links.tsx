@@ -2,17 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Lock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { NavItem } from "@/lib/nav";
+import { planAtLeast } from "@/lib/plan";
 
 export function NavLinks({
   sections,
   onNavigate,
+  plan,
 }: {
   sections: { section: string; items: NavItem[] }[];
   onNavigate?: () => void;
+  /** Workspace plan — gated items render a lock below their minPlan. Undefined = still loading, no locks yet. */
+  plan?: string;
 }) {
   const pathname = usePathname();
   return (
@@ -31,6 +35,9 @@ export function NavLinks({
                   ? pathname === "/admin"
                   : pathname === item.href ||
                     pathname.startsWith(item.href + "/");
+              const locked = Boolean(
+                item.minPlan && plan !== undefined && !planAtLeast(plan, item.minPlan),
+              );
               return (
                 <div key={item.href}>
                   <Link
@@ -42,6 +49,7 @@ export function NavLinks({
                       active
                         ? "bg-primary/10 font-medium text-primary"
                         : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      locked && "opacity-60",
                     )}
                   >
                     <item.icon className="size-4 shrink-0" />
@@ -58,7 +66,13 @@ export function NavLinks({
                         </span>
                       )}
                     </span>
-                    {item.badge && (
+                    {locked && (
+                      <Lock
+                        className="ml-auto size-3.5 shrink-0 text-muted-foreground/80"
+                        aria-label="Upgrade to unlock"
+                      />
+                    )}
+                    {!locked && item.badge && (
                       <Badge
                         variant="outline"
                         className="ml-auto border-primary/40 px-1.5 py-0 text-[10px] text-primary"

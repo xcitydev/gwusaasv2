@@ -12,7 +12,7 @@ export default function FormsPage() {
   return (
     <FormsGate>
       <PageHeader
-        title="GWU Onboarding Forms"
+        title="Creatily Onboarding Forms"
         description="Onboarding — we review every request and start once payment is confirmed."
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

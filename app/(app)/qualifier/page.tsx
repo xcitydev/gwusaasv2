@@ -1,10 +1,13 @@
 import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
+import { planGate } from "@/lib/plan-gate";
 import { TourLauncher } from "@/components/tour/tour";
 import { QUALIFIER_TOUR } from "@/components/tour/tours";
 import { QualifierClient } from "@/components/voice/qualifier-client";
 
-export default function QualifierPage() {
+export default async function QualifierPage() {
+  const gate = await planGate("/qualifier");
+  if (gate) return gate;
   return (
     <LivePage>
       <PageHeader

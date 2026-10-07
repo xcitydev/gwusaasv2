@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
@@ -15,7 +16,7 @@ import { BRAND } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
-  { label: "What's inside", href: "#features" },
+  { label: "Services", href: "#services" },
   { label: "Your voice", href: "#voice" },
   { label: "Studio", href: "#studio" },
   { label: "Pricing", href: "#pricing" },
@@ -48,11 +49,15 @@ export function SiteNav() {
             : "border-transparent bg-transparent",
         )}
       >
-        <Link href="/" className="flex items-center gap-2">
-          <span className="font-display text-2xl italic tracking-wide">{BRAND.name}</span>
-          <span className="hidden text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground sm:inline">
-            Grow With Us
-          </span>
+        <Link href="/" className="flex items-center gap-2.5">
+          <Image
+            src={BRAND.logo.wordmark}
+            alt={BRAND.name}
+            width={867}
+            height={192}
+            className="h-6 w-auto sm:h-7"
+            priority
+          />
         </Link>
 
         <nav className="hidden items-center gap-1 md:flex">
@@ -86,23 +91,26 @@ export function SiteNav() {
           </SheetTrigger>
           <SheetContent
             side="right"
-            className="w-[320px] max-w-[88vw] gap-0 overflow-hidden border-white/10 bg-[#0b0a08] p-0 data-[side=right]:w-[320px]"
+            className="w-[320px] max-w-[88vw] gap-0 overflow-hidden border-white/10 bg-[#0a0a10] p-0 data-[side=right]:w-[320px]"
           >
-            {/* Gold glow backdrop */}
+            {/* Violet glow backdrop */}
             <div
               aria-hidden
               className="pointer-events-none absolute inset-0"
               style={{
                 background:
-                  "radial-gradient(320px 220px at 85% 0%, oklch(0.86 0.17 93 / 0.14), transparent 70%), radial-gradient(360px 260px at 50% 110%, oklch(0.86 0.17 93 / 0.1), transparent 70%)",
+                  "radial-gradient(320px 220px at 85% 0%, oklch(0.598 0.241 294.3 / 0.14), transparent 70%), radial-gradient(360px 260px at 50% 110%, oklch(0.598 0.241 294.3 / 0.1), transparent 70%)",
               }}
             />
             <div className="relative flex h-full flex-col px-6 pb-6 pt-5">
-              <SheetTitle className="flex items-baseline gap-2.5 font-display text-2xl font-normal italic">
-                {BRAND.name}
-                <span className="font-sans text-[9px] font-medium uppercase not-italic tracking-[0.22em] text-muted-foreground">
-                  Grow With Us
-                </span>
+              <SheetTitle className="flex items-center gap-2.5 font-normal">
+                <Image
+                  src={BRAND.logo.wordmark}
+                  alt={BRAND.name}
+                  width={867}
+                  height={192}
+                  className="h-6 w-auto"
+                />
               </SheetTitle>
               <nav className="mt-8 flex flex-col">
                 {LINKS.map((link, i) => (

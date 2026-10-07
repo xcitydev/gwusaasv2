@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
+import { planGate } from "@/lib/plan-gate";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TourLauncher } from "@/components/tour/tour";
@@ -22,6 +23,8 @@ const OUTREACH_TABS = ["inboxes", "campaigns", "master-inbox", "analytics", "set
 
 /** Deep links like /outreach?tab=campaigns open on that tab (dashboard stats use them). */
 export default async function OutreachPage({ searchParams }: PageProps<"/outreach">) {
+  const gate = await planGate("/outreach");
+  if (gate) return gate;
   const { tab } = await searchParams;
   const initialTab =
     typeof tab === "string" && (OUTREACH_TABS as readonly string[]).includes(tab) ? tab : "inboxes";

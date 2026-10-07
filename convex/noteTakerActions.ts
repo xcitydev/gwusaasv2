@@ -23,6 +23,7 @@ import {
   type RecallBot,
   type RecallCalendarEvent,
 } from "./lib/recall";
+import { assertPlanAction } from "./lib/plan";
 import {
   toSegments,
   participantsOf,
@@ -184,6 +185,7 @@ export const sendBot = action({
   },
   handler: async (ctx, args): Promise<{ meetingId: Id<"meetings"> }> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    await assertPlanAction(ctx, "personal", "AI Note Taker");
     if (!recallConfigured()) throw new Error(NOT_CONFIGURED);
     const meetingUrl = args.meetingUrl.trim();
     const platform = detectPlatform(meetingUrl);
@@ -606,6 +608,7 @@ export const calendarConnectUrl = action({
   args: { provider: providerValidator },
   handler: async (ctx, args): Promise<{ url: string }> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    await assertPlanAction(ctx, "personal", "AI Note Taker");
     if (!recallConfigured()) throw new Error(NOT_CONFIGURED);
     const config = OAUTH[args.provider];
     const clientId = config.clientId();

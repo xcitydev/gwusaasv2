@@ -34,8 +34,8 @@ export type NavItem = {
   badge?: string;
   /** One-line subtext under the label. */
   description?: string;
-  /** Only shown to team/agency plan workspaces. */
-  agencyOnly?: boolean;
+  /** Locked (shown with a lock icon) below this plan. */
+  minPlan?: "personal" | "team";
   /** Only shown once the user has forms access (invite code or admin grant). */
   inviteOnly?: boolean;
   /** Sub-links revealed while the item's route is active. */
@@ -61,36 +61,42 @@ export const APP_NAV: { section: string; items: NavItem[] }[] = [
         href: "/outreach",
         icon: Send,
         description: "Email campaigns & unified replies",
+        minPlan: "personal",
       },
       {
         label: "Scrape Leads",
         href: "/leads",
         icon: Users,
-        description: "Google Maps, LinkedIn and B2B databases",
+        description: "Google Maps, LinkedIn, B2B databases and Instagram commenters",
+        minPlan: "personal",
       },
       {
         label: "AI Receptionist",
         href: "/receptionist",
         icon: PhoneCall,
         description: "Answers calls and books 24/7",
+        minPlan: "personal",
       },
       {
         label: "AI Cold Calling",
         href: "/qualifier",
         icon: PhoneOutgoing,
         description: "Use your Cloned Voice, Set it up to Run Auto",
+        minPlan: "personal",
       },
       {
         label: "Clone Your Voice",
         href: "/voices",
         icon: AudioWaveform,
         description: "15 seconds, then use it everywhere",
+        minPlan: "personal",
       },
       {
         label: "IG DMs & AI Voice",
         href: "/ig-dms",
         icon: MessageCircle,
         description: "Manage messages, Automations and Send AI Voice DM's",
+        minPlan: "personal",
       },
     ],
   },
@@ -103,6 +109,7 @@ export const APP_NAV: { section: string; items: NavItem[] }[] = [
         icon: NotebookPen,
         description:
           "Automatically records, transcribes, and summarizes conversations across Zoom, Google Meet, Microsoft Teams",
+        minPlan: "personal",
       },
     ],
   },
@@ -136,7 +143,7 @@ export const APP_NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
-    section: "GWU Onboarding Forms",
+    section: "Creatily Onboarding Forms",
     items: [
       {
         label: "All services",
@@ -165,7 +172,7 @@ export const APP_NAV: { section: string; items: NavItem[] }[] = [
         label: "Team",
         href: "/team",
         icon: UsersRound,
-        agencyOnly: true,
+        minPlan: "team",
         description: "Members, invites, shared credits",
       },
       {

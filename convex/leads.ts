@@ -2,6 +2,7 @@ import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { spendCredits } from "./lib/credits";
+import { assertPlanDb } from "./lib/plan";
 
 const leadInput = v.object({
   email: v.string(),
@@ -44,6 +45,7 @@ export const importLeads = mutation({
     sourceDetail: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await assertPlanDb(ctx, "personal", "Scrape Leads");
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");

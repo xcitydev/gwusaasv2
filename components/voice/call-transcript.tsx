@@ -36,7 +36,7 @@ function parseTranscript(raw: string): Turn[] {
   return turns;
 }
 
-/** Chat-bubble rendering of a call transcript — AI left (gold), caller right. */
+/** Chat-bubble rendering of a call transcript — AI left (violet), caller right. */
 export function CallTranscript({
   transcript,
   aiLabel = "AI",

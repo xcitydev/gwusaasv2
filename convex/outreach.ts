@@ -7,6 +7,7 @@ import {
 import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
 import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
+import { assertPlanDb } from "./lib/plan";
 
 async function requireWorkspace(ctx: Parameters<typeof requireUser>[0]) {
   const user = await requireUser(ctx);
@@ -188,6 +189,7 @@ export const listDomains = query({
 export const addDomain = mutation({
   args: { domain: v.string() },
   handler: async (ctx, args) => {
+    await assertPlanDb(ctx, "personal", "Outreach");
     const { workspace } = await requireWorkspace(ctx);
     const domain = args.domain.trim().toLowerCase();
     if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) {
@@ -382,6 +384,7 @@ export const createCampaign = mutation({
     leadIds: v.array(v.id("leads")),
   },
   handler: async (ctx, args) => {
+    await assertPlanDb(ctx, "personal", "Outreach");
     const { workspace } = await requireWorkspace(ctx);
     if (!args.name.trim()) throw new Error("Name your campaign");
     if (args.steps.length === 0) throw new Error("Add at least one email step");

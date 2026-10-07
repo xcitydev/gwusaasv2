@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { motion } from "motion/react";
-import { ArrowRight, ArrowUpRight, Bot, Images, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Bot, Images, Lock as LockIcon, Sparkles } from "lucide-react";
 import { APP_NAV, filterNav, type NavItem } from "@/lib/nav";
+import { planAtLeast } from "@/lib/plan";
 import { hasConvex, isConfigured } from "@/lib/runtime";
 import { cn } from "@/lib/utils";
 import {
@@ -26,7 +27,7 @@ const SECTION_STYLE: Record<string, { blob: string; label: string }> = {
   "Marketing AI Hub": { blob: "from-primary/35 to-transparent", label: "Marketing AI Hub" },
   "Meeting tools": { blob: "from-sky-400/30 to-transparent", label: "Meetings" },
   "Create with AI": { blob: "from-fuchsia-400/30 to-transparent", label: "Create with AI" },
-  "GWU Onboarding Forms": { blob: "from-emerald-400/30 to-transparent", label: "Done for you" },
+  "Creatily Onboarding Forms": { blob: "from-emerald-400/30 to-transparent", label: "Done for you" },
   Earn: { blob: "from-rose-400/30 to-transparent", label: "Earn" },
 };
 
@@ -112,7 +113,7 @@ export function DashboardClient() {
             </div>
             <div className="max-w-2xl">
               <h2 className="text-3xl font-black uppercase leading-[0.95] tracking-tight sm:text-5xl">
-                <span className="bg-gradient-to-b from-[#fff4c2] via-primary to-[#8a6905] bg-clip-text text-transparent">
+                <span className="bg-gradient-to-b from-[#5cc3ff] via-[#8a5cfc] to-[#e24ff9] bg-clip-text text-transparent">
                   Make something today.
                 </span>
               </h2>
@@ -147,7 +148,16 @@ export function DashboardClient() {
               <Stagger className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {section.items.map((item) => (
                   <Item key={item.href} className="h-full">
-                    <ShortcutCard item={item} blob={SECTION_STYLE[section.section]?.blob} />
+                    <ShortcutCard
+                      item={item}
+                      blob={SECTION_STYLE[section.section]?.blob}
+                      locked={Boolean(
+                        item.minPlan &&
+                          me !== undefined &&
+                          !me?.adminRole &&
+                          !planAtLeast(me?.workspace?.plan, item.minPlan),
+                      )}
+                    />
                   </Item>
                 ))}
               </Stagger>
@@ -209,11 +219,14 @@ export function DashboardClient() {
   );
 }
 
-function ShortcutCard({ item, blob }: { item: NavItem; blob?: string }) {
+function ShortcutCard({ item, blob, locked }: { item: NavItem; blob?: string; locked?: boolean }) {
   return (
     <Link
       href={item.href}
-      className="group relative flex h-full items-start gap-3.5 overflow-hidden rounded-2xl border border-border bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[0_18px_50px_-30px_rgba(234,197,79,0.45)]"
+      className={cn(
+        "group relative flex h-full items-start gap-3.5 overflow-hidden rounded-2xl border border-border bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[0_18px_50px_-30px_rgba(142,80,253,0.45)]",
+        locked && "opacity-70",
+      )}
     >
       <span
         aria-hidden
@@ -228,10 +241,16 @@ function ShortcutCard({ item, blob }: { item: NavItem; blob?: string }) {
       <span className="relative min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className="truncate font-medium">{item.label}</span>
-          {item.badge && (
-            <span className="rounded-full border border-primary/40 px-1.5 py-0 text-[10px] text-primary">
-              {item.badge}
+          {locked ? (
+            <span className="flex items-center gap-1 rounded-full border border-border px-1.5 py-0 text-[10px] text-muted-foreground">
+              <LockIcon className="size-2.5" /> Upgrade
             </span>
+          ) : (
+            item.badge && (
+              <span className="rounded-full border border-primary/40 px-1.5 py-0 text-[10px] text-primary">
+                {item.badge}
+              </span>
+            )
           )}
         </span>
         {item.description && (

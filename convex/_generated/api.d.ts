@@ -23,6 +23,7 @@ import type * as generations from "../generations.js";
 import type * as http from "../http.js";
 import type * as hub from "../hub.js";
 import type * as igAi from "../igAi.js";
+import type * as igCommenters from "../igCommenters.js";
 import type * as igDms from "../igDms.js";
 import type * as igDmsActions from "../igDmsActions.js";
 import type * as integrations from "../integrations.js";
@@ -45,8 +46,10 @@ import type * as lib_ghl from "../lib/ghl.js";
 import type * as lib_higgsfield from "../lib/higgsfield.js";
 import type * as lib_instantly from "../lib/instantly.js";
 import type * as lib_mp4 from "../lib/mp4.js";
+import type * as lib_plan from "../lib/plan.js";
 import type * as lib_recall from "../lib/recall.js";
 import type * as lib_transcript from "../lib/transcript.js";
+import type * as lib_whop from "../lib/whop.js";
 import type * as lib_youtube from "../lib/youtube.js";
 import type * as noteTaker from "../noteTaker.js";
 import type * as noteTakerActions from "../noteTakerActions.js";
@@ -65,6 +68,8 @@ import type * as tours from "../tours.js";
 import type * as users from "../users.js";
 import type * as voice from "../voice.js";
 import type * as voiceActions from "../voiceActions.js";
+import type * as whop from "../whop.js";
+import type * as whopActions from "../whopActions.js";
 
 import type {
   ApiFromModules,
@@ -88,6 +93,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   hub: typeof hub;
   igAi: typeof igAi;
+  igCommenters: typeof igCommenters;
   igDms: typeof igDms;
   igDmsActions: typeof igDmsActions;
   integrations: typeof integrations;
@@ -110,8 +116,10 @@ declare const fullApi: ApiFromModules<{
   "lib/higgsfield": typeof lib_higgsfield;
   "lib/instantly": typeof lib_instantly;
   "lib/mp4": typeof lib_mp4;
+  "lib/plan": typeof lib_plan;
   "lib/recall": typeof lib_recall;
   "lib/transcript": typeof lib_transcript;
+  "lib/whop": typeof lib_whop;
   "lib/youtube": typeof lib_youtube;
   noteTaker: typeof noteTaker;
   noteTakerActions: typeof noteTakerActions;
@@ -130,6 +138,8 @@ declare const fullApi: ApiFromModules<{
   users: typeof users;
   voice: typeof voice;
   voiceActions: typeof voiceActions;
+  whop: typeof whop;
+  whopActions: typeof whopActions;
 }>;
 
 /**

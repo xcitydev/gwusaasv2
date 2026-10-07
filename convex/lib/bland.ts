@@ -10,6 +10,22 @@ export function blandConfigured(): boolean {
   return Boolean(process.env.BLAND_API_KEY);
 }
 
+/**
+ * The URL Bland posts call results to. Carries a shared secret (`key`) when
+ * BLAND_WEBHOOK_SECRET is set so the handler can reject forged requests —
+ * Bland does not sign its webhooks. Extra params (e.g. callRecordId for web
+ * sessions, which can't carry metadata) are appended as given.
+ */
+export function blandWebhookUrl(params?: Record<string, string>): string | undefined {
+  const site = process.env.CONVEX_SITE_URL;
+  if (!site) return undefined;
+  const url = new URL(`${site}/bland-webhook`);
+  const secret = process.env.BLAND_WEBHOOK_SECRET;
+  if (secret) url.searchParams.set("key", secret);
+  for (const [k, v] of Object.entries(params ?? {})) url.searchParams.set(k, v);
+  return url.toString();
+}
+
 async function call<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const key = process.env.BLAND_API_KEY;
   if (!key) throw new Error("NOT_CONFIGURED: BLAND_API_KEY is not set");
@@ -206,18 +222,30 @@ export async function listRecentCalls(limit = 50): Promise<BlandCallSummary[]> {
   return result.calls ?? [];
 }
 
-/** Transcript + duration for a finished call (works for web sessions too). */
+/**
+ * Transcript + duration for a finished call (works for web sessions too).
+ * This is the source of truth the webhook reconciles against: billing never
+ * trusts numbers posted to us, only what Bland's own API reports.
+ */
 export async function getCallDetails(callId: string): Promise<{
   transcript: string;
   durationSec: number;
   completed: boolean;
+  to?: string;
+  from?: string;
+  inbound?: boolean;
+  analysis?: unknown;
 }> {
   const result = await call<{
     concatenated_transcript?: string;
     corrected_duration?: number | string;
     call_length?: number;
     completed?: boolean;
-  }>(`/calls/${callId}`);
+    to?: string;
+    from?: string;
+    inbound?: boolean;
+    analysis?: unknown;
+  }>(`/calls/${encodeURIComponent(callId)}`);
   const corrected = Number(result.corrected_duration);
   return {
     transcript: result.concatenated_transcript ?? "",
@@ -227,6 +255,10 @@ export async function getCallDetails(callId: string): Promise<{
         : (result.call_length ?? 0) * 60,
     ),
     completed: result.completed ?? true,
+    to: result.to ?? undefined,
+    from: result.from ?? undefined,
+    inbound: result.inbound ?? undefined,
+    analysis: result.analysis ?? undefined,
   };
 }
 

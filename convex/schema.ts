@@ -56,6 +56,19 @@ export default defineSchema({
     formsAccessSource: v.optional(v.union(v.literal("invite"), v.literal("admin"))),
     formsAccessAt: v.optional(v.number()),
     formsInviteCodeId: v.optional(v.id("inviteCodes")),
+    // Plan prices stay off the public site: new sign-ups answer a short quiz
+    // at /welcome that recommends a plan and reveals its price.
+    planQuizPending: v.optional(v.boolean()),
+    planQuiz: v.optional(
+      v.object({
+        audience: v.string(),
+        teamSize: v.string(),
+        goals: v.array(v.string()),
+        recommended: planValidator,
+        skipped: v.boolean(),
+        at: v.number(),
+      }),
+    ),
   })
     .index("by_clerk_id", ["clerkId"])
     .index("by_email", ["email"])
@@ -68,9 +81,13 @@ export default defineSchema({
     credits: v.number(),
     // Guards against granting plan credits twice for the same plan purchase.
     planCreditsGrantedFor: v.optional(planValidator),
+    // The Whop subscription paying for this workspace's plan, if any.
+    whopMembershipId: v.optional(v.string()),
     // Outreach settings
     forwardRepliesTo: v.optional(v.string()),
-  }).index("by_owner", ["ownerId"]),
+  })
+    .index("by_owner", ["ownerId"])
+    .index("by_whop_membership", ["whopMembershipId"]),
 
   members: defineTable({
     workspaceId: v.id("workspaces"),
@@ -268,6 +285,33 @@ export default defineSchema({
     creditCostPerLead: v.optional(v.number()),
     // Requested lead count; results storage + dataset fetch respect it.
     limit: v.optional(v.number()),
+  }).index("by_workspace", ["workspaceId"]),
+
+  // ── Instagram commenter scraper (Leads → IG Commenters) ────────────────
+  // Two Apify runs per job: comment scraper (post → comments + usernames),
+  // then profile scraper (usernames → bio, followers, link in bio).
+  igCommentScrapes: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    postUrl: v.string(),
+    // Max comments requested (1–500); also caps stored rows.
+    limit: v.number(),
+    status: v.union(v.literal("running"), v.literal("done"), v.literal("failed")),
+    step: v.union(v.literal("comments"), v.literal("profiles")),
+    apifyRunId: v.optional(v.string()),
+    // Stage-1 output (IgComment[] deduped by username) kept until bios land.
+    comments: v.optional(v.any()),
+    commentCount: v.optional(v.number()),
+    // Final IgCommenterRow[]: profile + the user's comment.
+    results: v.optional(v.any()),
+    resultCount: v.number(),
+    // Effective credits per commenter (comment + profile rate) for the UI copy.
+    creditCostPerProfile: v.number(),
+    // Unit rates captured at start (×4.5 rule): billed on actual counts.
+    creditRates: v.optional(v.object({ comment: v.number(), profile: v.number() })),
+    creditsSpent: v.optional(v.number()),
+    error: v.optional(v.string()),
+    warning: v.optional(v.string()),
   }).index("by_workspace", ["workspaceId"]),
 
   // ── Outreach (phase 4) ──────────────────────────────────────────────────
@@ -916,6 +960,14 @@ export default defineSchema({
     role: v.union(v.literal("user"), v.literal("assistant")),
     content: v.string(),
   }).index("by_meeting", ["meetingId"]),
+
+  // Whop webhook idempotency — one row per processed payment/event key.
+  // Whop delivers at-least-once and retries for days; a replayed renewal
+  // must never grant credits twice.
+  whopEvents: defineTable({
+    key: v.string(),
+    type: v.string(),
+  }).index("by_key", ["key"]),
 
   // Guided product tours — where each user is in each walkthrough.
   tourProgress: defineTable({

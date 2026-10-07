@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { useAction, useMutation } from "convex/react";
@@ -79,6 +79,80 @@ function YesNoToggle({
   );
 }
 
+/** "Choose up to N" pills; the value is stored as a comma-separated string. */
+function MultiSelect({
+  field,
+  value,
+  onChange,
+  inputProps,
+}: {
+  field: FormFieldDef;
+  value: string;
+  onChange: (next: string) => void;
+  inputProps: Record<string, unknown>;
+}) {
+  const selected = value ? value.split(", ").filter(Boolean) : [];
+  const atMax = field.max !== undefined && selected.length >= field.max;
+  const toggle = (option: string) => {
+    const next = selected.includes(option)
+      ? selected.filter((o) => o !== option)
+      : atMax
+        ? selected
+        : [...selected, option];
+    onChange(next.join(", "));
+  };
+  return (
+    <div>
+      <input type="hidden" id={field.name} {...inputProps} />
+      <div className="flex flex-wrap gap-2">
+        {(field.options ?? []).map((option) => {
+          const on = selected.includes(option);
+          return (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={on}
+              disabled={!on && atMax}
+              onClick={() => toggle(option)}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-sm transition-colors",
+                on
+                  ? "border-primary/60 bg-primary/15 text-primary"
+                  : "border-border bg-input/30 text-foreground hover:border-primary/40",
+                !on && atMax && "opacity-40",
+              )}
+            >
+              {option}
+            </button>
+          );
+        })}
+      </div>
+      {field.max !== undefined && (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          {selected.length}/{field.max} selected
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SectionHeading({
+  section,
+  first,
+}: {
+  section: NonNullable<FormFieldDef["section"]>;
+  first: boolean;
+}) {
+  return (
+    <div className={cn("sm:col-span-2", !first && "mt-2 border-t border-border pt-6")}>
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-primary">{section.title}</h2>
+      {section.description && (
+        <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>
+      )}
+    </div>
+  );
+}
+
 export function ServiceForm({ def }: { def: FormDef }) {
   const submit = useAction(api.forms.submit);
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
@@ -146,10 +220,21 @@ export function ServiceForm({ def }: { def: FormDef }) {
     }),
   });
 
-  const renderField = (field: FormFieldDef) => {
+  const multiselectOptions = (field: FormFieldDef) => ({
+    validate: (value: unknown) => {
+      const count = String(value ?? "").split(", ").filter(Boolean).length;
+      if (field.required && count === 0) return `${field.label} is required`;
+      if (field.max !== undefined && count > field.max) return `Choose up to ${field.max}`;
+      return true;
+    },
+  });
+
+  const renderField = (field: FormFieldDef, index: number) => {
     const error = errors[field.name]?.message as string | undefined;
     return (
-      <div key={field.name} className={cn(field.half && "sm:col-span-1", !field.half && "sm:col-span-2")}>
+      <Fragment key={field.name}>
+      {field.section && <SectionHeading section={field.section} first={index === 0} />}
+      <div className={cn(field.half && "sm:col-span-1", !field.half && "sm:col-span-2")}>
         <FieldLabel field={field} />
         {field.type === "textarea" ? (
           <Textarea
@@ -181,6 +266,15 @@ export function ServiceForm({ def }: { def: FormDef }) {
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           </div>
+        ) : field.type === "multiselect" ? (
+          <MultiSelect
+            field={field}
+            value={String(watch(field.name) ?? "")}
+            onChange={(next) =>
+              setValue(field.name, next, { shouldValidate: true, shouldDirty: true })
+            }
+            inputProps={register(field.name, multiselectOptions(field))}
+          />
         ) : field.type === "file" ? (
           <Input
             id={field.name}
@@ -210,6 +304,7 @@ export function ServiceForm({ def }: { def: FormDef }) {
         )}
         {field.callout && <Callout callout={field.callout} />}
       </div>
+      </Fragment>
     );
   };
 
@@ -263,12 +358,17 @@ export function ServiceForm({ def }: { def: FormDef }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <CheckCircle2 className="size-5 text-emerald-400" /> Request received
+              <CheckCircle2 className="size-5 text-emerald-400" />{" "}
+              {def.successTitle ?? "Request received"}
             </DialogTitle>
-            <DialogDescription>
-              Your {def.title} request is now <strong>Processing</strong>. Our
-              team reviews every request and starts once payment is confirmed —
-              you&apos;ll get a notification when it goes active.
+            <DialogDescription className="whitespace-pre-line">
+              {def.successBody ?? (
+                <>
+                  Your {def.title} request is now <strong>Processing</strong>. Our
+                  team reviews every request and starts once payment is confirmed —
+                  you&apos;ll get a notification when it goes active.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

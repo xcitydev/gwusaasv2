@@ -114,7 +114,7 @@ export function Section({
   id?: string;
   eyebrow?: string;
   title: ReactNode;
-  /** Rendered in the display serif, gold — the emotional word. */
+  /** Rendered in the display serif, violet — the emotional word. */
   accent?: string;
   description?: string;
   children?: ReactNode;
@@ -163,7 +163,7 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 }
 
 /**
- * Card with a gold spotlight that follows the cursor and a border that
+ * Card with a violet spotlight that follows the cursor and a border that
  * brightens on hover — the landing page's main surface.
  */
 export function GlowCard({
@@ -189,7 +189,7 @@ export function GlowCard({
       className={cn(
         "group relative overflow-hidden rounded-2xl border border-white/10 bg-card/70 backdrop-blur-sm transition-colors duration-300 hover:border-primary/40",
         "before:pointer-events-none before:absolute before:inset-0 before:opacity-0 before:transition-opacity before:duration-500 group-hover:before:opacity-100 hover:before:opacity-100",
-        "before:[background:radial-gradient(420px_circle_at_var(--mx,50%)_var(--my,50%),oklch(0.86_0.17_93/0.14),transparent_60%)]",
+        "before:[background:radial-gradient(420px_circle_at_var(--mx,50%)_var(--my,50%),oklch(0.598_0.241_294.3/0.14),transparent_60%)]",
         className,
       )}
     >
@@ -289,7 +289,7 @@ export function Grain() {
   );
 }
 
-/** Soft gold light + fine grid behind a section. */
+/** Soft violet light + fine grid behind a section. */
 export function Backdrop({ className }: { className?: string }) {
   return (
     <div aria-hidden className={cn("pointer-events-none absolute inset-0 -z-10", className)}>
@@ -297,7 +297,7 @@ export function Backdrop({ className }: { className?: string }) {
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(900px 480px at 50% -10%, oklch(0.86 0.17 93 / 0.16), transparent 70%)",
+            "radial-gradient(900px 480px at 50% -10%, oklch(0.598 0.241 294.3 / 0.16), transparent 70%)",
         }}
       />
       <div
