@@ -6,7 +6,22 @@ import {
   whopTopupsConfigured,
   createPlanCheckout,
   createTopupCheckout,
+  listPlans,
+  type WhopPlanSummary,
 } from "./lib/whop";
+import type { TopupQuote } from "../lib/credit-packs";
+
+/** Admin (dev+) only: the company's Whop plans, to pick the ids for config. */
+export const adminListPlans = action({
+  args: {},
+  handler: async (ctx): Promise<WhopPlanSummary[]> => {
+    const me = await ctx.runQuery(api.users.me, {});
+    if (!me?.adminRole || me.adminRole === "regular") {
+      throw new Error("Dev or super admin only");
+    }
+    return await listPlans();
+  },
+});
 
 /**
  * Checkout creation — the only place the Clerk identity and the Whop
@@ -57,18 +72,24 @@ export const startTopupCheckout = action({
     if (!whopTopupsConfigured()) throw new Error(NOT_CONFIGURED);
     const me = await ctx.runQuery(api.users.me, {});
     if (!me?.workspace) throw new Error("Not signed in");
-    const quote: { credits: number; usd: number } = await ctx.runQuery(
-      internal.whop.topupQuote,
-      { credits: args.credits },
-    );
+    // Server-side quote: pack bonus, $10 minimum, current credit price.
+    const quote: TopupQuote = await ctx.runQuery(internal.whop.topupQuote, {
+      credits: args.credits,
+    });
     const { url } = await createTopupCheckout({
       usd: quote.usd,
-      title: `${quote.credits.toLocaleString()} credits`,
+      title: quote.packName
+        ? `${quote.packName} pack · ${quote.totalCredits.toLocaleString()} credits`
+        : `${quote.totalCredits.toLocaleString()} credits`,
       metadata: {
         workspaceId: me.workspace._id,
         userId: me._id,
         kind: "topup",
-        credits: String(quote.credits),
+        // Total to grant on payment, plus the split for the ledger line.
+        credits: String(quote.totalCredits),
+        baseCredits: String(quote.baseCredits),
+        bonusCredits: String(quote.bonusCredits),
+        pack: quote.packId ?? "custom",
       },
       redirectUrl: redirectUrl(),
     });

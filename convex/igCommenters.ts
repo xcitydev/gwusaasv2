@@ -138,8 +138,11 @@ export const createJob = internalMutation({
     // Billed on completion from actual counts; require the worst case (every
     // comment scraped and every profile found) up front so a finished run can
     // never be left unpaid.
-    if (workspace.credits < jobCredits(rates, args.limit, args.limit)) {
-      throw new Error("INSUFFICIENT_CREDITS");
+    const worstCase = jobCredits(rates, args.limit, args.limit);
+    if (workspace.credits < worstCase) {
+      throw new Error(
+        `INSUFFICIENT_CREDITS: need ${Math.ceil(worstCase)}, have ${Math.floor(workspace.credits)}`,
+      );
     }
     return await ctx.db.insert("igCommentScrapes", {
       workspaceId: workspace._id,

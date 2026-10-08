@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { promptTopUpIfInsufficient } from "@/lib/top-up-prompt";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -679,8 +680,8 @@ function DeckViewer({ carousel }: { carousel: Doc<"carousels"> }) {
       toast.success("Backgrounds rendered — your carousel is ready.");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
-      if (msg.includes("INSUFFICIENT_CREDITS")) {
-        toast.error("Not enough credits — top up in Settings.");
+      if (promptTopUpIfInsufficient(e, "Rendering this carousel")) {
+        // The top-up dialog is open with the exact gap; no toast needed.
       } else if (msg.includes("NOT_CONFIGURED")) {
         toast.error("Carousels aren't configured yet — an admin needs to add the AI keys.");
       } else if (msg.includes("refunded")) {
@@ -921,8 +922,8 @@ export function CarouselTab() {
       const msg = e instanceof Error ? e.message : "";
       if (msg.includes("NOT_CONFIGURED")) {
         toast.error("Carousels aren't configured yet — an admin needs to add the AI keys.");
-      } else if (msg.includes("INSUFFICIENT_CREDITS")) {
-        toast.error("Not enough credits — top up in Settings.");
+      } else if (promptTopUpIfInsufficient(e, "Making this carousel")) {
+        // The top-up dialog is open with the exact gap; no toast needed.
       } else if (msg.includes("refunded")) {
         toast.error("Carousel failed — your credits were refunded.");
       } else if (msg.includes("Couldn't write the slides")) {

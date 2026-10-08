@@ -1,6 +1,7 @@
 "use client";
 
 import type { FunctionReturnType } from "convex/server";
+import { promptTopUpIfInsufficient } from "@/lib/top-up-prompt";
 import { api } from "@/convex/_generated/api";
 import {
   MEETING_PLATFORMS,
@@ -26,6 +27,8 @@ export function serverMessage(e: unknown, fallback: string): string {
 export function friendlyError(e: unknown, fallback: string): string {
   const msg = serverMessage(e, fallback);
   if (msg.includes("INSUFFICIENT_CREDITS")) {
+    // Opens the app-wide top-up dialog with the exact gap as well.
+    promptTopUpIfInsufficient(e, "Sending the note taker");
     return "Not enough credits to record a meeting — top up first.";
   }
   if (msg.includes("NOT_CONFIGURED")) {

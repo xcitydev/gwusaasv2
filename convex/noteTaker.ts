@@ -424,8 +424,11 @@ export const createMeeting = internalMutation({
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
     const rate = await getConfigValue(ctx, "noteTakerCreditsPerMinute");
-    if (workspace.credits < rate * MIN_BILLABLE_MINUTES) {
-      throw new Error("INSUFFICIENT_CREDITS");
+    const minimum = rate * MIN_BILLABLE_MINUTES;
+    if (workspace.credits < minimum) {
+      throw new Error(
+        `INSUFFICIENT_CREDITS: need ${Math.ceil(minimum)}, have ${Math.floor(workspace.credits)}`,
+      );
     }
     const title = args.title?.trim().slice(0, 140);
     return await ctx.db.insert("meetings", {

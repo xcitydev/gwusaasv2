@@ -19,7 +19,10 @@ http.route({
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     const secret = process.env.WHOP_WEBHOOK_SECRET;
-    if (!secret) return new Response("not configured", { status: 503 });
+    if (!secret) {
+      console.error("WHOP-WEBHOOK: rejected, WHOP_WEBHOOK_SECRET is not set");
+      return new Response("not configured", { status: 503 });
+    }
     const rawBody = await request.text();
     const ok = await verifyWhopSignature({
       secret,
@@ -28,7 +31,20 @@ http.route({
       signatureHeader: request.headers.get("webhook-signature"),
       rawBody,
     });
-    if (!ok) return new Response("invalid signature", { status: 401 });
+    if (!ok) {
+      // Logged so a wrong secret in the dashboard is visible, with nothing
+      // sensitive: which headers were present and how big the body was.
+      console.error(
+        "WHOP-WEBHOOK: rejected, invalid signature",
+        JSON.stringify({
+          hasId: Boolean(request.headers.get("webhook-id")),
+          hasTimestamp: Boolean(request.headers.get("webhook-timestamp")),
+          hasSignature: Boolean(request.headers.get("webhook-signature")),
+          bodyBytes: rawBody.length,
+        }),
+      );
+      return new Response("invalid signature", { status: 401 });
+    }
 
     const event = JSON.parse(rawBody) as {
       id?: string;
@@ -67,7 +83,25 @@ http.route({
       return new Response("ok", { status: 200 });
     }
 
-    // Refunds/disputes and anything else: acknowledge, keep a trace.
+    // Refunds: Whop's refund event, or any payment event whose payment has
+    // been voided/refunded. Credit packs are clawed back; plans only logged.
+    const refundLike =
+      event.type === "payment.refunded" ||
+      (Boolean(event.type?.startsWith("payment.")) &&
+        event.type !== "payment.succeeded" &&
+        (data.status === "void" || data.substatus === "refunded"));
+    if (refundLike && data.id) {
+      const result = await ctx.runMutation(internal.whop.handlePaymentRefunded, {
+        eventId: event.id ?? `${event.type}:${data.id}`,
+        paymentId: data.id,
+        metadata: data.metadata ?? undefined,
+        usdTotal: typeof data.usd_total === "number" ? data.usd_total : undefined,
+      });
+      console.log("WHOP-WEBHOOK:", event.type, data.id, result.handled);
+      return new Response("ok", { status: 200 });
+    }
+
+    // Disputes and anything else: acknowledge, keep a trace.
     console.log("WHOP-WEBHOOK: ignored", event.type ?? "unknown", event.id ?? "");
     return new Response("ignored", { status: 200 });
   }),

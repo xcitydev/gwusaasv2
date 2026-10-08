@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { InviteCodeCard } from "@/components/forms/forms-gate";
 import { IntegrationsTab } from "@/components/settings/integrations-tab";
-import { PricingTable, UserProfile } from "@clerk/nextjs";
+import { UserProfile } from "@clerk/nextjs";
 import { toast } from "sonner";
 import {
   Check,
@@ -19,18 +19,10 @@ import {
   UserRound,
 } from "lucide-react";
 import { isConfigured } from "@/lib/runtime";
+import { openTopUp } from "@/lib/top-up-prompt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -298,19 +290,9 @@ function BillingTab() {
     1,
     Math.ceil((ledgerData?.total ?? 0) / (ledgerData?.pageSize ?? 10)),
   );
-  const topUp = useMutation(api.billing.topUp);
   const whop = useQuery(api.whop.status);
-  const startTopup = useAction(api.whopActions.startTopupCheckout);
-  const [topUpOpen, setTopUpOpen] = useState(false);
-  const [amount, setAmount] = useState("5000");
-  const [payingTopUp, setPayingTopUp] = useState(false);
 
   const currentPlan = me?.workspace?.plan ?? "free";
-  const topUpCredits = Math.max(0, Math.round(Number(amount) || 0));
-  const topUpUsd =
-    whop?.creditPriceUsd !== undefined
-      ? Math.round(topUpCredits * whop.creditPriceUsd * 100) / 100
-      : null;
 
   // Back from a Whop checkout — the webhook applies the purchase within
   // seconds and the balance/plan update reactively.
@@ -324,33 +306,6 @@ function BillingTab() {
     }
   }, []);
 
-  const doTopUp = async () => {
-    if (whop?.topups) {
-      setPayingTopUp(true);
-      try {
-        const { url } = await startTopup({ credits: topUpCredits });
-        window.location.assign(url);
-        return;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message.replace(/^Uncaught Error:\s*/, "") : "";
-        toast.error(msg || "Couldn't open checkout.");
-        setPayingTopUp(false);
-      }
-      return;
-    }
-    try {
-      await topUp({ credits: topUpCredits });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "";
-      toast.error(
-        msg.includes("NOT_CONFIGURED")
-          ? "Top-ups activate once billing keys are added — contact support meanwhile."
-          : "Top-up failed.",
-      );
-    }
-    setTopUpOpen(false);
-  };
-
   return (
     <div className="space-y-6">
       <Card>
@@ -358,7 +313,7 @@ function BillingTab() {
           <CardTitle className="flex items-center gap-2 text-base">
             <Coins className="size-4 text-primary" /> Credits
           </CardTitle>
-          <Button size="sm" onClick={() => setTopUpOpen(true)}>Top up</Button>
+          <Button size="sm" onClick={() => openTopUp()}>Top up</Button>
         </CardHeader>
         <CardContent>
           <p className="text-3xl font-semibold text-primary">
@@ -380,10 +335,10 @@ function BillingTab() {
             currentPlan={currentPlan}
             isOwner={me?.workspace?.isOwner ?? false}
           />
-        ) : isConfigured ? (
-          // Clerk Billing's live checkout — plans come from the Clerk dashboard.
-          <PricingTable />
         ) : (
+          // Whop is the only payment system. Without its keys we show the
+          // static cards, never another checkout, so a misconfiguration is
+          // visible instead of quietly taking money through the wrong system.
           <StaticPlanCards currentPlan={currentPlan} />
         )}
       </div>
@@ -476,36 +431,6 @@ function BillingTab() {
         </CardContent>
       </Card>
 
-      <Dialog open={topUpOpen} onOpenChange={setTopUpOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Top up credits</DialogTitle>
-            <DialogDescription>
-              Buy additional credits at the current per-credit price.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            inputMode="numeric"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="5000"
-          />
-          {whop?.topups && topUpUsd !== null && topUpCredits > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {topUpCredits.toLocaleString()} credits ≈{" "}
-              <span className="text-foreground">${topUpUsd.toFixed(2)}</span>
-              {whop.sandbox && " · sandbox mode"}
-            </p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTopUpOpen(false)}>Cancel</Button>
-            <Button onClick={doTopUp} disabled={payingTopUp || topUpCredits <= 0}>
-              {payingTopUp && <Loader2 className="size-4 animate-spin" />}
-              Continue to payment
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

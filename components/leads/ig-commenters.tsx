@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { promptTopUpIfInsufficient } from "@/lib/top-up-prompt";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -131,6 +132,7 @@ function Live() {
       setActiveId(res.jobId);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
+      if (promptTopUpIfInsufficient(e, "This scrape")) return;
       toast.error(
         msg.includes("INSUFFICIENT_CREDITS")
           ? `Not enough credits — this run can cost up to ${worstCase}. Top up in Settings or lower the comment count.`

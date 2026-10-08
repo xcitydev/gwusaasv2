@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { promptTopUpIfInsufficient } from "@/lib/top-up-prompt";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -132,6 +133,7 @@ export function AiSearch() {
       setConfirmOpen(false);
       setSelected(new Set());
     } catch (e) {
+      if (promptTopUpIfInsufficient(e, "Importing these leads")) return;
       toast.error(
         e instanceof Error && e.message.includes("INSUFFICIENT_CREDITS")
           ? "Not enough credits — top up in Settings."

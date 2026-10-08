@@ -50,6 +50,61 @@ async function request<T>(path: string, body: unknown): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+async function getJson<T>(path: string): Promise<T> {
+  const key = process.env.WHOP_API_KEY;
+  if (!key) throw new Error("NOT_CONFIGURED: WHOP_API_KEY is not set");
+  const res = await fetch(`${apiBase()}${path}`, {
+    headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Whop ${res.status} ${path}: ${text.slice(0, 300)}`);
+  return JSON.parse(text) as T;
+}
+
+export type WhopPlanSummary = {
+  id: string;
+  productId: string | null;
+  productName: string | null;
+  internalName: string | null;
+  planType: string | null;
+  visibility: string | null;
+  billingPeriodDays: number | null;
+  price: string | null;
+  currency: string | null;
+};
+
+/**
+ * The company's plans as Whop sees them — used by admins to find the
+ * plan_… ids to put in WHOP_PLAN_PERSONAL / WHOP_PLAN_TEAM without hunting
+ * through the dashboard. The key stays on the server.
+ */
+export async function listPlans(): Promise<WhopPlanSummary[]> {
+  // Whop's current API calls the company an "account" (ids still start with biz_).
+  const companyId = process.env.WHOP_COMPANY_ID;
+  if (!companyId) throw new Error("NOT_CONFIGURED: WHOP_COMPANY_ID is not set");
+  const qs = `?account_id=${encodeURIComponent(companyId)}&per=50`;
+  const raw = await getJson<{ data?: Record<string, unknown>[] } | Record<string, unknown>[]>(
+    `/api/v1/plans${qs}`,
+  );
+  const rows = Array.isArray(raw) ? raw : (raw.data ?? []);
+  const str = (v: unknown) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : null);
+  const num = (v: unknown) => (typeof v === "number" ? v : null);
+  return rows.map((p) => {
+    const product = (p.product ?? null) as Record<string, unknown> | null;
+    return {
+      id: str(p.id) ?? "",
+      productId: product ? str(product.id) : str(p.product_id),
+      productName: product ? (str(product.title) ?? str(product.name)) : null,
+      internalName: str(p.internal_notes) ?? str(p.internal_name) ?? str(p.title),
+      planType: str(p.plan_type),
+      visibility: str(p.visibility),
+      billingPeriodDays: num(p.billing_period),
+      price: str(p.renewal_price) ?? str(p.initial_price) ?? str(p.price),
+      currency: str(p.base_currency) ?? str(p.currency),
+    };
+  });
+}
+
 type CheckoutResponse = { id: string; purchase_url: string };
 
 /** The docs show purchase_url as a path — make it absolute either way. */
@@ -95,8 +150,8 @@ export async function createTopupCheckout(args: {
         initial_price: Math.round(args.usd * 100) / 100,
         title: args.title,
         product: {
-          external_identifier: "gwu-credit-packs",
-          title: "Platform credits",
+          external_identifier: "creatily-credits",
+          title: "Creatily credits",
         },
       },
       metadata: args.metadata,

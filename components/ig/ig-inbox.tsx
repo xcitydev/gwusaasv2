@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { promptTopUpIfInsufficient } from "@/lib/top-up-prompt";
 import {
   useAction,
   useMutation,
@@ -680,6 +681,7 @@ function Composer({
       setPreview({ ...result, text: draft.trim(), voiceId, ambiance });
     } catch (e) {
       const msg = serverMessage(e, "Couldn't render the voice note.");
+      if (promptTopUpIfInsufficient(e, "This voice note")) return;
       toast.error(
         msg.includes("INSUFFICIENT_CREDITS")
           ? "Not enough credits to render this voice note."
@@ -735,6 +737,7 @@ function Composer({
       );
     } catch (e) {
       const msg = serverMessage(e, "Couldn't send the voice note.");
+      if (promptTopUpIfInsufficient(e, "This voice note")) return;
       toast.error(
         msg.includes("INSUFFICIENT_CREDITS")
           ? "Not enough credits for this voice note."

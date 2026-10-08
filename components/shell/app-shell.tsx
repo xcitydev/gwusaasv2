@@ -10,6 +10,7 @@ import { APP_NAV, ADMIN_NAV, filterNav } from "@/lib/nav";
 import { BrandMark } from "@/components/shell/brand-mark";
 import { NavLinks } from "@/components/shell/nav-links";
 import { CreditsPill } from "@/components/shell/credits-pill";
+import { TopUpDialogHost } from "@/components/billing/top-up-dialog";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
 import { ShellUserButton } from "@/components/shell/user-button";
 import { Button } from "@/components/ui/button";
@@ -143,6 +144,9 @@ export function AppShell({
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           {children}
         </main>
+        {/* One top-up dialog for every page: Settings opens it, and any
+            action that runs short of credits opens it with the exact gap. */}
+        {hasConvex && <TopUpDialogHost />}
       </div>
     </div>
   );
