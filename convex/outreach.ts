@@ -8,6 +8,12 @@ import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
 import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { assertPlanDb } from "./lib/plan";
+import {
+  assertContactRoom,
+  assertDailyCap,
+  assertInboxRoom,
+  refreshContactCount,
+} from "./outreachLimits";
 
 async function requireWorkspace(ctx: Parameters<typeof requireUser>[0]) {
   const user = await requireUser(ctx);
@@ -64,6 +70,20 @@ export const addInboxes = internalMutation({
     let added = 0;
     let skipped = 0;
     const inserted: { id: Doc<"inboxes">["_id"]; email: string }[] = [];
+    // Plan inbox cap, counting only addresses that would actually be new.
+    let candidates = 0;
+    for (const inbox of args.inboxes) {
+      const email = inbox.email.trim().toLowerCase();
+      if (!email.includes("@")) continue;
+      const existing = await ctx.db
+        .query("inboxes")
+        .withIndex("by_workspace_email", (q) =>
+          q.eq("workspaceId", workspace._id).eq("email", email),
+        )
+        .unique();
+      if (!existing) candidates++;
+    }
+    await assertInboxRoom(ctx, workspace, candidates);
     for (const inbox of args.inboxes) {
       const email = inbox.email.trim().toLowerCase();
       if (!email.includes("@")) {
@@ -278,19 +298,24 @@ export const listCampaigns = query({
 });
 
 export const getCampaign = query({
-  args: { id: v.id("campaigns") },
+  // The id comes straight from the URL, so it is validated here rather than
+  // by v.id(): a malformed value is "not found", not an argument error that
+  // crashes the page through useQuery.
+  args: { id: v.string() },
   handler: async (ctx, args) => {
     const workspace = await currentWorkspace(ctx);
     if (!workspace) return null;
-    const campaign = await ctx.db.get(args.id);
+    const id = ctx.db.normalizeId("campaigns", args.id);
+    if (!id) return null;
+    const campaign = await ctx.db.get(id);
     if (!campaign || campaign.workspaceId !== workspace._id) return null;
     const steps = await ctx.db
       .query("sequenceSteps")
-      .withIndex("by_campaign", (q) => q.eq("campaignId", args.id))
+      .withIndex("by_campaign", (q) => q.eq("campaignId", id))
       .collect();
     const links = await ctx.db
       .query("campaignLeads")
-      .withIndex("by_campaign", (q) => q.eq("campaignId", args.id))
+      .withIndex("by_campaign", (q) => q.eq("campaignId", id))
       .collect();
     const leads = (
       await Promise.all(links.slice(0, 200).map((l) => ctx.db.get(l.leadId)))
@@ -343,6 +368,7 @@ export const updateCampaignLocal = internalMutation({
     }
     if (args.inboxIds.length === 0) throw new Error("Pick at least one inbox");
     if (args.dailyCap < 1) throw new Error("Daily cap must be at least 1");
+    await assertDailyCap(ctx, workspace, args.dailyCap);
 
     await ctx.db.patch(args.id, {
       name: args.name.trim(),
@@ -394,6 +420,9 @@ export const createCampaign = mutation({
     if (args.inboxIds.length === 0) throw new Error("Pick at least one inbox");
     if (args.leadIds.length === 0) throw new Error("Add at least one lead");
     if (args.dailyCap < 1) throw new Error("Daily cap must be at least 1");
+    await assertDailyCap(ctx, workspace, args.dailyCap);
+    // Plan + platform contact caps, checked before anything is written.
+    await assertContactRoom(ctx, workspace, args.leadIds);
 
     const campaignId = await ctx.db.insert("campaigns", {
       workspaceId: workspace._id,
@@ -424,6 +453,7 @@ export const createCampaign = mutation({
         status: "queued",
       });
     }
+    await refreshContactCount(ctx, workspace._id);
     return campaignId;
   },
 });
@@ -440,6 +470,7 @@ export const setCampaignStatusLocal = internalMutation({
     if (!campaign || campaign.workspaceId !== workspace._id) throw new Error("Not found");
     await ctx.db.patch(args.id, {
       status: args.status,
+      statusChangedAt: Date.now(),
       ...(args.instantlyId && { instantlyId: args.instantlyId }),
     });
     return { instantlyId: args.instantlyId ?? campaign.instantlyId ?? null };
@@ -488,6 +519,9 @@ export const addCampaignLeadsLocal = internalMutation({
       }
     }
 
+    // Plan + platform contact caps (leads already in a campaign are free).
+    await assertContactRoom(ctx, workspace, candidateIds);
+
     let added = 0;
     let alreadyIn = 0;
     const newLeads = [];
@@ -525,6 +559,7 @@ export const addCampaignLeadsLocal = internalMutation({
       });
     }
 
+    if (added > 0) await refreshContactCount(ctx, workspace._id);
     return { added, alreadyIn, newLeads, instantlyId: campaign.instantlyId ?? null };
   },
 });
@@ -635,6 +670,7 @@ export const removeCampaign = mutation({
       ...links.map((l) => ctx.db.delete(l._id)),
     ]);
     await ctx.db.delete(args.id);
+    await refreshContactCount(ctx, workspace._id);
   },
 });
 

@@ -6,7 +6,8 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { toast } from "sonner";
-import { Megaphone, MoreHorizontal, Pause, Play, Plus, Trash2 } from "lucide-react";
+import { Archive, Megaphone, MoreHorizontal, Pause, Play, Plus, Trash2 } from "lucide-react";
+import { OutreachUsageCard } from "@/components/outreach/usage-card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,7 +45,17 @@ export function CampaignsTab() {
   const campaignsQuery = useQuery(api.outreach.listCampaigns);
   const campaigns = (campaignsQuery ?? []) as CampaignRow[];
   const setStatus = useAction(api.outreachActions.setCampaignStatus);
+  const archiveCampaign = useAction(api.outreachActions.archiveCampaign);
   const removeCampaign = useMutation(api.outreach.removeCampaign);
+
+  const archive = async (campaign: CampaignRow) => {
+    try {
+      await archiveCampaign({ id: campaign._id });
+      toast.success(`${campaign.name} archived — its contacts no longer count against your limit.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message.split("Uncaught Error: ").pop() : "Couldn't archive.");
+    }
+  };
   const [wizardOpen, setWizardOpen] = useState(false);
   const [publishTarget, setPublishTarget] = useState<CampaignRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CampaignRow | null>(null);
@@ -62,12 +73,17 @@ export function CampaignsTab() {
 
   const togglePause = async (campaign: CampaignRow) => {
     const nextStatus = campaign.status === "active" ? "paused" : "active";
-    await setStatus({ id: campaign._id, status: nextStatus });
-    toast.success(nextStatus === "paused" ? "Campaign paused." : "Campaign resumed.");
+    try {
+      await setStatus({ id: campaign._id, status: nextStatus });
+      toast.success(nextStatus === "paused" ? "Campaign paused." : "Campaign resumed.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message.split("Uncaught Error: ").pop() : "Couldn't update.");
+    }
   };
 
   return (
     <div>
+      <OutreachUsageCard />
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {campaigns.filter((c) => c.status === "active").length} active ·{" "}
@@ -152,6 +168,11 @@ export function CampaignsTab() {
                                   <Play className="size-4" /> Resume
                                 </>
                               )}
+                            </DropdownMenuItem>
+                          )}
+                          {(campaign.status === "paused" || campaign.status === "completed") && (
+                            <DropdownMenuItem onClick={() => archive(campaign)}>
+                              <Archive className="size-4" /> Archive
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuItem

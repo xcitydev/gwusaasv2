@@ -69,7 +69,7 @@ type InboxList = NonNullable<
   ReturnType<typeof useQuery<typeof api.outreach.listInboxes>>
 >;
 
-export function CampaignDetail({ campaignId }: { campaignId: Id<"campaigns"> }) {
+export function CampaignDetail({ campaignId }: { campaignId: string }) {
   const campaign = useQuery(api.outreach.getCampaign, { id: campaignId });
   const allInboxes = useQuery(api.outreach.listInboxes) ?? [];
 

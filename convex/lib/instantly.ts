@@ -39,7 +39,9 @@ async function call<T>(
     }
     throw new Error(`Instantly ${res.status}: ${detail || "request failed"}`);
   }
-  return (await res.json()) as T;
+  // DELETEs answer with an empty body.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : {}) as T;
 }
 
 // ── Accounts (inboxes) ──────────────────────────────────────────────────
@@ -277,6 +279,14 @@ export async function updateCampaign(
 
 export async function activateCampaign(campaignId: string): Promise<void> {
   await call(`/campaigns/${campaignId}/activate`, { method: "POST" });
+}
+
+/**
+ * Remove a campaign from Instantly entirely. Its leads go with it, which is
+ * what frees "uploaded contacts" on the account-level quota.
+ */
+export async function deleteCampaign(campaignId: string): Promise<void> {
+  await call(`/campaigns/${encodeURIComponent(campaignId)}`, { method: "DELETE" });
 }
 
 export async function pauseCampaign(campaignId: string): Promise<void> {

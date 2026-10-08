@@ -1,5 +1,5 @@
 import { action, internalAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { decryptString, encryptString } from "./lib/crypto";
@@ -18,6 +18,7 @@ import {
   addLeadsToCampaign,
   activateCampaign,
   pauseCampaign,
+  deleteCampaign,
   getCampaignAnalytics,
   listReplyEmails,
   replyToEmail,
@@ -184,6 +185,12 @@ export const setCampaignStatus = action({
   },
   handler: async (ctx, args): Promise<void> => {
     await assertPlanAction(ctx, "personal", "Outreach");
+    // Going live is refused once the workspace (or the platform) has used
+    // its monthly email allowance; pausing and completing are always allowed.
+    if (args.status === "active") {
+      const check = await ctx.runQuery(internal.outreachLimits.activationCheck, {});
+      if (!check.ok) throw new Error(check.reason);
+    }
     if (!instantlyConfigured()) {
       await ctx.runMutation(internal.outreach.setCampaignStatusLocal, {
         id: args.id,
@@ -467,7 +474,9 @@ export const syncEngine = internalAction({
       console.error("Unibox sync failed:", error);
     }
 
-    // 3. Campaign analytics → stats.
+    // 3. Campaign analytics → stats, and the monthly email tally. A
+    // workspace that crosses its plan's monthly cap has its live campaigns
+    // paused in Instantly right here, so the shared quota stays protected.
     try {
       const campaigns = await ctx.runQuery(
         internal.outreach.listActiveEngineCampaigns,
@@ -479,10 +488,81 @@ export const syncEngine = internalAction({
           id: campaign._id,
           ...stats,
         });
+        const tally = await ctx.runMutation(internal.outreachLimits.recordSent, {
+          campaignId: campaign._id,
+          sent: stats.sent,
+        });
+        if (tally.overCap) {
+          for (const instantlyId of tally.instantlyIds) {
+            try {
+              await pauseCampaign(instantlyId);
+            } catch (error) {
+              console.error(`Cap pause failed for ${instantlyId}:`, error);
+            }
+          }
+        }
       }
     } catch (error) {
       console.error("Campaign analytics sync failed:", error);
     }
+
+    // 4. Platform pool watch (alerts admins once a month past 80%).
+    try {
+      await ctx.runMutation(internal.outreachLimits.checkPlatformPool, {});
+    } catch (error) {
+      console.error("Platform pool check failed:", error);
+    }
+  },
+});
+
+/**
+ * Archive a campaign: it is removed from Instantly (which frees its leads
+ * from the account's uploaded-contact quota) and kept locally with its
+ * stats, no longer counting against the workspace's contact cap.
+ */
+export const archiveCampaign = action({
+  args: { id: v.id("campaigns") },
+  handler: async (ctx, args): Promise<void> => {
+    await assertPlanAction(ctx, "personal", "Outreach");
+    const campaign = await ctx.runQuery(api.outreachLimits.ownCampaign, { id: args.id });
+    if (!campaign) throw new Error("Campaign not found");
+    if (campaign.status === "active") throw new Error("Pause the campaign before archiving it");
+    if (campaign.status === "archived") return;
+    if (campaign.instantlyId && instantlyConfigured()) {
+      try {
+        await deleteCampaign(campaign.instantlyId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "engine error";
+        // Already gone on their side is fine; anything else must surface.
+        if (!/404|not found/i.test(message)) throw error;
+      }
+    }
+    await ctx.runMutation(internal.outreachLimits.markArchived, { id: args.id });
+  },
+});
+
+/** Daily: campaigns completed 30+ days ago are archived to free quota. */
+export const autoArchive = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ archived: number }> => {
+    const stale = await ctx.runQuery(internal.outreachLimits.listStaleCompleted, { days: 30 });
+    let archived = 0;
+    for (const c of stale) {
+      if (c.instantlyId && instantlyConfigured()) {
+        try {
+          await deleteCampaign(c.instantlyId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "engine error";
+          if (!/404|not found/i.test(message)) {
+            console.error(`Auto-archive: engine delete failed for ${c.instantlyId}:`, error);
+            continue;
+          }
+        }
+      }
+      await ctx.runMutation(internal.outreachLimits.markArchived, { id: c._id });
+      archived++;
+    }
+    return { archived };
   },
 });
 

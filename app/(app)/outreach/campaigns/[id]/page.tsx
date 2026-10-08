@@ -1,4 +1,3 @@
-import { Id } from "@/convex/_generated/dataModel";
 import { CampaignDetail } from "@/components/outreach/campaign-detail";
 import { LivePage } from "@/components/live-page";
 
@@ -8,7 +7,7 @@ export default async function CampaignDetailPage({
   const { id } = await params;
   return (
     <LivePage>
-      <CampaignDetail campaignId={id as Id<"campaigns">} />
+      <CampaignDetail campaignId={id} />
     </LivePage>
   );
 }

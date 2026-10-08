@@ -39,4 +39,13 @@ crons.interval(
   {},
 );
 
+// Campaigns completed 30+ days ago are removed from Instantly so their
+// leads stop counting against the platform's uploaded-contact quota.
+crons.interval(
+  "archive finished campaigns",
+  { hours: 24 },
+  internal.outreachActions.autoArchive,
+  {},
+);
+
 export default crons;
