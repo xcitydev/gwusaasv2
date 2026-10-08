@@ -155,7 +155,7 @@ export function CoachCard({ token }: { token: string }) {
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-black text-white">
-      <div className="relative flex h-[720px] w-[1280px] flex-col gap-6 overflow-hidden bg-[#0a0a0a] p-10">
+      <div className="relative flex h-180 w-7xl flex-col gap-6 overflow-hidden bg-[#0a0a0a] p-10">
         <div
           aria-hidden
           className="pointer-events-none absolute -right-32 -top-32 size-96 rounded-full bg-primary/20 blur-3xl"

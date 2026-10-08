@@ -16,6 +16,22 @@ const hasClerk = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 export default hasClerk
   ? clerkMiddleware(async (auth, req) => {
+      const { pathname } = req.nextUrl;
+      const { userId } = await auth();
+
+      // JSON API routes answer JSON: a signed-out fetch() gets 401, never an
+      // HTML redirect to the sign-in page it cannot parse.
+      if (pathname.startsWith("/api/")) {
+        if (!userId) return Response.json({ error: "unauthorized" }, { status: 401 });
+        return NextResponse.next();
+      }
+
+      // The homepage is prerendered static; the signed-in bounce to the app
+      // lives here so the page itself never has to read the session.
+      if (pathname === "/" && userId) {
+        return NextResponse.redirect(new URL("/dashboard", req.url));
+      }
+
       if (!isPublicRoute(req)) {
         await auth.protect();
       }

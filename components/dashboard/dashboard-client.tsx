@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSyncExternalStore } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { motion } from "motion/react";
@@ -47,9 +48,20 @@ function greeting(): string {
   return "Good evening";
 }
 
+/** Nothing pushes greeting changes; useSyncExternalStore just needs a subscriber. */
+function subscribeNever(): () => void {
+  return () => {};
+}
+
 export function DashboardClient() {
   const me = useQuery(api.users.me, isConfigured ? {} : "skip");
   const firstName = me?.name?.split(" ")[0];
+  // The page is prerendered at build time, so a greeting computed during
+  // render bakes the build hour into the HTML and mismatches the visitor's
+  // clock on hydration (React #418). The server snapshot (null) is also what
+  // the client renders while hydrating, so the HTML matches; the real
+  // greeting fills in right after, from the visitor's own clock.
+  const greet = useSyncExternalStore(subscribeNever, greeting, () => null);
   const sections = filterNav(APP_NAV, { formsAccess: !isConfigured || Boolean(me?.formsAccess) }).filter(
     (s) => s.section !== "" && s.section !== "Account",
   );
@@ -65,7 +77,7 @@ export function DashboardClient() {
       >
         <div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            {greeting()}
+            {greet ?? "Welcome"}
             {firstName ? `, ${firstName}` : ""}.
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">

@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from "react";
 import Link from "next/link";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
@@ -169,10 +169,14 @@ export function ServiceForm({ def }: { def: FormDef }) {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     setValue,
     formState: { errors },
   } = useForm<FieldValues>({ defaultValues: defaults });
+  // One subscription to the whole form instead of watch() per field: the
+  // React Compiler can memoize this, and it is called once, outside the
+  // per-field render helper (no hook inside a loop).
+  const values = useWatch({ control });
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitting(true);
@@ -246,7 +250,7 @@ export function ServiceForm({ def }: { def: FormDef }) {
           />
         ) : field.type === "toggle" ? (
           <YesNoToggle
-            value={Boolean(watch(field.name))}
+            value={Boolean(values[field.name])}
             onChange={(v) => setValue(field.name, v)}
           />
         ) : field.type === "select" ? (
@@ -269,7 +273,7 @@ export function ServiceForm({ def }: { def: FormDef }) {
         ) : field.type === "multiselect" ? (
           <MultiSelect
             field={field}
-            value={String(watch(field.name) ?? "")}
+            value={String(values[field.name] ?? "")}
             onChange={(next) =>
               setValue(field.name, next, { shouldValidate: true, shouldDirty: true })
             }
