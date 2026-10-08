@@ -85,9 +85,24 @@ export default defineSchema({
     whopMembershipId: v.optional(v.string()),
     // Outreach settings
     forwardRepliesTo: v.optional(v.string()),
+    /** Cached count of distinct leads enrolled in non-archived campaigns (platform pool). */
+    outreachContacts: v.optional(v.number()),
   })
     .index("by_owner", ["ownerId"])
     .index("by_whop_membership", ["whopMembershipId"]),
+
+  /**
+   * Emails sent per workspace per calendar month, tallied from Instantly's
+   * campaign analytics by the engine sync. Caps live in config.
+   */
+  outreachUsage: defineTable({
+    workspaceId: v.id("workspaces"),
+    month: v.string(), // "2026-10" (UTC)
+    emailsSent: v.number(),
+    pausedForCap: v.boolean(),
+  })
+    .index("by_workspace_month", ["workspaceId", "month"])
+    .index("by_month", ["month"]),
 
   members: defineTable({
     workspaceId: v.id("workspaces"),
@@ -174,16 +189,46 @@ export default defineSchema({
   referrals: defineTable({
     referrerUserId: v.id("users"),
     referredUserId: v.id("users"),
+    // pending → active on the first paid plan → churned when the referred
+    // subscription dies. "qualified"/"paid" are legacy rows from the old
+    // one-time payout scheme and keep their payoutUsd.
     status: v.union(
       v.literal("pending"),
+      v.literal("active"),
+      v.literal("churned"),
       v.literal("qualified"),
       v.literal("paid"),
     ),
     plan: v.optional(planValidator),
+    /** Legacy one-time payout (scheme before 2026-10-07). */
     payoutUsd: v.optional(v.number()),
+    /** Rate locked at the referral's first payment, so a later config change never shrinks a promise. */
+    commissionPercent: v.optional(v.number()),
+    lifetimeUsd: v.optional(v.number()),
+    paymentCount: v.optional(v.number()),
+    lastPaymentAt: v.optional(v.number()),
+    referredWorkspaceId: v.optional(v.id("workspaces")),
   })
     .index("by_referrer", ["referrerUserId"])
     .index("by_referred", ["referredUserId"]),
+
+  /** One row per paid invoice of a referred workspace: the referrer's cut, for life. */
+  referralCommissions: defineTable({
+    referralId: v.id("referrals"),
+    referrerUserId: v.id("users"),
+    referredUserId: v.id("users"),
+    whopPaymentId: v.string(),
+    kind: v.union(v.literal("first"), v.literal("renewal")),
+    plan: planValidator,
+    paymentUsd: v.number(),
+    percent: v.number(),
+    amountUsd: v.number(),
+    status: v.union(v.literal("owed"), v.literal("paid")),
+    paidAt: v.optional(v.number()),
+  })
+    .index("by_referral", ["referralId"])
+    .index("by_referrer", ["referrerUserId"])
+    .index("by_payment", ["whopPaymentId"]),
 
   notifications: defineTable({
     userId: v.id("users"),
@@ -370,7 +415,12 @@ export default defineSchema({
       v.literal("active"),
       v.literal("paused"),
       v.literal("completed"),
+      // Removed from Instantly; leads no longer count against the contact cap.
+      v.literal("archived"),
     ),
+    statusChangedAt: v.optional(v.number()),
+    // Cumulative sent count already added to outreachUsage (engine sync).
+    sentAccounted: v.optional(v.number()),
     // Sending schedule
     sendWindowStart: v.string(), // "09:00"
     sendWindowEnd: v.string(), // "17:00"

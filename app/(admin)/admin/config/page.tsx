@@ -52,7 +52,7 @@ const CONFIG_META: {
   {
     key: "referralPercent",
     label: "Referral percentage (%)",
-    help: "One-time commission for referring a paid subscription.",
+    help: "Commission on every payment a referred workspace makes, first charge and each renewal, for as long as they stay. Locked per referral at their first payment.",
     kind: "number",
   },
   {
@@ -138,6 +138,54 @@ const CONFIG_META: {
     label: "Team notification email",
     help: "Second recipient for form-submission notifications.",
     kind: "email",
+  },
+  {
+    key: "outreachContactsPersonal",
+    label: "Outreach contacts — Personal",
+    help: "Distinct leads a Personal workspace can have enrolled in campaigns at once.",
+    kind: "number",
+  },
+  {
+    key: "outreachContactsTeam",
+    label: "Outreach contacts — Team",
+    help: "Distinct leads a Team workspace can have enrolled in campaigns at once.",
+    kind: "number",
+  },
+  {
+    key: "outreachEmailsPersonal",
+    label: "Outreach emails / month — Personal",
+    help: "Emails a Personal workspace can send per calendar month. Campaigns auto-pause at the cap; the daily cap per campaign is this ÷ 20.",
+    kind: "number",
+  },
+  {
+    key: "outreachEmailsTeam",
+    label: "Outreach emails / month — Team",
+    help: "Emails a Team workspace can send per calendar month.",
+    kind: "number",
+  },
+  {
+    key: "outreachInboxesPersonal",
+    label: "Outreach inboxes — Personal",
+    help: "Sending inboxes a Personal workspace can connect.",
+    kind: "number",
+  },
+  {
+    key: "outreachInboxesTeam",
+    label: "Outreach inboxes — Team",
+    help: "Sending inboxes a Team workspace can connect.",
+    kind: "number",
+  },
+  {
+    key: "instantlyPlanContacts",
+    label: "Instantly plan — uploaded contacts",
+    help: "The platform's Instantly plan limit (Hyper Growth = 25,000). Admins are alerted at 80%; enrolment stops at 100%.",
+    kind: "number",
+  },
+  {
+    key: "instantlyPlanEmails",
+    label: "Instantly plan — emails / month",
+    help: "The platform's Instantly plan limit (Hyper Growth = 125,000). Activation stops at 100%.",
+    kind: "number",
   },
 ];
 

@@ -19,7 +19,21 @@ export const CONFIG_DEFAULTS = {
   teamPlanCredits: 30000,
   // Create with AI / Studio / carousels: provider cost × this, in credits.
   generationMarkup: 4.5,
-  referralPercent: 50,
+  referralPercent: 15,
+  // Outreach caps per plan. Instantly is ONE platform account, so the sum
+  // across customers must fit the plan below. Contacts = distinct leads in
+  // non-archived campaigns; emails = sent per calendar month; inboxes =
+  // connected sending accounts. Daily cap per campaign = emails ÷ 20.
+  outreachContactsPersonal: 2500,
+  outreachContactsTeam: 7500,
+  outreachEmailsPersonal: 10000,
+  outreachEmailsTeam: 30000,
+  outreachInboxesPersonal: 3,
+  outreachInboxesTeam: 10,
+  // The Instantly plan the platform is on (Hyper Growth: 25k contacts,
+  // 125k emails/month). Admins are alerted at 80%; enrolment stops at 100%.
+  instantlyPlanContacts: 25000,
+  instantlyPlanEmails: 125000,
   // Where "someone filled a form / opened a ticket" notifications go.
   adminNotificationEmail: "",
   teamNotificationEmail: "",

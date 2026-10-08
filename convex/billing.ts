@@ -4,7 +4,6 @@ import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { grantCredits } from "./lib/credits";
 import { getConfigValue } from "./config";
 import { planValidator } from "./schema";
-import { notify } from "./notifications";
 
 /**
  * Called by the client after Clerk Billing reports the active plan
@@ -33,13 +32,12 @@ export const syncPlan = mutation({
     await ctx.db.patch(workspace._id, { plan: args.plan });
     if (args.plan === "free") return { changed: true };
 
-    const [personalCredits, teamCredits, personalPrice, teamPrice, percent] =
+    const [personalCredits, teamCredits, personalPrice, teamPrice] =
       await Promise.all([
         getConfigValue(ctx, "personalPlanCredits"),
         getConfigValue(ctx, "teamPlanCredits"),
         getConfigValue(ctx, "personalPlanPriceUsd"),
         getConfigValue(ctx, "teamPlanPriceUsd"),
-        getConfigValue(ctx, "referralPercent"),
       ]);
     const credits = args.plan === "team" ? teamCredits : personalCredits;
     const priceUsd = args.plan === "team" ? teamPrice : personalPrice;
@@ -63,28 +61,9 @@ export const syncPlan = mutation({
       });
     }
 
-    // One-time 30% referral payout — first paid plan only.
-    if (user.referredBy) {
-      const referral = await ctx.db
-        .query("referrals")
-        .withIndex("by_referred", (q) => q.eq("referredUserId", user._id))
-        .unique();
-      if (referral && referral.status === "pending") {
-        const payoutUsd = Math.round(priceUsd * (percent / 100) * 100) / 100;
-        await ctx.db.patch(referral._id, {
-          status: "qualified",
-          plan: args.plan,
-          payoutUsd,
-        });
-        await notify(ctx, {
-          userId: referral.referrerUserId,
-          type: "referral_qualified",
-          title: `You earned $${payoutUsd} from a referral!`,
-          body: "Someone you referred just subscribed.",
-          href: "/referrals",
-        });
-      }
-    }
+    // Referral commissions (15% of every payment, for life) are recorded only
+    // from real Whop invoices in whop.handlePaymentSucceeded. A plan sync
+    // carries no invoice, so there is nothing to pay out here.
     return { changed: true };
   },
 });

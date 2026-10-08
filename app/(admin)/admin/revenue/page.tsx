@@ -1,10 +1,14 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useState } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { DollarSign, Gift, Receipt, TrendingUp } from "lucide-react";
+import { Id } from "@/convex/_generated/dataModel";
+import { toast } from "sonner";
+import { DollarSign, Gift, Loader2, Receipt, TrendingUp } from "lucide-react";
 import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 const KIND_LABELS: Record<string, string> = {
@@ -58,6 +62,75 @@ function RevenueView() {
               </p>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <ReferralPayouts />
+    </>
+  );
+}
+
+/**
+ * Who is owed referral commission right now. "Mark paid" records that the
+ * transfer was made outside the app (bank, PayPal, Whop payout) and notifies
+ * the referrer; it never moves money itself.
+ */
+function ReferralPayouts() {
+  const rows = useQuery(api.admin.referralPayouts);
+  const markPaid = useMutation(api.admin.markReferralPayoutsPaid);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const pay = async (userId: Id<"users">, email: string, owedUsd: number) => {
+    if (!window.confirm(`Mark $${owedUsd.toFixed(2)} as paid to ${email}? Do this after the transfer has actually been sent.`)) return;
+    setBusy(userId);
+    try {
+      const result = await markPaid({ referrerUserId: userId });
+      toast.success(`Recorded $${result.total.toFixed(2)} paid to ${email} (${result.count} item${result.count === 1 ? "" : "s"}).`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message.split("Uncaught Error: ").pop() : "Couldn't mark as paid.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <>
+      <h2 className="mb-3 mt-8 text-sm font-medium uppercase tracking-widest text-muted-foreground">
+        Referral payouts
+      </h2>
+      <Card>
+        <CardContent className="divide-y divide-border p-0">
+          {rows === undefined ? (
+            <p className="px-5 py-6 text-sm text-muted-foreground">Loading…</p>
+          ) : rows === null || rows.length === 0 ? (
+            <p className="px-5 py-6 text-sm text-muted-foreground">
+              No referral commissions yet. Each referred payment adds 15% here for the referrer.
+            </p>
+          ) : (
+            rows.map((r) => (
+              <div key={r.userId} className="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{r.name ? `${r.name} · ` : ""}{r.email}</p>
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    {r.activeReferrals} paying referral{r.activeReferrals === 1 ? "" : "s"}
+                    {" · "}{r.owedCount} item{r.owedCount === 1 ? "" : "s"} owed
+                    {r.lastOwedAt ? ` · latest ${new Date(r.lastOwedAt).toLocaleDateString()}` : ""}
+                    {" · "}paid so far {usd(r.paidUsd)}
+                  </p>
+                </div>
+                <p className="font-mono text-sm tabular-nums text-primary">{usd(r.owedUsd)}</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={r.owedUsd <= 0 || busy === r.userId}
+                  onClick={() => pay(r.userId, r.email, r.owedUsd)}
+                >
+                  {busy === r.userId ? <Loader2 className="size-4 animate-spin" /> : null}
+                  Mark paid
+                </Button>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
     </>

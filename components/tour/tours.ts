@@ -221,8 +221,8 @@ export const REFERRALS_TOUR: TourDefinition = {
   id: "referrals",
   steps: [
     {
-      title: "Earn 50% per referral",
-      body: "Share your link — when someone subscribes to a paid plan, half of it is yours.",
+      title: "Earn 15% for life",
+      body: "Share your link — when someone subscribes, 15% of every payment they ever make is yours, for as long as they stay.",
     },
     {
       target: "referrals-copy",
@@ -230,8 +230,8 @@ export const REFERRALS_TOUR: TourDefinition = {
       body: "This is your personal referral link. Drop it in your bio, DMs, or anywhere your audience is.",
     },
     {
-      title: "Watch it add up 💸",
-      body: "Sign-ups, subscriptions and payouts are all tracked below in real time.",
+      title: "Watch it add up",
+      body: "Sign-ups, active referrals, each renewal and your payouts are all tracked below in real time.",
     },
   ],
 };

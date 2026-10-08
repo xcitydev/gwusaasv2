@@ -19,6 +19,11 @@ const STYLES: Record<string, string> = {
   live: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
   paid: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
   qualified: "border-sky-500/40 bg-sky-500/10 text-sky-400",
+  // Referrals
+  owed: "border-primary/40 bg-primary/10 text-primary",
+  churned: "border-border bg-secondary text-muted-foreground",
+  // Outreach campaigns
+  archived: "border-border bg-secondary text-muted-foreground",
   warmed: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
   warming: "border-primary/40 bg-primary/10 text-primary",
   connecting: "border-border bg-secondary text-muted-foreground",

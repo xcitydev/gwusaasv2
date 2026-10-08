@@ -59,6 +59,7 @@ import type * as noteTakerCoachAi from "../noteTakerCoachAi.js";
 import type * as notifications from "../notifications.js";
 import type * as outreach from "../outreach.js";
 import type * as outreachActions from "../outreachActions.js";
+import type * as outreachLimits from "../outreachLimits.js";
 import type * as referrals from "../referrals.js";
 import type * as studioActions from "../studioActions.js";
 import type * as team from "../team.js";
@@ -129,6 +130,7 @@ declare const fullApi: ApiFromModules<{
   notifications: typeof notifications;
   outreach: typeof outreach;
   outreachActions: typeof outreachActions;
+  outreachLimits: typeof outreachLimits;
   referrals: typeof referrals;
   studioActions: typeof studioActions;
   team: typeof team;

@@ -1,4 +1,5 @@
 import { query, mutation } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { requireUser, requireAdmin, getAdminOrNull, hasFormsAccess } from "./lib/auth";
 import { grantCredits, spendCredits } from "./lib/credits";
@@ -192,13 +193,129 @@ export const revenue = query({
       byKind[p.kind] = (byKind[p.kind] ?? 0) + p.amountUsd;
       total += p.amountUsd;
     }
-    const referrals = await ctx.db.query("referrals").collect();
-    const payoutsOwed = referrals
-      .filter((r) => r.status === "qualified")
-      .reduce((sum, r) => sum + (r.payoutUsd ?? 0), 0);
-    const payoutsPaid = referrals
-      .filter((r) => r.status === "paid")
-      .reduce((sum, r) => sum + (r.payoutUsd ?? 0), 0);
+    // Referral payouts: per-invoice commissions (15% for life) plus any legacy
+    // one-time payouts still sitting on old referral rows.
+    const [referrals, commissions] = await Promise.all([
+      ctx.db.query("referrals").collect(),
+      ctx.db.query("referralCommissions").collect(),
+    ]);
+    const payoutsOwed =
+      commissions.filter((c) => c.status === "owed").reduce((sum, c) => sum + c.amountUsd, 0) +
+      referrals.filter((r) => r.status === "qualified").reduce((sum, r) => sum + (r.payoutUsd ?? 0), 0);
+    const payoutsPaid =
+      commissions.filter((c) => c.status === "paid").reduce((sum, c) => sum + c.amountUsd, 0) +
+      referrals.filter((r) => r.status === "paid").reduce((sum, r) => sum + (r.payoutUsd ?? 0), 0);
     return { total, byKind, payoutsOwed, payoutsPaid, purchaseCount: paid.length };
+  },
+});
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Referral payouts grouped by referrer: what each person is owed right now
+ * (per-invoice commissions plus any legacy one-time payout still unpaid),
+ * what they have been paid, and how many referrals are still paying.
+ */
+export const referralPayouts = query({
+  args: {},
+  handler: async (ctx) => {
+    if (!(await getAdminOrNull(ctx, "super"))) return null;
+    const [commissions, referrals] = await Promise.all([
+      ctx.db.query("referralCommissions").collect(),
+      ctx.db.query("referrals").collect(),
+    ]);
+    const byReferrer = new Map<
+      string,
+      { owedUsd: number; owedCount: number; paidUsd: number; activeReferrals: number; lastOwedAt: number | null }
+    >();
+    const bucket = (id: string) => {
+      let b = byReferrer.get(id);
+      if (!b) {
+        b = { owedUsd: 0, owedCount: 0, paidUsd: 0, activeReferrals: 0, lastOwedAt: null };
+        byReferrer.set(id, b);
+      }
+      return b;
+    };
+    for (const c of commissions) {
+      const b = bucket(c.referrerUserId);
+      if (c.status === "owed") {
+        b.owedUsd += c.amountUsd;
+        b.owedCount++;
+        b.lastOwedAt = Math.max(b.lastOwedAt ?? 0, c._creationTime);
+      } else b.paidUsd += c.amountUsd;
+    }
+    for (const r of referrals) {
+      const b = bucket(r.referrerUserId);
+      if (r.status === "active") b.activeReferrals++;
+      if (r.status === "qualified") {
+        b.owedUsd += r.payoutUsd ?? 0;
+        b.owedCount++;
+        b.lastOwedAt = Math.max(b.lastOwedAt ?? 0, r._creationTime);
+      }
+      if (r.status === "paid") b.paidUsd += r.payoutUsd ?? 0;
+    }
+    const rows = await Promise.all(
+      [...byReferrer.entries()].map(async ([userId, b]) => {
+        const user = await ctx.db.get(userId as Id<"users">);
+        return {
+          userId: userId as Id<"users">,
+          email: user?.email ?? "deleted user",
+          name: user?.name ?? null,
+          owedUsd: round2(b.owedUsd),
+          owedCount: b.owedCount,
+          paidUsd: round2(b.paidUsd),
+          activeReferrals: b.activeReferrals,
+          lastOwedAt: b.lastOwedAt,
+        };
+      }),
+    );
+    return rows
+      .filter((r) => r.owedUsd > 0 || r.paidUsd > 0)
+      .sort((a, b) => b.owedUsd - a.owedUsd || b.paidUsd - a.paidUsd);
+  },
+});
+
+/**
+ * Record that a referrer has been paid everything currently owed (the money
+ * itself moves outside the app). Every owed commission and any legacy
+ * qualified referral flips to paid; the referrer is notified with the total.
+ */
+export const markReferralPayoutsPaid = mutation({
+  args: { referrerUserId: v.id("users") },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx, "super");
+    const now = Date.now();
+    let total = 0;
+    let count = 0;
+    const owed = await ctx.db
+      .query("referralCommissions")
+      .withIndex("by_referrer", (q) => q.eq("referrerUserId", args.referrerUserId))
+      .collect();
+    for (const c of owed) {
+      if (c.status !== "owed") continue;
+      await ctx.db.patch(c._id, { status: "paid", paidAt: now });
+      total += c.amountUsd;
+      count++;
+    }
+    const legacy = await ctx.db
+      .query("referrals")
+      .withIndex("by_referrer", (q) => q.eq("referrerUserId", args.referrerUserId))
+      .collect();
+    for (const r of legacy) {
+      if (r.status !== "qualified") continue;
+      await ctx.db.patch(r._id, { status: "paid" });
+      total += r.payoutUsd ?? 0;
+      count++;
+    }
+    if (count === 0) throw new Error("Nothing is owed to this referrer.");
+    total = round2(total);
+    await notify(ctx, {
+      userId: args.referrerUserId,
+      type: "referral_paid",
+      title: `Referral payout sent: $${total}`,
+      body: `${count} commission${count === 1 ? "" : "s"} marked paid by ${admin.name ?? "the Creatily team"}.`,
+      href: "/referrals",
+    });
+    return { total, count };
   },
 });
