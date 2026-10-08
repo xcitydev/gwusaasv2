@@ -35,6 +35,30 @@ export const ensureUser = mutation({
       return existing._id;
     }
 
+    // Account adoption: the same person arriving with a new Clerk subject —
+    // the test → production Clerk cutover, or a re-created Clerk account.
+    // A verified email is the only link we trust; it keeps their workspace,
+    // credits, plan and history instead of minting a fresh empty account.
+    // Exactly one match is required so an ambiguous email never adopts.
+    if (email && identity.emailVerified === true) {
+      const byEmail = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .collect();
+      if (byEmail.length === 1) {
+        const adopted = byEmail[0];
+        await ctx.db.patch(adopted._id, {
+          clerkId: identity.subject,
+          name: name ?? adopted.name,
+          imageUrl: imageUrl ?? adopted.imageUrl,
+        });
+        console.log(
+          `ensureUser: adopted user ${adopted._id} (clerk ${adopted.clerkId} → ${identity.subject})`,
+        );
+        return adopted._id;
+      }
+    }
+
     // Resolve referrer before creating so a bad code can't block signup.
     let referredBy = undefined;
     if (args.referralCode) {
