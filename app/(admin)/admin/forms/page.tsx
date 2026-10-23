@@ -7,6 +7,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { Eye, FileText, Loader2 } from "lucide-react";
 import { getFormDef } from "@/lib/forms-def";
+import { ListSkeleton } from "@/components/list-skeleton";
 import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -44,9 +45,12 @@ function SubmissionDetail({
   const submission = useQuery(api.forms.adminGet, { id });
   const setStatus = useMutation(api.forms.setStatus);
   const reveal = useAction(api.forms.revealSensitive);
+  // Revealing credentials is superadmin-only server-side; hide it for others.
+  const isSuper = useQuery(api.users.me)?.adminRole === "super";
   const [revealed, setRevealed] = useState<Record<string, string> | null>(null);
   const [revealing, setRevealing] = useState(false);
   const [confirmActive, setConfirmActive] = useState(false);
+  const [updating, setUpdating] = useState(false);
 
   if (submission === undefined) {
     return (
@@ -74,14 +78,30 @@ function SubmissionDetail({
   };
 
   const markActive = async () => {
+    setUpdating(true);
     try {
       await setStatus({ id, status: "active" });
       toast.success("Marked active — the user has been notified.");
       onDone();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to update.");
+    } finally {
+      setUpdating(false);
+      setConfirmActive(false);
     }
-    setConfirmActive(false);
+  };
+
+  const closeRequest = async () => {
+    setUpdating(true);
+    try {
+      await setStatus({ id, status: "closed" });
+      toast.success("Submission closed.");
+      onDone();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update.");
+    } finally {
+      setUpdating(false);
+    }
   };
 
   const displayValue = (fieldName: string, raw: unknown): string => {
@@ -145,7 +165,7 @@ function SubmissionDetail({
       </ScrollArea>
 
       <div className="mt-5 flex flex-wrap justify-end gap-2 border-t pt-4">
-        {hasSensitive && !revealed && (
+        {hasSensitive && isSuper && !revealed && (
           <Button variant="outline" onClick={doReveal} disabled={revealing}>
             {revealing ? <Loader2 className="size-4 animate-spin" /> : <Eye className="size-4" />}
             Reveal credentials
@@ -155,20 +175,17 @@ function SubmissionDetail({
           <Button onClick={() => setConfirmActive(true)}>Mark as active</Button>
         )}
         {submission.status === "active" && (
-          <Button
-            variant="outline"
-            onClick={async () => {
-              await setStatus({ id, status: "closed" });
-              toast.success("Submission closed.");
-              onDone();
-            }}
-          >
+          <Button variant="outline" onClick={closeRequest} disabled={updating}>
+            {updating && <Loader2 className="size-4 animate-spin" />}
             Close request
           </Button>
         )}
       </div>
 
-      <AlertDialog open={confirmActive} onOpenChange={setConfirmActive}>
+      <AlertDialog
+        open={confirmActive}
+        onOpenChange={(o) => !updating && setConfirmActive(o)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Mark this request as active?</AlertDialogTitle>
@@ -178,8 +195,16 @@ function SubmissionDetail({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={markActive}>
+            <AlertDialogCancel disabled={updating}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={updating}
+              onClick={(e) => {
+                // Keep the dialog open until the mutation settles.
+                e.preventDefault();
+                void markActive();
+              }}
+            >
+              {updating && <Loader2 className="size-4 animate-spin" />}
               Payment verified — mark active
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -191,8 +216,11 @@ function SubmissionDetail({
 
 function FormsQueue() {
   const [filter, setFilter] = useState<Filter>("processing");
-  const submissions =
-    useQuery(api.forms.adminList, filter === "all" ? {} : { status: filter }) ?? [];
+  // undefined while loading — skeleton, not the empty-queue copy.
+  const submissions = useQuery(
+    api.forms.adminList,
+    filter === "all" ? {} : { status: filter },
+  );
   const [openId, setOpenId] = useState<Id<"formSubmissions"> | null>(null);
 
   return (
@@ -206,32 +234,36 @@ function FormsQueue() {
         </TabsList>
       </Tabs>
 
-      <Card>
-        <CardContent className="divide-y divide-border p-0">
-          {submissions.length === 0 && (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              Nothing in this queue.
-            </p>
-          )}
-          {submissions.map((s) => (
-            <button
-              key={s._id}
-              onClick={() => setOpenId(s._id)}
-              className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left transition-colors hover:bg-accent"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">
-                  {getFormDef(s.formSlug)?.title ?? s.formSlug}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {s.userName ?? s.userEmail} · {new Date(s._creationTime).toLocaleString()}
-                </p>
-              </div>
-              <StatusBadge status={s.status} />
-            </button>
-          ))}
-        </CardContent>
-      </Card>
+      {submissions === undefined ? (
+        <ListSkeleton />
+      ) : (
+        <Card>
+          <CardContent className="divide-y divide-border p-0">
+            {submissions.length === 0 && (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                Nothing in this queue.
+              </p>
+            )}
+            {submissions.map((s) => (
+              <button
+                key={s._id}
+                onClick={() => setOpenId(s._id)}
+                className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left transition-colors hover:bg-accent"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {getFormDef(s.formSlug)?.title ?? s.formSlug}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {s.userName ?? s.userEmail} · {new Date(s._creationTime).toLocaleString()}
+                  </p>
+                </div>
+                <StatusBadge status={s.status} />
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Dialog open={openId !== null} onOpenChange={(o) => !o && setOpenId(null)}>
         <DialogContent className="sm:max-w-xl">

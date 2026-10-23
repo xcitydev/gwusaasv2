@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { errorText } from "@/lib/public-errors";
 
 export function TeamClient() {
   const data = useQuery(api.team.members);
@@ -74,7 +75,7 @@ export function TeamClient() {
       setEmail("");
       toast.success("Invite created — share the link with your teammate.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Invite failed.");
+      toast.error(errorText(e, "Invite failed."));
     } finally {
       setInviting(false);
     }
@@ -217,7 +218,7 @@ export function TeamClient() {
                   await removeMember({ membershipId: removeTarget.id });
                   toast.success("Member removed.");
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Removal failed.");
+                  toast.error(errorText(e, "Removal failed."));
                 }
                 setRemoveTarget(null);
               }}

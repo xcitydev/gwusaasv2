@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { invalidateVoicesCache } from "@/components/voice/voice-picker";
 import { cn } from "@/lib/utils";
+import { errorText } from "@/lib/public-errors";
 
 // Keep them talking naturally — the content doesn't matter, the voice does.
 const PROMPTS = [
@@ -89,12 +90,12 @@ const MIN_SECONDS: Record<CloneEngine, number> = {
 const ENGINES: { value: CloneEngine; label: string; hint: string }[] = [
   {
     value: "bland",
-    label: "Bland",
+    label: "Standard",
     hint: "Works everywhere — calls, previews and IG voice notes.",
   },
   {
     value: "elevenlabs",
-    label: "ElevenLabs",
+    label: "Studio HD",
     hint: "Previews and IG voice notes only — phone calls can't use it.",
   },
   {
@@ -179,7 +180,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
       toast.error(
         engine === "bland"
           ? "Record at least ~10 seconds — quality depends on it."
-          : "ElevenLabs needs at least 30 seconds — a full minute sounds much better.",
+          : "Studio HD needs at least 30 seconds — a full minute sounds much better.",
       );
       return;
     }
@@ -213,8 +214,8 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
         } catch (e) {
           const raw = e instanceof Error ? e.message : "";
           failures.push(
-            `${provider === "bland" ? "Bland" : "ElevenLabs"}: ${
-              raw.split("Uncaught Error: ").pop() || "failed"
+            `${provider === "bland" ? "Standard" : "Studio HD"}: ${
+              errorText(raw, "") || "failed"
             }`,
           );
         }
@@ -226,7 +227,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
       setDoneVoice(voiceName.trim());
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
-      toast.error(msg.split("Uncaught Error: ").pop() || "Cloning failed.");
+      toast.error(errorText(msg, "") || "Cloning failed.");
     } finally {
       setCreating(false);
     }
@@ -278,7 +279,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
                     <>
                       &ldquo;{doneVoice}&rdquo; is in your cloned voices —
                       press play to hear it, and pick it for Instagram voice
-                      notes. Phone calls still use Bland voices.
+                      notes. Phone calls use Standard voices.
                     </>
                   ) : (
                     <>
@@ -300,7 +301,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
                 <DialogDescription>
                   {engine === "bland"
                     ? "Talk naturally for 15–45 seconds."
-                    : "Talk naturally for 60–90 seconds — ElevenLabs gets better the more it hears."}{" "}
+                    : "Talk naturally for 60–90 seconds — Studio HD gets better the more it hears."}{" "}
                   Quiet room, close to the mic — the sample quality sets your
                   voice quality.
                 </DialogDescription>
@@ -348,7 +349,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
                     {providers && !providers.elevenlabs && (
                       <span className="text-amber-400">
                         {" "}
-                        ElevenLabs isn&apos;t connected yet (ELEVENLABS_API_KEY).
+                        Studio HD isn&apos;t available right now.
                       </span>
                     )}
                   </p>

@@ -43,6 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { isPlaceholderEmail } from "@/lib/lead-keys";
 
 const CSV_COLUMNS = ["email", "name", "company", "title", "phone", "location", "industry", "website"];
 const PAGE_SIZE = 50;
@@ -114,7 +115,7 @@ export function LeadsTable() {
     return (
       !q ||
       [
-        lead.email, lead.name, lead.company, lead.title, lead.phone,
+        isPlaceholderEmail(lead.email) ? "" : lead.email, lead.name, lead.company, lead.title, lead.phone,
         lead.location, lead.industry, lead.sourceDetail, lead.source,
       ].some((field) => (field ?? "").toLowerCase().includes(q))
     );
@@ -137,7 +138,7 @@ export function LeadsTable() {
       toCsv(
         CSV_COLUMNS,
         filtered.map((l) => [
-          l.email, l.name, l.company, l.title, l.phone, l.location, l.industry, l.website,
+          isPlaceholderEmail(l.email) ? "" : l.email, l.name, l.company, l.title, l.phone, l.location, l.industry, l.website,
         ]),
       ),
     );
@@ -369,10 +370,18 @@ export function LeadsTable() {
                         else next.delete(lead._id);
                         setSelected(next);
                       }}
-                      aria-label={`Select ${lead.email}`}
+                      aria-label={`Select ${lead.name ?? lead.email}`}
                     />
                   </TableCell>
-                  <TableCell className="font-medium">{lead.email}</TableCell>
+                  <TableCell className="font-medium">
+                    {isPlaceholderEmail(lead.email) ? (
+                      <Badge variant="outline" className="font-normal text-muted-foreground">
+                        No email — phone only
+                      </Badge>
+                    ) : (
+                      lead.email
+                    )}
+                  </TableCell>
                   <TableCell>{lead.name ?? "—"}</TableCell>
                   <TableCell>{lead.company ?? "—"}</TableCell>
                   <TableCell>{lead.title ?? "—"}</TableCell>

@@ -21,10 +21,10 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { IgAccount } from "./ig-inbox";
+import { errorText } from "@/lib/public-errors";
 
 function serverMessage(e: unknown, fallback: string): string {
-  const raw = e instanceof Error ? e.message : "";
-  return raw.split("Uncaught Error: ").pop() || fallback;
+  return errorText(e, fallback);
 }
 
 /**

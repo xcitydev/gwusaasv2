@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
-import { InviteCodeCard } from "@/components/forms/forms-gate";
 import { IntegrationsTab } from "@/components/settings/integrations-tab";
 import { UserProfile } from "@clerk/nextjs";
 import { toast } from "sonner";
@@ -33,13 +32,14 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { errorText } from "@/lib/public-errors";
 
 const PLANS = [
   {
     id: "free",
     label: "Free",
-    blurb: "Explore the platform. Onboarding forms unlock with an invite code.",
-    features: ["Onboarding forms (with an invite code)", "Support tickets"],
+    blurb: "Explore the platform.",
+    features: ["Support tickets"],
   },
   {
     id: "personal",
@@ -85,7 +85,6 @@ function AccountTab() {
   }
   return (
     <div className="space-y-6">
-      <InviteCodeCard />
       <div className="overflow-x-auto rounded-xl border border-border bg-card">
       <UserProfile
         routing="hash"
@@ -151,7 +150,7 @@ function WhopPlanCards({
       const { url } = await startCheckout({ plan });
       window.location.assign(url);
     } catch (e) {
-      const msg = e instanceof Error ? e.message.replace(/^Uncaught Error:\s*/, "") : "";
+      const msg = e instanceof Error ? errorText(e, "") : "";
       toast.error(
         msg.includes("NOT_CONFIGURED")
           ? "Payments aren't switched on yet — try again soon."

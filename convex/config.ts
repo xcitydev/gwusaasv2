@@ -1,7 +1,7 @@
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { QueryCtx } from "./_generated/server";
-import { requireAdmin } from "./lib/auth";
+import { getAdminOrNull, requireAdmin } from "./lib/auth";
 
 /**
  * Platform defaults; superadmin overrides live in the `config` table.
@@ -78,12 +78,19 @@ export async function getConfigValue<K extends ConfigKey>(
   return (row?.value as (typeof CONFIG_DEFAULTS)[K]) ?? CONFIG_DEFAULTS[key];
 }
 
+/** Keys only superadmins may read (the public query strips them). */
+const PRIVATE_KEYS: ConfigKey[] = ["adminNotificationEmail", "teamNotificationEmail"];
+
 export const getAll = query({
   args: {},
   handler: async (ctx) => {
     const overrides = await ctx.db.query("config").collect();
     const merged: Record<string, unknown> = { ...CONFIG_DEFAULTS };
     for (const row of overrides) merged[row.key] = row.value;
+    // Pricing is public (plan quiz, IG inbox); notification inboxes are not.
+    if (!(await getAdminOrNull(ctx, "super"))) {
+      for (const key of PRIVATE_KEYS) delete merged[key];
+    }
     return merged as typeof CONFIG_DEFAULTS;
   },
 });

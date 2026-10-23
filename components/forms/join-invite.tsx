@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { BRAND } from "@/lib/brand";
 import { formatInviteCode, INVITE_STORAGE_KEY, normalizeInviteCode } from "@/lib/invite-codes";
 import { isConfigured } from "@/lib/runtime";
+import { errorText } from "@/lib/public-errors";
 
 const STEPS = [
   "Create your account — or sign in if you already have one",
@@ -82,7 +83,7 @@ function LiveJoin({ code }: { code: string }) {
       }
       router.push("/forms");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "That invite code is not valid.");
+      toast.error(errorText(e, "That invite code is not valid."));
       setBusy(false);
     }
   };

@@ -10,6 +10,7 @@ import {
   type MeetingStatus,
 } from "@/lib/note-taker";
 import { cn } from "@/lib/utils";
+import { errorText } from "@/lib/public-errors";
 
 export type Overview = NonNullable<
   FunctionReturnType<typeof api.noteTaker.overview>
@@ -19,8 +20,7 @@ export type MeetingRow = FunctionReturnType<
 >[number];
 
 export function serverMessage(e: unknown, fallback: string): string {
-  const raw = e instanceof Error ? e.message : "";
-  return raw.split("Uncaught Error: ").pop() || fallback;
+  return errorText(e, fallback);
 }
 
 /** Friendly copy for the errors every note-taker action can throw. */

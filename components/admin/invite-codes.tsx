@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { Ban, Copy, KeyRound, Link2, Loader2, Plus } from "lucide-react";
 import { formatInviteCode } from "@/lib/invite-codes";
+import { ListSkeleton } from "@/components/list-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +35,8 @@ const inviteLink = (code: string) =>
 
 /** Mint, share and revoke the codes that unlock the Creatily Onboarding Forms. */
 export function InviteCodesCard() {
-  const codes = useQuery(api.inviteCodes.adminList) ?? [];
+  // undefined while loading — show placeholder rows instead of nothing.
+  const codes = useQuery(api.inviteCodes.adminList);
   const create = useMutation(api.inviteCodes.adminCreate);
   const revoke = useMutation(api.inviteCodes.adminRevoke);
   const [label, setLabel] = useState("");
@@ -130,7 +132,14 @@ export function InviteCodesCard() {
           </Button>
         </form>
 
-        {codes.length > 0 && (
+        {codes === undefined && (
+          <ListSkeleton
+            rows={2}
+            inCard={false}
+            className="rounded-lg border border-border"
+          />
+        )}
+        {codes !== undefined && codes.length > 0 && (
           <div className="overflow-x-auto rounded-lg border border-border">
             <Table>
               <TableHeader>

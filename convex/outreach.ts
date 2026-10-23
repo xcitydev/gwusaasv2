@@ -14,6 +14,7 @@ import {
   assertInboxRoom,
   refreshContactCount,
 } from "./outreachLimits";
+import { isPlaceholderEmail } from "../lib/lead-keys";
 
 async function requireWorkspace(ctx: Parameters<typeof requireUser>[0]) {
   const user = await requireUser(ctx);
@@ -447,6 +448,7 @@ export const createCampaign = mutation({
     for (const leadId of args.leadIds) {
       const lead = await ctx.db.get(leadId);
       if (!lead || lead.workspaceId !== workspace._id) continue;
+      if (isPlaceholderEmail(lead.email)) continue; // phone-only: nothing to email
       await ctx.db.insert("campaignLeads", {
         campaignId,
         leadId,
@@ -528,6 +530,7 @@ export const addCampaignLeadsLocal = internalMutation({
     for (const leadId of candidateIds) {
       const lead = await ctx.db.get(leadId);
       if (!lead || lead.workspaceId !== workspace._id) continue;
+      if (isPlaceholderEmail(lead.email)) continue; // phone-only: nothing to email
       const link = await ctx.db
         .query("campaignLeads")
         .withIndex("by_campaign_lead", (q) =>

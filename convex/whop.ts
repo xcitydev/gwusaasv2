@@ -164,6 +164,11 @@ export const handlePaymentSucceeded = internalMutation({
     await ctx.db.patch(workspace._id, {
       plan,
       planCreditsGrantedFor: plan,
+      // A real payment takes the plan back over from any admin-set plan.
+      planSource: "whop",
+      planSetBy: undefined,
+      planSetAt: Date.now(),
+      planNote: undefined,
       ...(args.membershipId && { whopMembershipId: args.membershipId }),
     });
     // Monthly credits ride on every successful charge, renewal included.
@@ -263,11 +268,22 @@ export const handleMembershipUpdate = internalMutation({
       return { handled: "duplicate" };
     }
     if (workspace.plan === "free") return { handled: "already_free" };
-    await ctx.db.patch(workspace._id, {
-      plan: "free",
-      planCreditsGrantedFor: undefined,
-      whopMembershipId: undefined,
-    });
+    // A plan a superadmin set by hand (comp, partner, invoiced customer)
+    // outlives the subscription: forget the dead membership, keep the plan.
+    // The referral still churns below — no more invoices will arrive.
+    const keepPlan = workspace.planSource === "admin";
+    if (keepPlan) {
+      await ctx.db.patch(workspace._id, { whopMembershipId: undefined });
+    } else {
+      await ctx.db.patch(workspace._id, {
+        plan: "free",
+        planCreditsGrantedFor: undefined,
+        whopMembershipId: undefined,
+        planSource: undefined,
+        planSetBy: undefined,
+        planNote: undefined,
+      });
+    }
     // A churned referral stops earning; its lifetime total stays on record.
     // The referred buyer is usually the owner, but a team member can buy too,
     // so fall back to the workspace recorded at payout time.
@@ -285,6 +301,7 @@ export const handleMembershipUpdate = internalMutation({
     if (referral && referral.status === "active") {
       await ctx.db.patch(referral._id, { status: "churned" });
     }
+    if (keepPlan) return { handled: "admin_plan_kept" };
     await notify(ctx, {
       userId: workspace.ownerId,
       type: "plan_ended",

@@ -7,6 +7,7 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { INVITE_STORAGE_KEY } from "@/lib/invite-codes";
+import { errorText } from "@/lib/public-errors";
 
 const REF_KEY = "referral-code";
 
@@ -63,7 +64,7 @@ export function EnsureUser() {
         // They followed an invite link to get here: take them to the forms.
         router.push("/forms");
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "That invite code is not valid.");
+        toast.error(errorText(e, "That invite code is not valid."));
       } finally {
         try {
           localStorage.removeItem(INVITE_STORAGE_KEY);

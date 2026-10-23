@@ -4,6 +4,7 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
+import { publicRowError } from "./incidents";
 import { v } from "convex/values";
 import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { grantCredits, spendCredits } from "./lib/credits";
@@ -209,7 +210,12 @@ export const finish = internalMutation({
     await ctx.db.patch(args.id, {
       status: args.status,
       resultUrl: args.resultUrl,
-      error: args.error,
+      error: await publicRowError(ctx, args.error, {
+        source: `${generation.kind} generation`,
+        area: "generation",
+        userId: generation.userId,
+        workspaceId: generation.workspaceId,
+      }),
       ...(args.storageId && { storageId: args.storageId }),
     });
     // Failed generations refund automatically.

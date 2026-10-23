@@ -51,6 +51,7 @@ import {
 } from "@/lib/ig-dms";
 import { cn } from "@/lib/utils";
 import { CopilotSettings } from "./ig-copilot-settings";
+import { errorText } from "@/lib/public-errors";
 
 export type IgAccount = Exclude<
   NonNullable<FunctionReturnType<typeof api.igDms.myAccount>>,
@@ -64,8 +65,7 @@ type Message = FunctionReturnType<typeof api.igDms.listMessages>[number];
 type Tab = "needs_reply" | "qualified" | "mine" | "all";
 
 function serverMessage(e: unknown, fallback: string): string {
-  const raw = e instanceof Error ? e.message : "";
-  return raw.split("Uncaught Error: ").pop() || fallback;
+  return errorText(e, fallback);
 }
 
 /** Conversations per page; "Load more" appends the next page. */

@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { CloneVoiceCard } from "@/components/voice/clone-voice-card";
 import { invalidateVoicesCache } from "@/components/voice/voice-picker";
+import { errorText } from "@/lib/public-errors";
 
 type Voice = {
   id: string;
@@ -34,9 +35,9 @@ type Voice = {
 const CLONE_SLOTS = 10;
 
 const ENGINE_BADGES = {
-  bland: { label: "Bland", className: "bg-sky-500/15 text-sky-400" },
+  bland: { label: "Standard", className: "bg-sky-500/15 text-sky-400" },
   elevenlabs: {
-    label: "ElevenLabs",
+    label: "Studio HD",
     className: "bg-violet-500/15 text-violet-300",
   },
 } as const;
@@ -118,7 +119,7 @@ export function VoicesTab() {
       refresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
-      toast.error(msg.split("Uncaught Error: ").pop() || "Couldn't delete.");
+      toast.error(errorText(msg, "") || "Couldn't delete.");
     } finally {
       setDeleting(false);
     }
@@ -218,8 +219,8 @@ export function VoicesTab() {
                 aria-label="Test line for your cloned voices"
               />
               <p className="text-xs text-muted-foreground">
-                Every clone says the same words, so you can judge Bland against
-                ElevenLabs fairly. Left empty, they read a stock greeting.
+                Every clone says the same words, so you can judge Standard against
+                Studio HD fairly. Left empty, they read a stock greeting.
               </p>
             </div>
             {owned.map((voice) => voiceRow(voice, true))}

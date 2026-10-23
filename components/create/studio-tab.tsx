@@ -41,6 +41,7 @@ import {
   ReferenceInput,
   handleGenerateError,
 } from "./create-client";
+import { errorText } from "@/lib/public-errors";
 
 function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -200,7 +201,7 @@ function ActiveJobs() {
                   await cancel({ generationId: g._id });
                   toast.success("Canceled — credits refunded.");
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message.split("Uncaught Error: ").pop() : "Couldn't cancel.");
+                  toast.error(e instanceof Error ? errorText(e, "") : "Couldn't cancel.");
                 } finally {
                   setBusy(null);
                 }
@@ -269,7 +270,7 @@ export function StudioTab() {
       if (model.video && !videoSec) return "Waiting for the video's length…";
       return null;
     } catch (e) {
-      return e instanceof Error ? e.message : "Incomplete";
+      return errorText(e, "Incomplete");
     }
   }, [model, request, videoSec]);
 
@@ -322,7 +323,7 @@ export function StudioTab() {
       );
       if (model.prompt === "required") setPrompt("");
     } catch (e) {
-      const message = e instanceof Error ? e.message.split("Uncaught Error: ").pop() ?? "" : "";
+      const message = e instanceof Error ? errorText(e, "") ?? "" : "";
       if (/first$|at least|source video|Unknown model|can't be canceled/.test(message)) {
         toast.error(message);
       } else {

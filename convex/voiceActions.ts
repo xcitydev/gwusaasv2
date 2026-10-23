@@ -1,4 +1,5 @@
-import { action, internalAction } from "./_generated/server";
+import { internalAction } from "./_generated/server";
+import { action } from "./lib/functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
@@ -49,7 +50,7 @@ export const listVoices = action({
           .map((c) => ({
             id: c.voiceId,
             name: c.name,
-            description: "Your voice — ElevenLabs clone",
+            description: "Your voice — studio clone",
             curated: false,
             owned: true,
             provider: "elevenlabs" as const,

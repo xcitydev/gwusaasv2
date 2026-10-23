@@ -27,6 +27,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { errorText } from "@/lib/public-errors";
+import { phoneLeadKey } from "@/lib/lead-keys";
 
 type QualifierCall = FunctionReturnType<typeof api.voice.listCalls>[number];
 
@@ -190,8 +192,8 @@ export function QualifierClient() {
       const msg = e instanceof Error ? e.message : "";
       toast.error(
         msg.includes("NOT_CONFIGURED")
-          ? "The voice engine isn't connected yet — an admin needs to add the Bland key."
-          : msg.split("Uncaught Error: ").pop() || "Couldn't start the campaign.",
+          ? "Voice calling isn't available right now — please try again later or contact support."
+          : errorText(msg, "") || "Couldn't start the campaign.",
       );
     } finally {
       setStartingId(null);
@@ -227,7 +229,7 @@ export function QualifierClient() {
     try {
       // Manual leads live in the same store — synthesized email keeps the
       // per-workspace dedupe working (same phone twice = same lead).
-      const email = `manual-${phone.replace(/\D/g, "")}@lead.manual`;
+      const email = phoneLeadKey(phone) ?? `manual-${phone.replace(/\D/g, "")}@lead.manual`;
       const res = await importLeads({
         leads: [{ email, name, phone }],
         source: "manual",
@@ -249,7 +251,7 @@ export function QualifierClient() {
       setCustomName("");
       setCustomPhone("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't add the lead.");
+      toast.error(errorText(e, "Couldn't add the lead."));
     } finally {
       setAddingCustom(false);
     }
@@ -341,11 +343,11 @@ export function QualifierClient() {
       setTestState("idle");
       const msg = e instanceof Error ? e.message : "";
       if (msg.includes("NOT_CONFIGURED")) {
-        toast.error("The voice engine isn't connected yet — an admin needs to add the Bland key.");
+        toast.error("Voice calling isn't available right now — please try again later or contact support.");
       } else if (/permission|notallowed/i.test(msg)) {
         toast.error("Microphone access was blocked — allow it and try again.");
       } else {
-        toast.error(msg.split("Uncaught Error: ").pop() || "Couldn't start the rehearsal.");
+        toast.error(errorText(msg, "") || "Couldn't start the rehearsal.");
       }
     }
   };
@@ -369,7 +371,7 @@ export function QualifierClient() {
       setPrompt("");
       setSelectedLeads(new Set());
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't create the campaign.");
+      toast.error(errorText(e, "Couldn't create the campaign."));
     } finally {
       setCreating(false);
     }

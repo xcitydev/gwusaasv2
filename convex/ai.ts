@@ -1,11 +1,13 @@
 "use node";
 
-import { action, internalAction, type ActionCtx } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
+import { action } from "./lib/functions";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { z } from "zod";
 import { assertPlanAction } from "./lib/plan";
+import { POOL_MAX_AGE_MS } from "../lib/lead-keys";
 
 /**
  * AI-powered actions. Runs in the Node runtime because the Anthropic SDK
@@ -44,10 +46,115 @@ type FoundLead = {
 };
 
 /**
+ * Start the provider job for a search (scrape or Explorium fetch). Apify
+ * runs are polled by a scheduled action; Explorium stores inline. Errors go
+ * to failSearch, which keeps library rows when this was a "Find more".
+ */
+async function runScrape(
+  ctx: ActionCtx,
+  searchId: Id<"leadSearches">,
+  source: string,
+  filters: LeadFilters,
+  queryText: string,
+  limit: number,
+) {
+  // The per-run Apify cost ceiling scales with the request (~2¢/lead
+  // headroom) so big pulls work but can't run away.
+  const maxChargeUsd = Math.max(3, Math.ceil(limit * 0.02));
+  try {
+    if (source === "explorium") {
+      const { fetchProspects } = await import("./lib/explorium");
+      const { rows, warning } = await fetchProspects({
+        jobTitles: filters.jobTitles,
+        country: filters.country,
+        region: filters.region,
+        city: filters.city,
+        industry: filters.industry,
+        limit,
+      });
+      await ctx.runMutation(internal.leadSearches.storeResults, {
+        id: searchId,
+        results: rows,
+        ...(warning && {
+          warning: `Profiles found, but contact enrichment failed: ${warning}`,
+        }),
+      });
+      return;
+    }
+
+    const apify = await import("./lib/apify");
+    const location =
+      filters.locationQuery ??
+      [filters.city, filters.region, filters.country].filter(Boolean).join(", ");
+    let runId: string;
+    if (source === "google_maps") {
+      runId = await apify.startActorRun(
+        apify.APIFY_ACTORS.google_maps,
+        apify.googleMapsInput({
+          searchString:
+            filters.mapsSearchString ??
+            [filters.industry, ...filters.keywords].filter(Boolean).join(" ") ??
+            queryText,
+          locationQuery: location || "United States",
+          limit,
+        }),
+        maxChargeUsd,
+      );
+    } else if (source === "realtor_agents") {
+      if (filters.zipCodes.length === 0) {
+        throw new Error(
+          "Realtor.com search needs ZIP codes — include them in your search (e.g. 'realtors in 33139, 33140').",
+        );
+      }
+      runId = await apify.startActorRun(
+        apify.APIFY_ACTORS.realtor_agents,
+        apify.realtorAgentsInput({ zipCodes: filters.zipCodes, limit }),
+        maxChargeUsd,
+      );
+    } else {
+      runId = await apify.startActorRun(
+        apify.APIFY_ACTORS.linkedin,
+        apify.linkedinInput({
+          titles: filters.jobTitles,
+          location: location || null,
+          keywords: filters.keywords,
+          limit,
+        }),
+        maxChargeUsd,
+      );
+    }
+    await ctx.runMutation(internal.leadSearches.setRunId, {
+      id: searchId,
+      apifyRunId: runId,
+    });
+    await ctx.scheduler.runAfter(10_000, internal.leadProviders.pollApifyRun, {
+      searchId,
+      attempts: 0,
+    });
+  } catch (error) {
+    await ctx.runMutation(internal.leadSearches.failSearch, {
+      id: searchId,
+      error: error instanceof Error ? error.message : "Couldn't start the search",
+    });
+  }
+}
+
+/** A new scrape only starts when the balance could pay for its leads. */
+function assertCanAfford(credits: number, leads: number, costPerLead: number) {
+  const need = Math.ceil(Math.max(1, leads) * costPerLead);
+  if (credits < need) {
+    throw new Error(`INSUFFICIENT_CREDITS: need ${need}, have ${Math.floor(credits)}`);
+  }
+}
+
+const ONE_AT_A_TIME =
+  "You already have a lead search running — wait for it to finish, then search again.";
+
+/**
  * AI Company Search: free text in → structured filters + source routing →
- * async provider job. The UI subscribes to the returned search id; Apify
- * sources are polled by a scheduled action, Explorium runs inline. Sources
- * whose keys aren't configured fall back to clearly-labeled samples.
+ * shared library first (instant, no scrape) → otherwise a provider job. The
+ * UI subscribes to the returned search id. Sources whose keys aren't
+ * configured fall back to clearly-labeled samples.
  */
 export const leadSearch = action({
   args: {
@@ -72,22 +179,21 @@ export const leadSearch = action({
       ? await parseWithClaude(queryText)
       : parseHeuristically(queryText);
     const source = args.forceSource ?? filters.source;
-    // Custom counts up to 1000; the per-run Apify cost ceiling scales with
-    // the request (~2¢/lead headroom) so big pulls work but can't run away.
     const limit = Math.max(1, Math.min(1000, Math.round(args.limit ?? filters.requestedCount ?? 50)));
-    const maxChargeUsd = Math.max(3, Math.ceil(limit * 0.02));
+
+    const prep = await ctx.runQuery(internal.leadSearches.prepare, { source });
+    if (prep.running) throw new Error(ONE_AT_A_TIME);
 
     const { apifyConfigured } = await import("./lib/apify");
     const { exploriumConfigured } = await import("./lib/explorium");
     const configured =
       source === "explorium" ? exploriumConfigured() : apifyConfigured();
 
-    const searchId: Id<"leadSearches"> = await ctx.runMutation(
-      internal.leadSearches.createSearch,
-      { query: queryText, filters, source, sample: !configured, limit },
-    );
-
     if (!configured) {
+      const searchId: Id<"leadSearches"> = await ctx.runMutation(
+        internal.leadSearches.createSearch,
+        { query: queryText, filters, source, sample: true, limit },
+      );
       await ctx.runMutation(internal.leadSearches.storeResults, {
         id: searchId,
         results: generateSampleResults(filters),
@@ -95,83 +201,57 @@ export const leadSearch = action({
       return { searchId };
     }
 
-    try {
-      if (source === "explorium") {
-        const { fetchProspects } = await import("./lib/explorium");
-        const { rows, warning } = await fetchProspects({
-          jobTitles: filters.jobTitles,
-          country: filters.country,
-          region: filters.region,
-          city: filters.city,
-          industry: filters.industry,
-          limit,
-        });
-        await ctx.runMutation(internal.leadSearches.storeResults, {
-          id: searchId,
-          results: rows,
-          ...(warning && {
-            warning: `Profiles found, but contact enrichment failed: ${warning}`,
-          }),
-        });
-        return { searchId };
-      }
+    // Shared library first: anything already scraped for this (or a close)
+    // search is shown instantly and costs nothing to serve.
+    const pooled = await ctx.runQuery(internal.leadPool.lookup, {
+      workspaceId: prep.workspaceId,
+      source,
+      filters,
+      limit,
+      minScrapedAt: Date.now() - POOL_MAX_AGE_MS,
+    });
+    if (pooled.length === 0) assertCanAfford(prep.credits, limit, prep.costPerLead);
 
-      const apify = await import("./lib/apify");
-      const location =
-        filters.locationQuery ??
-        [filters.city, filters.region, filters.country].filter(Boolean).join(", ");
-      let runId: string;
-      if (source === "google_maps") {
-        runId = await apify.startActorRun(
-          apify.APIFY_ACTORS.google_maps,
-          apify.googleMapsInput({
-            searchString:
-              filters.mapsSearchString ??
-              [filters.industry, ...filters.keywords].filter(Boolean).join(" ") ??
-              queryText,
-            locationQuery: location || "United States",
-            limit,
-          }),
-          maxChargeUsd,
-        );
-      } else if (source === "realtor_agents") {
-        if (filters.zipCodes.length === 0) {
-          throw new Error(
-            "Realtor.com search needs ZIP codes — include them in your search (e.g. 'realtors in 33139, 33140').",
-          );
-        }
-        runId = await apify.startActorRun(
-          apify.APIFY_ACTORS.realtor_agents,
-          apify.realtorAgentsInput({ zipCodes: filters.zipCodes, limit }),
-          maxChargeUsd,
-        );
-      } else {
-        runId = await apify.startActorRun(
-          apify.APIFY_ACTORS.linkedin,
-          apify.linkedinInput({
-            titles: filters.jobTitles,
-            location: location || null,
-            keywords: filters.keywords,
-            limit,
-          }),
-          maxChargeUsd,
-        );
-      }
-      await ctx.runMutation(internal.leadSearches.setRunId, {
+    const searchId: Id<"leadSearches"> = await ctx.runMutation(
+      internal.leadSearches.createSearch,
+      { query: queryText, filters, source, sample: false, limit },
+    );
+    if (pooled.length > 0) {
+      await ctx.runMutation(internal.leadSearches.storeResults, {
         id: searchId,
-        apifyRunId: runId,
+        results: pooled,
+        fromPool: true,
       });
-      await ctx.scheduler.runAfter(10_000, internal.leadProviders.pollApifyRun, {
-        searchId,
-        attempts: 0,
-      });
-    } catch (error) {
-      await ctx.runMutation(internal.leadSearches.failSearch, {
-        id: searchId,
-        error: error instanceof Error ? error.message : "Couldn't start the search",
-      });
+      return { searchId };
     }
+    await runScrape(ctx, searchId, source, filters, queryText, limit);
     return { searchId };
+  },
+});
+
+/**
+ * "Find more": the library had fewer leads than asked for and the user
+ * chose to pay for a real scrape. Results merge into the same search.
+ */
+export const findMoreLeads = action({
+  args: { searchId: v.id("leadSearches") },
+  handler: async (ctx, args): Promise<void> => {
+    await assertPlanAction(ctx, "personal", "Scrape Leads");
+    const search = await ctx.runQuery(internal.leadSearches.getInternal, { id: args.searchId });
+    if (!search || !search.source) throw new Error("Search not found");
+    const prep = await ctx.runQuery(internal.leadSearches.prepare, { source: search.source });
+    if (search.workspaceId !== prep.workspaceId) throw new Error("Search not found");
+    if (prep.running) throw new Error(ONE_AT_A_TIME);
+    if (search.status !== "done" || search.sample) throw new Error("This search can't be extended.");
+    const limit = search.limit ?? 50;
+    const shown = ((search.results ?? []) as unknown[]).length;
+    if (shown >= limit) throw new Error("You already have every lead you asked for.");
+    assertCanAfford(prep.credits, limit - shown, prep.costPerLead);
+
+    await ctx.runMutation(internal.leadSearches.startExtend, { id: args.searchId });
+    // Scrape the full count: the provider can't skip leads we already have,
+    // so its top results would repeat — the merge drops the repeats.
+    await runScrape(ctx, args.searchId, search.source, search.filters as LeadFilters, search.query, limit);
   },
 });
 

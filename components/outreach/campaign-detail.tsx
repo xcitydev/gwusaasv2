@@ -60,6 +60,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { errorText } from "@/lib/public-errors";
+import { isPlaceholderEmail } from "@/lib/lead-keys";
 
 
 type CampaignData = NonNullable<
@@ -139,7 +141,9 @@ function CampaignEditor({
   const [quickText, setQuickText] = useState("");
   const [addingLeads, setAddingLeads] = useState(false);
   const attachedIds = new Set(campaign.leads.map((l) => l._id));
-  const availableLeads = storeLeads.filter((l) => !attachedIds.has(l._id));
+  const availableLeads = storeLeads.filter(
+    (l) => !attachedIds.has(l._id) && !isPlaceholderEmail(l.email),
+  );
 
   const submitAddLeads = async () => {
     // Quick-add lines: "email" or "name, email" in either order — the token
@@ -184,7 +188,7 @@ function CampaignEditor({
       setPickIds(new Set());
       setQuickText("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't add leads.");
+      toast.error(errorText(e, "Couldn't add leads."));
     } finally {
       setAddingLeads(false);
     }
@@ -223,7 +227,7 @@ function CampaignEditor({
         );
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't save changes.");
+      toast.error(errorText(e, "Couldn't save changes."));
     } finally {
       setSaving(false);
     }
@@ -235,7 +239,7 @@ function CampaignEditor({
       await setStatus({ id: campaignId, status });
       toast.success(status === "active" ? "Campaign is live." : "Campaign paused.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Status change failed.");
+      toast.error(errorText(e, "Status change failed."));
     } finally {
       setStatusBusy(false);
     }
@@ -539,7 +543,7 @@ function CampaignEditor({
                   toast.success("Campaign deleted.");
                   router.push("/outreach");
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Delete failed.");
+                  toast.error(errorText(e, "Delete failed."));
                 }
               }}
             >

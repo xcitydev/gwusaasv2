@@ -73,6 +73,7 @@ import { handleGenerateError, probeVideoDuration } from "@/components/create/gen
 
 export { handleGenerateError };
 import { Textarea } from "@/components/ui/textarea";
+import { errorText } from "@/lib/public-errors";
 
 export function CostPill({ credits }: { credits: number }) {
   return (
@@ -604,7 +605,7 @@ function MotionStudio() {
     } catch (e) {
       const message = e instanceof Error ? e.message : "";
       if (/motion video|character image|under \d+ seconds/.test(message)) {
-        toast.error(message.split("Uncaught Error: ").pop() ?? message);
+        toast.error(errorText(message, "") ?? message);
       } else {
         handleGenerateError(e);
       }
@@ -919,7 +920,7 @@ function LibraryGrid() {
                   setOpenId(null);
                   toast.success("Deleted from your library.");
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Delete failed.");
+                  toast.error(errorText(e, "Delete failed."));
                 }
               }}
             >

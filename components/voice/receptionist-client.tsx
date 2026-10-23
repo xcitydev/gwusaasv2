@@ -60,6 +60,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { errorText } from "@/lib/public-errors";
 
 const VOICES = [
   { id: "maya", label: "Maya — warm, professional (F)" },
@@ -328,19 +329,13 @@ function ReceptionistEditor({
         }
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't save.");
+      toast.error(errorText(e, "Couldn't save."));
     } finally {
       setSaving(false);
     }
   };
 
-  // Server errors arrive wrapped ("… Uncaught Error: <real message>") —
-  // surface only the human part.
-  const serverMessage = (e: unknown, fallback: string) => {
-    const raw = e instanceof Error ? e.message : "";
-    const m = raw.match(/Uncaught Error: ([\s\S]*?)(?:\n|$)/);
-    return m?.[1] ?? (raw || fallback);
-  };
+  const serverMessage = (e: unknown, fallback: string) => errorText(e, fallback);
 
   const searchNumbers = async (code: string) => {
     setSearching(true);
@@ -374,7 +369,7 @@ function ReceptionistEditor({
       const msg = e instanceof Error ? e.message : "";
       toast.error(
         msg.includes("NOT_CONFIGURED")
-          ? "The voice engine isn't connected yet — an admin needs to add the Bland key."
+          ? "Voice calling isn't available right now — please try again later or contact support."
           : serverMessage(e, "Purchase failed."),
       );
     } finally {
@@ -478,7 +473,7 @@ function ReceptionistEditor({
       const msg = e instanceof Error ? e.message : "";
       if (msg.includes("NOT_CONFIGURED")) {
         toast.error(
-          "The voice engine isn't connected yet — an admin needs to add the Bland key.",
+          "Voice calling isn't available right now — please try again later or contact support.",
         );
       } else if (/permission|notallowed/i.test(msg)) {
         toast.error("Microphone access was blocked — allow it and try again.");
@@ -723,7 +718,7 @@ function ReceptionistEditor({
                       });
                       toast.success("Booking settings saved.");
                     } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Couldn't save.");
+                      toast.error(errorText(e, "Couldn't save."));
                     } finally {
                       setSavingBooking(false);
                     }
@@ -777,7 +772,7 @@ function ReceptionistEditor({
                                   phoneNumberId: n._id,
                                 });
                               } catch (e) {
-                                toast.error(e instanceof Error ? e.message : "Couldn't connect.");
+                                toast.error(errorText(e, "Couldn't connect."));
                                 return;
                               }
                               // Push the prompt to the live line immediately —
@@ -958,7 +953,7 @@ function ReceptionistEditor({
                   toast.success("Receptionist deleted.");
                   onDeleted();
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Delete failed.");
+                  toast.error(errorText(e, "Delete failed."));
                 }
               }}
             >
@@ -1009,7 +1004,7 @@ function RecentCalls({ receptionistId }: { receptionistId: Id<"receptionists"> }
       await retryAutoBook({ callId: open._id });
       toast.success("Booking again — the result appears in a few seconds.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't retry the booking.");
+      toast.error(errorText(e, "Couldn't retry the booking."));
     }
   };
 

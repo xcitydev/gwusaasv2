@@ -72,7 +72,8 @@ export default defineSchema({
   })
     .index("by_clerk_id", ["clerkId"])
     .index("by_email", ["email"])
-    .index("by_referral_code", ["referralCode"]),
+    .index("by_referral_code", ["referralCode"])
+    .index("by_admin_role", ["adminRole"]),
 
   workspaces: defineTable({
     name: v.string(),
@@ -83,6 +84,13 @@ export default defineSchema({
     planCreditsGrantedFor: v.optional(planValidator),
     // The Whop subscription paying for this workspace's plan, if any.
     whopMembershipId: v.optional(v.string()),
+    // Who set the current plan: a Whop payment, or a superadmin from
+    // /admin/users. An admin-set plan survives a lapsed Whop membership; a
+    // real payment takes the plan back over.
+    planSource: v.optional(v.union(v.literal("whop"), v.literal("admin"))),
+    planSetBy: v.optional(v.id("users")),
+    planSetAt: v.optional(v.number()),
+    planNote: v.optional(v.string()),
     // Outreach settings
     forwardRepliesTo: v.optional(v.string()),
     /** Cached count of distinct leads enrolled in non-archived campaigns (platform pool). */
@@ -242,6 +250,23 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_read", ["userId", "read"]),
 
+  // Vendor/technical failures hidden from users (lib/public-errors.ts) —
+  // grouped by fingerprint so a flapping provider is one row, not hundreds.
+  incidents: defineTable({
+    fingerprint: v.string(),
+    area: v.string(),
+    vendor: v.optional(v.string()),
+    source: v.string(), // function name or job kind that failed
+    message: v.string(), // raw text, admin-only
+    userId: v.optional(v.id("users")),
+    workspaceId: v.optional(v.id("workspaces")),
+    count: v.number(),
+    lastAt: v.number(),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+  })
+    .index("by_fingerprint_status", ["fingerprint", "status"])
+    .index("by_status_last", ["status", "lastAt"]),
+
   // ── Forms (phase 2) ─────────────────────────────────────────────────────
   formSubmissions: defineTable({
     workspaceId: v.id("workspaces"),
@@ -330,7 +355,41 @@ export default defineSchema({
     creditCostPerLead: v.optional(v.number()),
     // Requested lead count; results storage + dataset fetch respect it.
     limit: v.optional(v.number()),
+    // Leads that came instantly from the shared library (no scrape run).
+    poolCount: v.optional(v.number()),
+    // A "Find more" scrape is running on top of library results.
+    extending: v.optional(v.boolean()),
   }).index("by_workspace", ["workspaceId"]),
+
+  // ── Shared lead library ─────────────────────────────────────────────────
+  // Every paid scrape lands here (deduped across all workspaces) so the next
+  // matching search is served without running the scraper again.
+  leadPool: defineTable({
+    source: v.string(),
+    // Real email, phone-derived key (lib/lead-keys) or name|company.
+    dedupeKey: v.string(),
+    email: v.string(),
+    name: v.string(),
+    company: v.string(),
+    title: v.string(),
+    location: v.string(),
+    industry: v.string(),
+    website: v.string(),
+    phone: v.string(),
+    // name + company + title + industry + location, for keyword matching.
+    searchText: v.string(),
+    scrapedAt: v.number(),
+  })
+    .index("by_source_key", ["source", "dedupeKey"])
+    .searchIndex("search_text", { searchField: "searchText", filterFields: ["source"] }),
+
+  // Which library leads a given (normalized) search produced.
+  leadPoolQueries: defineTable({
+    source: v.string(),
+    queryKey: v.string(),
+    leadIds: v.array(v.id("leadPool")),
+    scrapedAt: v.number(),
+  }).index("by_source_query", ["source", "queryKey"]),
 
   // ── Instagram commenter scraper (Leads → IG Commenters) ────────────────
   // Two Apify runs per job: comment scraper (post → comments + usernames),

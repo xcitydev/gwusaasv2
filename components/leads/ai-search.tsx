@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Zap,
 } from "lucide-react";
 import { LEAD_SOURCES, leadSourceMeta, type LeadSourceId } from "@/lib/lead-sources";
 import {
@@ -51,8 +52,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { errorText } from "@/lib/public-errors";
 
 type ResultRow = {
+  /** Opaque id we select/import by — contact details stay masked server-side. */
+  rowId: string;
   email: string;
   name: string;
   company: string;
@@ -63,7 +67,16 @@ type ResultRow = {
   phone: string;
   duplicate: boolean;
   noEmail: boolean;
+  /** No email but a phone — importable (email holds a phone-derived key). */
+  phoneOnly?: boolean;
+  /** Came instantly from the shared lead library. */
+  fromPool?: boolean;
 };
+
+/** A row the user can pick: not already saved, and reachable somehow. */
+function canImport(r: ResultRow) {
+  return !r.duplicate && (!r.noEmail || Boolean(r.phoneOnly));
+}
 
 const EXAMPLES = [
   "Med spas in Miami, Florida",
@@ -73,6 +86,8 @@ const EXAMPLES = [
 
 export function AiSearch() {
   const startSearch = useAction(api.ai.leadSearch);
+  const findMore = useAction(api.ai.findMoreLeads);
+  const [findingMore, setFindingMore] = useState(false);
   const importFromSearch = useMutation(api.leadSearches.importFromSearch);
   const [query, setQuery] = useState("");
   const [limitChoice, setLimitChoice] = useState("auto");
@@ -105,14 +120,31 @@ export function AiSearch() {
       });
       setActiveId(res.searchId);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Search failed. Try again.");
+      if (promptTopUpIfInsufficient(e, "Running this lead search")) return;
+      toast.error(errorText(e, "Search failed. Try again."));
     } finally {
       setStarting(false);
     }
   };
 
+  const doFindMore = async () => {
+    if (!activeId) return;
+    setFindingMore(true);
+    try {
+      await findMore({ searchId: activeId });
+    } catch (e) {
+      if (promptTopUpIfInsufficient(e, "Finding more leads")) return;
+      toast.error(errorText(e, "Couldn't start the search. Try again."));
+    } finally {
+      setFindingMore(false);
+    }
+  };
+
   const rows: ResultRow[] = (search?.results as ResultRow[] | undefined) ?? [];
-  const importable = rows.filter((r) => !r.duplicate && !r.noEmail);
+  const importable = rows.filter(canImport);
+  const phoneOnlySelected = importable.filter(
+    (r) => r.phoneOnly && selected.has(r.rowId),
+  ).length;
   const costPerLead = search?.creditCostPerLead ?? 1;
   const source = leadSourceMeta(search?.source);
   const status = search?.status ?? (search ? "done" : null);
@@ -123,7 +155,7 @@ export function AiSearch() {
     try {
       const { imported, skipped, creditsSpent } = await importFromSearch({
         id: activeId,
-        emails: [...selected],
+        rowIds: [...selected],
       });
       toast.success(
         `Imported ${imported} lead${imported === 1 ? "" : "s"}` +
@@ -262,7 +294,7 @@ export function AiSearch() {
             </DropdownMenu>
           </div>
 
-          {status === "running" && (
+          {status === "running" && rows.length === 0 && (
             <Card>
               <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
                 <Loader2 className="size-6 animate-spin text-primary" />
@@ -288,8 +320,32 @@ export function AiSearch() {
             </Card>
           )}
 
-          {status === "done" && (
+          {(status === "done" || (status === "running" && rows.length > 0)) && (
             <>
+              {status === "running" && (
+                <div className="mb-3 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-xs text-primary">
+                  <Loader2 className="size-4 shrink-0 animate-spin" />
+                  Searching {source.label} for more leads — {source.etaLabel}. New ones appear below
+                  automatically.
+                </div>
+              )}
+              {(search.poolCount ?? 0) > 0 && (
+                <div className="mb-3 flex flex-col gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-2.5 text-xs text-emerald-300 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="flex items-center gap-2">
+                    <Zap className="size-4 shrink-0" />
+                    {search.poolCount} lead{search.poolCount === 1 ? "" : "s"} found instantly in
+                    our lead library.
+                    {search.canFindMore &&
+                      ` You asked for ${search.limit ?? rows.length} — search for more if you need them.`}
+                  </span>
+                  {search.canFindMore && (
+                    <Button size="sm" variant="outline" onClick={doFindMore} disabled={findingMore}>
+                      {findingMore ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+                      Find more
+                    </Button>
+                  )}
+                </div>
+              )}
               {search.warning && (
                 <div className="mb-3 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-xs text-primary">
                   <AlertTriangle className="size-4 shrink-0" />
@@ -299,9 +355,9 @@ export function AiSearch() {
               {search.sample && (
                 <div className="mb-3 flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-4 py-2.5 text-xs text-sky-300">
                   <FlaskConical className="size-4 shrink-0" />
-                  Sample results — this source isn&apos;t connected yet. Set
-                  APIFY_API_TOKEN / EXPLORIUM_API_KEY on the Convex deployment
-                  to search real leads.
+                  Sample results — live search for this source isn&apos;t
+                  available right now. Contact support if you need real leads
+                  from it.
                 </div>
               )}
 
@@ -316,7 +372,7 @@ export function AiSearch() {
                             onCheckedChange={(checked) =>
                               setSelected(
                                 checked
-                                  ? new Set(importable.map((r) => r.email))
+                                  ? new Set(importable.map((r) => r.rowId))
                                   : new Set(),
                               )
                             }
@@ -341,17 +397,17 @@ export function AiSearch() {
                       )}
                       {rows.map((r, i) => (
                         <TableRow
-                          key={`${r.email}-${i}`}
-                          className={r.duplicate || r.noEmail ? "opacity-50" : undefined}
+                          key={r.rowId ?? i}
+                          className={canImport(r) ? undefined : "opacity-50"}
                         >
                           <TableCell>
                             <Checkbox
-                              disabled={r.duplicate || r.noEmail}
-                              checked={selected.has(r.email)}
+                              disabled={!canImport(r)}
+                              checked={selected.has(r.rowId)}
                               onCheckedChange={(checked) => {
                                 const next = new Set(selected);
-                                if (checked) next.add(r.email);
-                                else next.delete(r.email);
+                                if (checked) next.add(r.rowId);
+                                else next.delete(r.rowId);
                                 setSelected(next);
                               }}
                               aria-label={`Select ${r.name}`}
@@ -363,9 +419,16 @@ export function AiSearch() {
                           <TableCell>{r.location || "—"}</TableCell>
                           <TableCell className="text-muted-foreground">
                             {r.noEmail ? (
-                              <Badge variant="outline" className="text-muted-foreground">
-                                No email
-                              </Badge>
+                              <span className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-muted-foreground">
+                                  {r.phoneOnly ? "No email — phone only" : "No contact info"}
+                                </Badge>
+                                {r.duplicate && (
+                                  <Badge variant="outline" className="border-primary/40 text-primary">
+                                    Already saved
+                                  </Badge>
+                                )}
+                              </span>
                             ) : (
                               <span className="flex items-center gap-2">
                                 {r.email}
@@ -387,11 +450,15 @@ export function AiSearch() {
 
               <div className="mt-4 flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
-                  {selected.size} of {importable.length} importable selected
+                  {selected.size} of {importable.length} importable selected · emails and phones
+                  unlock when you import
                   {rows.length !== importable.length &&
-                    ` (${rows.length - importable.length} duplicates or missing email)`}
+                    ` (${rows.length - importable.length} already saved or with no email or phone)`}
                 </p>
-                <Button onClick={() => setConfirmOpen(true)} disabled={selected.size === 0}>
+                <Button
+                  onClick={() => setConfirmOpen(true)}
+                  disabled={selected.size === 0 || status === "running"}
+                >
                   Import {selected.size} — {selected.size * costPerLead} credit
                   {selected.size * costPerLead === 1 ? "" : "s"}
                 </Button>
@@ -411,6 +478,8 @@ export function AiSearch() {
             <AlertDialogDescription>
               {source.label} leads cost {costPerLead} credit{costPerLead === 1 ? "" : "s"} each.
               Duplicates are skipped automatically and never charged.
+              {phoneOnlySelected > 0 &&
+                ` ${phoneOnlySelected} of these have a phone number but no email — they're charged the same, work for calling (AI Qualifier), and are left out of email campaigns.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

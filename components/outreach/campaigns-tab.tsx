@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/table";
 import { CampaignWizard } from "@/components/outreach/campaign-wizard";
 import { Doc, Id } from "@/convex/_generated/dataModel";
+import { errorText } from "@/lib/public-errors";
 
 type CampaignRow = Doc<"campaigns"> & { leadCount: number };
 
@@ -53,7 +54,7 @@ export function CampaignsTab() {
       await archiveCampaign({ id: campaign._id });
       toast.success(`${campaign.name} archived — its contacts no longer count against your limit.`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message.split("Uncaught Error: ").pop() : "Couldn't archive.");
+      toast.error(e instanceof Error ? errorText(e, "") : "Couldn't archive.");
     }
   };
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -66,7 +67,7 @@ export function CampaignsTab() {
       await setStatus({ id: publishTarget._id, status: "active" });
       toast.success(`${publishTarget.name} is live.`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't activate.");
+      toast.error(errorText(e, "Couldn't activate."));
     }
     setPublishTarget(null);
   };
@@ -77,7 +78,7 @@ export function CampaignsTab() {
       await setStatus({ id: campaign._id, status: nextStatus });
       toast.success(nextStatus === "paused" ? "Campaign paused." : "Campaign resumed.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message.split("Uncaught Error: ").pop() : "Couldn't update.");
+      toast.error(e instanceof Error ? errorText(e, "") : "Couldn't update.");
     }
   };
 
@@ -229,7 +230,7 @@ export function CampaignsTab() {
                   await removeCampaign({ id: deleteTarget._id as Id<"campaigns"> });
                   toast.success("Campaign deleted.");
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Delete failed.");
+                  toast.error(errorText(e, "Delete failed."));
                 }
                 setDeleteTarget(null);
               }}

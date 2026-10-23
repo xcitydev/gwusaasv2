@@ -1,10 +1,6 @@
-import {
-  action,
-  query,
-  internalAction,
-  internalMutation,
-  internalQuery,
-} from "./_generated/server";
+import { query, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { publicRowError } from "./incidents";
+import { action } from "./lib/functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
@@ -179,7 +175,16 @@ export const setComments = internalMutation({
 export const fail = internalMutation({
   args: { id: v.id("igCommentScrapes"), error: v.string() },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, { status: "failed", error: args.error });
+    const job = await ctx.db.get(args.id);
+    await ctx.db.patch(args.id, {
+      status: "failed",
+      error: await publicRowError(ctx, args.error, {
+        source: "IG commenters",
+        area: "leads",
+        userId: job?.userId,
+        workspaceId: job?.workspaceId,
+      }),
+    });
   },
 });
 

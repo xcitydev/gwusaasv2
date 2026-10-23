@@ -6,6 +6,7 @@ import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { errorText } from "@/lib/public-errors";
 import {
   AlertTriangle,
   AtSign,
@@ -137,8 +138,8 @@ function Live() {
         msg.includes("INSUFFICIENT_CREDITS")
           ? `Not enough credits — this run can cost up to ${worstCase}. Top up in Settings or lower the comment count.`
           : msg.includes("NOT_CONFIGURED")
-            ? "The scraper isn't connected yet — set APIFY_API_TOKEN on the Convex deployment."
-            : msg || "Couldn't start the scrape. Try again.",
+            ? "This scraper isn't available right now — please try again later or contact support."
+            : errorText(msg, "Couldn't start the scrape. Try again."),
       );
     } finally {
       setStarting(false);

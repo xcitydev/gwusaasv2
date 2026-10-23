@@ -19,6 +19,7 @@ import {
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { errorText } from "@/lib/public-errors";
 
 const CATEGORIES = [
   { value: "all", label: "All" },
@@ -70,7 +71,7 @@ function ReplyDetail({ reply }: { reply: Doc<"replies"> }) {
           : "Reply recorded — it sends once the email engine link is complete.",
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Send failed.");
+      toast.error(errorText(e, "Send failed."));
     } finally {
       setSending(false);
     }

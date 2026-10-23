@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ListSkeleton } from "@/components/list-skeleton";
+import { errorText } from "@/lib/public-errors";
 
 /**
  * Settings → Integrations: connect Trello, Asana or a webhook. After every
@@ -27,8 +28,7 @@ import { ListSkeleton } from "@/components/list-skeleton";
  */
 
 function message(e: unknown, fallback: string): string {
-  const raw = e instanceof Error ? e.message : "";
-  return raw.split("Uncaught Error: ").pop() || fallback;
+  return errorText(e, fallback);
 }
 
 type Option = { id: string; name: string };

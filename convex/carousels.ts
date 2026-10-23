@@ -1,4 +1,5 @@
 import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
+import { publicRowError } from "./incidents";
 import { v } from "convex/values";
 import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { grantCredits, spendCredits } from "./lib/credits";
@@ -264,7 +265,15 @@ export const finish = internalMutation({
   handler: async (ctx, args) => {
     const carousel = await ctx.db.get(args.id);
     if (!carousel) return;
-    await ctx.db.patch(args.id, { status: args.status, error: args.error });
+    await ctx.db.patch(args.id, {
+      status: args.status,
+      error: await publicRowError(ctx, args.error, {
+        source: "carousel",
+        area: "generation",
+        userId: carousel.userId,
+        workspaceId: carousel.workspaceId,
+      }),
+    });
     if (args.status === "failed" && carousel.costCredits > 0) {
       await grantCredits(ctx, {
         workspaceId: carousel.workspaceId,

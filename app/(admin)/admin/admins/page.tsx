@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
-import { ShieldMinus, UserPlus } from "lucide-react";
+import { Loader2, ShieldMinus, UserPlus } from "lucide-react";
+import { ListSkeleton } from "@/components/list-skeleton";
 import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -43,12 +44,14 @@ const ROLE_HELP: Record<string, string> = {
 };
 
 function AdminsManager() {
-  const admins = useQuery(api.admin.listAdmins) ?? [];
+  // undefined while loading — skeleton, not the "No admins" copy.
+  const admins = useQuery(api.admin.listAdmins);
   const setAdminRole = useMutation(api.admin.setAdminRole);
   const [assignOpen, setAssignOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"regular" | "dev" | "super">("regular");
   const [removeTarget, setRemoveTarget] = useState<{ email: string } | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const assign = async () => {
     try {
@@ -63,13 +66,16 @@ function AdminsManager() {
 
   const remove = async () => {
     if (!removeTarget) return;
+    setRemoving(true);
     try {
       await setAdminRole({ email: removeTarget.email, role: null });
       toast.success("Admin access removed.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Removal failed.");
+    } finally {
+      setRemoving(false);
+      setRemoveTarget(null);
     }
-    setRemoveTarget(null);
   };
 
   return (
@@ -84,39 +90,43 @@ function AdminsManager() {
         }
       />
 
-      <Card>
-        <CardContent className="divide-y divide-border p-0">
-          {admins.length === 0 && (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              No admins yet — claim superadmin from the Overview page.
-            </p>
-          )}
-          {admins.map((a) => (
-            <div
-              key={a._id}
-              className="flex items-center justify-between gap-3 px-5 py-3.5"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{a.name ?? a.email}</p>
-                <p className="text-xs text-muted-foreground">{a.email}</p>
+      {admins === undefined ? (
+        <ListSkeleton rows={3} />
+      ) : (
+        <Card>
+          <CardContent className="divide-y divide-border p-0">
+            {admins.length === 0 && (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                No admins yet — claim superadmin from the Overview page.
+              </p>
+            )}
+            {admins.map((a) => (
+              <div
+                key={a._id}
+                className="flex items-center justify-between gap-3 px-5 py-3.5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{a.name ?? a.email}</p>
+                  <p className="text-xs text-muted-foreground">{a.email}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-primary/15 px-2 py-0.5 text-[11px] font-semibold uppercase text-primary">
+                    {a.adminRole}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Remove admin"
+                    onClick={() => setRemoveTarget({ email: a.email })}
+                  >
+                    <ShieldMinus className="size-4 text-destructive" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="rounded bg-primary/15 px-2 py-0.5 text-[11px] font-semibold uppercase text-primary">
-                  {a.adminRole}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Remove admin"
-                  onClick={() => setRemoveTarget({ email: a.email })}
-                >
-                  <ShieldMinus className="size-4 text-destructive" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent>
@@ -157,7 +167,7 @@ function AdminsManager() {
 
       <AlertDialog
         open={removeTarget !== null}
-        onOpenChange={(o) => !o && setRemoveTarget(null)}
+        onOpenChange={(o) => !o && !removing && setRemoveTarget(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -167,8 +177,18 @@ function AdminsManager() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={remove}>Remove access</AlertDialogAction>
+            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={removing}
+              onClick={(e) => {
+                // Keep the dialog open until the mutation settles.
+                e.preventDefault();
+                void remove();
+              }}
+            >
+              {removing && <Loader2 className="size-4 animate-spin" />}
+              Remove access
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

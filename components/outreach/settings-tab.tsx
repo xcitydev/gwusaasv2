@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/status-badge";
+import { errorText } from "@/lib/public-errors";
 
 export function SettingsTab() {
   const settings = useQuery(api.outreach.outreachSettings);
@@ -51,7 +52,7 @@ function SettingsTabInner({ initialForwardEmail }: { initialForwardEmail: string
           : "Reply forwarding turned off.",
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't save.");
+      toast.error(errorText(e, "Couldn't save."));
     } finally {
       setSavingForward(false);
     }
@@ -153,7 +154,7 @@ function SettingsTabInner({ initialForwardEmail }: { initialForwardEmail: string
                   setAddOpen(false);
                   setNewDomain("");
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Couldn't add domain.");
+                  toast.error(errorText(e, "Couldn't add domain."));
                 }
               }}
             >
@@ -191,7 +192,7 @@ function SettingsTabInner({ initialForwardEmail }: { initialForwardEmail: string
                   );
                   setRedirectOpen(false);
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Couldn't set redirect.");
+                  toast.error(errorText(e, "Couldn't set redirect."));
                 }
               }}
             >

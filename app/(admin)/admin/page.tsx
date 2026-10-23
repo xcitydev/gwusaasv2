@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Crown,
   ArrowRight,
+  TriangleAlert,
 } from "lucide-react";
 import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
@@ -52,14 +53,16 @@ function BootstrapCard() {
 
 function Overview() {
   const stats = useQuery(api.admin.overview);
+  const openErrors = useQuery(api.incidents.openCount);
   const cards = [
     { label: "Total users", value: stats?.totalUsers, icon: Users, href: "/admin/users" },
     { label: "Open tickets", value: stats?.openTickets, icon: Ticket, href: "/admin/tickets" },
     { label: "Forms processing", value: stats?.processingForms, icon: FileCheck, href: "/admin/forms" },
     { label: "Paid workspaces", value: stats?.paidWorkspaces, icon: ShieldCheck, href: "/admin/revenue" },
+    { label: "Open user errors", value: openErrors ?? undefined, icon: TriangleAlert, href: "/admin/incidents" },
   ];
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       {cards.map((c) => (
         <Link key={c.label} href={c.href} className="group">
           <Card className="transition-colors group-hover:border-primary/40">

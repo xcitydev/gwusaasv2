@@ -28,6 +28,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { errorText } from "@/lib/public-errors";
 
 /**
  * /welcome — three quick questions after sign-up, then the plan that fits is
@@ -117,7 +118,7 @@ export function PlanQuiz() {
     try {
       setResult(await savePlanQuiz({ audience, teamSize, goals }));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save your answers.");
+      toast.error(errorText(e, "Could not save your answers."));
     } finally {
       setBusy(null);
     }

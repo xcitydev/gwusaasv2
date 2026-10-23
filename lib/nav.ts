@@ -23,6 +23,7 @@ import {
   ServerCog,
   DollarSign,
   SlidersHorizontal,
+  TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
 
@@ -191,6 +192,12 @@ export const APP_NAV: { section: string; items: NavItem[] }[] = [
   },
 ];
 
+/** Admin sections at or below the signed-in admin's role (none when not an admin). */
+export function adminNavFor(role: AdminRole | undefined | null) {
+  if (!role) return [];
+  return ADMIN_NAV.filter((s) => ADMIN_RANK[role] >= ADMIN_RANK[s.minRole]);
+}
+
 /** Drop items the user is not entitled to, and sections that end up empty. */
 export function filterNav(
   sections: { section: string; items: NavItem[] }[],
@@ -204,23 +211,30 @@ export function filterNav(
     .filter((s) => s.items.length > 0);
 }
 
-export const ADMIN_NAV: { section: string; items: NavItem[] }[] = [
+export type AdminRole = "regular" | "dev" | "super";
+const ADMIN_RANK: Record<AdminRole, number> = { regular: 1, dev: 2, super: 3 };
+
+export const ADMIN_NAV: { section: string; minRole: AdminRole; items: NavItem[] }[] = [
   {
     section: "Admin",
+    minRole: "regular",
     items: [
       { label: "Overview", href: "/admin", icon: ShieldCheck },
       { label: "Users", href: "/admin/users", icon: UserCog },
       { label: "Tickets", href: "/admin/tickets", icon: Ticket },
       { label: "Form Submissions", href: "/admin/forms", icon: FileCheck },
       { label: "Carousel Templates", href: "/admin/templates", icon: GalleryHorizontalEnd },
+      { label: "User Errors", href: "/admin/incidents", icon: TriangleAlert },
     ],
   },
   {
     section: "Dev",
+    minRole: "dev",
     items: [{ label: "Infrastructure", href: "/admin/infra", icon: ServerCog }],
   },
   {
     section: "Super",
+    minRole: "super",
     items: [
       { label: "Revenue", href: "/admin/revenue", icon: DollarSign },
       { label: "Admins", href: "/admin/admins", icon: UsersRound },

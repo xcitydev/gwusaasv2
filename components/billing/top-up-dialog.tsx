@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { CREDIT_PACKS, MIN_TOPUP_CREDITS, MAX_TOPUP_CREDITS, quoteTopup } from "@/lib/credit-packs";
 import { closeTopUp, getTopUpRequest, subscribeTopUp } from "@/lib/top-up-prompt";
 import { cn } from "@/lib/utils";
+import { errorText } from "@/lib/public-errors";
 
 const n = (v: number) => v.toLocaleString("en-US");
 
@@ -44,7 +45,7 @@ export function TopUpDialogHost() {
   try {
     quote = credits > 0 ? quoteTopup(credits, price) : null;
   } catch (e) {
-    quoteError = e instanceof Error ? e.message : "Invalid amount";
+    quoteError = errorText(e, "Invalid amount");
   }
   const shortfall =
     request?.need !== undefined && request?.have !== undefined
@@ -58,7 +59,7 @@ export function TopUpDialogHost() {
       const { url } = await startTopup({ credits: quote.baseCredits });
       window.location.assign(url);
     } catch (e) {
-      const msg = e instanceof Error ? e.message.split("Uncaught Error: ").pop() ?? "" : "";
+      const msg = e instanceof Error ? errorText(e, "") ?? "" : "";
       toast.error(
         msg.includes("NOT_CONFIGURED")
           ? "Top-ups activate once billing keys are added — contact support meanwhile."

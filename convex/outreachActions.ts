@@ -1,4 +1,5 @@
-import { action, internalAction } from "./_generated/server";
+import { internalAction } from "./_generated/server";
+import { action, publicFailure } from "./lib/functions";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
@@ -127,12 +128,19 @@ export const connectInboxes = action({
               });
             }
           } else {
-            engineErrors.push(`${inbox.email}: ${message.replace(/^Instantly \d+: /, "")}`);
+            // The engine's own reason (bad IMAP password…) is useful once its
+            // name is stripped; anything still vendor-shaped gets hidden.
+            const reason = message.replace(/^Instantly \d+: /, "");
+            const { message: shown } = await publicFailure(ctx, reason, {
+              source: "connect inbox",
+              area: "email",
+            });
+            engineErrors.push(`${inbox.email}: ${shown}`);
             if (row) {
               await ctx.runMutation(internal.outreach.updateInboxHealth, {
                 id: row.id,
                 status: "error",
-                lastEngineError: message.replace(/^Instantly \d+: /, ""),
+                lastEngineError: shown,
               });
             }
           }

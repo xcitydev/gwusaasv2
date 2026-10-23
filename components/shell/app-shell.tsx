@@ -6,7 +6,7 @@ import { Menu, ShieldCheck } from "lucide-react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { hasClerk, hasConvex } from "@/lib/runtime";
-import { APP_NAV, ADMIN_NAV, filterNav } from "@/lib/nav";
+import { APP_NAV, ADMIN_NAV, adminNavFor, filterNav } from "@/lib/nav";
 import { BrandMark } from "@/components/shell/brand-mark";
 import { NavLinks } from "@/components/shell/nav-links";
 import { CreditsPill } from "@/components/shell/credits-pill";
@@ -46,6 +46,12 @@ function AppNav({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+/** Admin nav trimmed to the admin's role, so nobody sees pages they can't use. */
+function AdminNav({ onNavigate }: { onNavigate?: () => void }) {
+  const me = useQuery(api.users.me);
+  return <NavLinks sections={adminNavFor(me?.adminRole)} onNavigate={onNavigate} />;
+}
+
 function SidebarContent({
   variant,
   onNavigate,
@@ -67,6 +73,8 @@ function SidebarContent({
       <div className="flex-1 overflow-y-auto px-2 py-2">
         {variant === "app" && hasConvex && hasClerk ? (
           <AppNav onNavigate={onNavigate} />
+        ) : variant === "admin" && hasConvex && hasClerk ? (
+          <AdminNav onNavigate={onNavigate} />
         ) : (
           <NavLinks sections={sections} onNavigate={onNavigate} />
         )}

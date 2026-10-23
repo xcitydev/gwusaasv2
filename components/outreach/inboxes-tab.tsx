@@ -340,8 +340,8 @@ export function InboxesTab() {
                             </TooltipTrigger>
                             <TooltipContent className="max-w-56">
                               {(inbox.warmupSentTotal ?? 0) < 30 && inbox.healthScore < 80
-                                ? "Instantly's warmup score — it stays low until enough warmup emails have gone out. Matches their dashboard."
-                                : "Warmup health score, synced from Instantly."}
+                                ? "Warmup score — it stays low until enough warmup emails have gone out."
+                                : "Warmup health score, synced from the email engine."}
                             </TooltipContent>
                           </Tooltip>
                         ) : (

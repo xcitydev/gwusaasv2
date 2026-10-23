@@ -18,6 +18,8 @@ import {
   CarouselSlideFrame,
   TemplateFonts,
 } from "@/components/tools/carousel-slide";
+import { GridSkeleton } from "@/components/list-skeleton";
+import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
 import {
   AlertDialog,
@@ -128,8 +130,9 @@ function ColorInput({
   );
 }
 
-export default function TemplatesAdminPage() {
-  const templates = useQuery(api.carouselTemplates.listAll) ?? [];
+function TemplatesManager() {
+  // undefined while loading — skeleton, not the empty-library card.
+  const templates = useQuery(api.carouselTemplates.listAll);
   const save = useMutation(api.carouselTemplates.save);
   const remove = useMutation(api.carouselTemplates.remove);
   const [editing, setEditing] = useState<{
@@ -138,6 +141,7 @@ export default function TemplatesAdminPage() {
   } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Doc<"carouselTemplates"> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const draft = editing?.draft;
   const setDraft = (patch: Partial<Draft>) =>
@@ -164,12 +168,14 @@ export default function TemplatesAdminPage() {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    setDeleting(true);
     try {
       await remove({ id: deleteTarget._id });
       toast.success("Template removed.");
     } catch {
       toast.error("Couldn't remove that template.");
     } finally {
+      setDeleting(false);
       setDeleteTarget(null);
     }
   };
@@ -195,7 +201,9 @@ export default function TemplatesAdminPage() {
         ))}
       </div>
 
-      {templates.length === 0 ? (
+      {templates === undefined ? (
+        <GridSkeleton tiles={4} className="sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4" />
+      ) : templates.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
             <GalleryHorizontalEnd className="size-8 text-muted-foreground" />
@@ -415,7 +423,10 @@ export default function TemplatesAdminPage() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleteTarget !== null} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => !o && !deleting && setDeleteTarget(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove “{deleteTarget?.name}” from the library?</AlertDialogTitle>
@@ -425,16 +436,30 @@ export default function TemplatesAdminPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={confirmDelete}
+              disabled={deleting}
+              onClick={(e) => {
+                // Keep the dialog open until the mutation settles.
+                e.preventDefault();
+                void confirmDelete();
+              }}
             >
+              {deleting && <Loader2 className="size-4 animate-spin" />}
               Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+export default function TemplatesAdminPage() {
+  return (
+    <LivePage>
+      <TemplatesManager />
+    </LivePage>
   );
 }

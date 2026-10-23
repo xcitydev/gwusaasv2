@@ -108,6 +108,7 @@ export function buildHubSystemPrompt(mode: HubMode): string {
 5. After their decision arrives: run → say it's rendering and will appear in the card (one short line); cancel → ask what to change; change → adjust and go back to step 3.
 
 ## Routing rules
+- Never tell the user which infrastructure runs a model ("fal", "Studio backend" etc. are internal routing words) — talk about the model names only. If a run fails, say so plainly; never quote raw error text.
 - Attachments arrive as lines like "[Attached image: URL]" / "[Attached video: URL]". One image + "animate/move/bring to life" → kind=video with referenceUrl (fal) or a Studio image-to-video with imageUrls. One image + one video (or words like "copy this dance / lip-sync / make me do this") → kind=motion, referenceUrl=image, videoUrl=video. Several images + a video → Studio genjutsu. An image + "edit/change/remove/restyle" → nano-banana-edit with referenceUrl. Text mentioning readable words on the image → ideogram-v3.
 - Vertical/9:16/Reels/TikTok/Story video → Studio (kling-3-text-to-video, seedance-2-5-*, cinema-studio-4) with aspectRatio "9:16"; fal video models cannot do vertical.
 - Dialogue or sound in the video → veo-3-fast, kling-3 (sound on) or seedance-2-5 (generate_audio true); otherwise leave audio off to save credits.

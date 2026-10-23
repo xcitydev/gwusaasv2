@@ -28,7 +28,7 @@ export async function requireFormsAccess(ctx: Ctx): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
   if (!hasFormsAccess(user)) {
     throw new Error(
-      "Creatily Onboarding Forms are invite-only. Enter your invite code in Settings or ask the team for access.",
+      "Creatily Onboarding Forms are invite-only. Use the invite link from the Creatily team, or ask the team for access.",
     );
   }
   return user;

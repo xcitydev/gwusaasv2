@@ -1,10 +1,19 @@
 import { query, mutation } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { requireUser, requireAdmin, getAdminOrNull, hasFormsAccess } from "./lib/auth";
+import {
+  requireUser,
+  requireAdmin,
+  getAdminOrNull,
+  getPrimaryWorkspace,
+  hasFormsAccess,
+} from "./lib/auth";
 import { grantCredits, spendCredits } from "./lib/credits";
-import { adminRoleValidator } from "./schema";
+import { getConfigValue } from "./config";
+import { adminRoleValidator, planValidator } from "./schema";
 import { notify } from "./notifications";
+
+const PLAN_LABELS = { free: "Free", personal: "Personal", team: "Team" } as const;
 
 export const overview = query({
   args: {},
@@ -36,21 +45,23 @@ export const listUsers = query({
   args: { search: v.optional(v.string()) },
   handler: async (ctx, args) => {
     if (!(await getAdminOrNull(ctx, "regular"))) return [];
-    let users = await ctx.db.query("users").order("desc").take(200);
     const search = args.search?.trim().toLowerCase();
-    if (search) {
-      users = users.filter(
-        (u) =>
-          u.email.toLowerCase().includes(search) ||
-          (u.name ?? "").toLowerCase().includes(search),
-      );
-    }
+    // No search: newest 200. With a search, scan every account so older
+    // users are still findable (fine at this scale), capped after filtering.
+    const users = search
+      ? (await ctx.db.query("users").order("desc").collect())
+          .filter(
+            (u) =>
+              u.email.toLowerCase().includes(search) ||
+              (u.name ?? "").toLowerCase().includes(search),
+          )
+          .slice(0, 200)
+      : await ctx.db.query("users").order("desc").take(200);
     return await Promise.all(
       users.map(async (u) => {
-        const workspace = await ctx.db
-          .query("workspaces")
-          .withIndex("by_owner", (q) => q.eq("ownerId", u._id))
-          .first();
+        // The workspace they act in: a team member's is the team's, not the
+        // empty personal one they own.
+        const workspace = await getPrimaryWorkspace(ctx, u._id);
         return {
           _id: u._id,
           _creationTime: u._creationTime,
@@ -61,8 +72,13 @@ export const listUsers = query({
           formsAccess: hasFormsAccess(u),
           formsAccessSource: u.formsAccessSource,
           plan: workspace?.plan ?? "free",
+          planSource: workspace?.planSource,
+          // A live paid subscription pays for the plan; admin changes don't cancel it.
+          hasBilling: Boolean(workspace?.whopMembershipId),
           credits: workspace?.credits ?? 0,
           workspaceId: workspace?._id,
+          workspaceName: workspace?.name,
+          ownsWorkspace: workspace ? workspace.ownerId === u._id : false,
         };
       }),
     );
@@ -107,6 +123,80 @@ export const adjustCredits = mutation({
         userId: admin._id,
       });
     }
+  },
+});
+
+/**
+ * Set a workspace's plan by hand (comps, partners, invoiced customers).
+ * Superadmin only — the plan gates every feature, so this is as sensitive as
+ * granting credits. Optionally grants the plan's monthly credits once; the
+ * owner is notified, the change is logged, and Whop billing is untouched
+ * (a later real payment re-takes the plan; a lapsed membership won't undo
+ * an admin-set plan — see whop.handleMembershipUpdate).
+ */
+export const setWorkspacePlan = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    plan: planValidator,
+    grantPlanCredits: v.boolean(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx, "super");
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) throw new Error("Workspace not found");
+    if (workspace.plan === args.plan) {
+      throw new Error(`This workspace is already on the ${PLAN_LABELS[args.plan]} plan`);
+    }
+    const reason = args.reason?.trim() || undefined;
+    const previous = workspace.plan;
+    const paid = args.plan !== "free";
+    const grant = paid && args.grantPlanCredits;
+
+    await ctx.db.patch(workspace._id, {
+      plan: args.plan,
+      planSource: "admin",
+      planSetBy: admin._id,
+      planSetAt: Date.now(),
+      planNote: reason,
+      planCreditsGrantedFor: grant ? args.plan : undefined,
+    });
+
+    let credits = 0;
+    if (grant) {
+      credits = await getConfigValue(
+        ctx,
+        args.plan === "team" ? "teamPlanCredits" : "personalPlanCredits",
+      );
+      await grantCredits(ctx, {
+        workspaceId: workspace._id,
+        amount: credits,
+        feature: "plan_grant",
+        description: `${args.plan} plan credits — set by ${admin.email}${reason ? ` (${reason})` : ""}`,
+        userId: admin._id,
+      });
+    }
+
+    const label = PLAN_LABELS[args.plan];
+    await notify(ctx, {
+      userId: workspace.ownerId,
+      workspaceId: workspace._id,
+      type: "plan_changed",
+      title: paid
+        ? `Your workspace is now on the ${label} plan`
+        : "Your workspace is back on the Free plan",
+      body: paid
+        ? `The Creatily team moved ${workspace.name} to ${label}${
+            credits > 0 ? ` and added ${credits.toLocaleString()} credits` : ""
+          }. Everything the plan includes is unlocked now.`
+        : `The Creatily team moved ${workspace.name} to the Free plan. Your credits are untouched.`,
+      href: "/settings",
+    });
+    console.log(
+      `admin.setWorkspacePlan: ${admin.email} set ${workspace._id} ${previous} → ${args.plan}` +
+        `${credits > 0 ? ` (+${credits} credits)` : ""}${reason ? ` — ${reason}` : ""}`,
+    );
+    return { previous, plan: args.plan, credits };
   },
 });
 

@@ -9,6 +9,7 @@ import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,12 @@ const CONFIG_META: {
     key: "creditPriceUsd",
     label: "Price per credit (USD)",
     help: "What one credit costs users when topping up.",
+    kind: "number",
+  },
+  {
+    key: "phoneNumberPriceUsd",
+    label: "Phone number price (USD/mo)",
+    help: "Monthly price of a dedicated phone number, charged in credits at purchase (Bland cost × 4.5).",
     kind: "number",
   },
   {
@@ -227,15 +234,21 @@ function ConfigEditor() {
                   <p className="text-xs text-muted-foreground">{meta.help}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <span className="font-mono text-sm text-primary">
-                    {current === "" || current === undefined
-                      ? "—"
-                      : String(current)}
-                  </span>
+                  {config === undefined ? (
+                    <Skeleton className="h-4 w-14" />
+                  ) : (
+                    <span className="font-mono text-sm text-primary">
+                      {current === "" || current === undefined
+                        ? "—"
+                        : String(current)}
+                    </span>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
                     aria-label={`Edit ${meta.label}`}
+                    // No editing until values load, or the dialog opens blank.
+                    disabled={config === undefined}
                     onClick={() => {
                       setEditing(meta);
                       setValue(current === undefined ? "" : String(current));

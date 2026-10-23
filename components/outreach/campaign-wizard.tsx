@@ -30,6 +30,8 @@ import { SequenceEditor } from "@/components/outreach/sequence-editor";
 import { CAMPAIGN_TIMEZONES, DEFAULT_CAMPAIGN_TIMEZONE } from "@/lib/timezones";
 import { StatusBadge } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
+import { errorText } from "@/lib/public-errors";
+import { isPlaceholderEmail } from "@/lib/lead-keys";
 
 type Step = { waitDays: number; subject: string; variants: string[] };
 
@@ -44,7 +46,8 @@ export function CampaignWizard({
   onOpenChange: (open: boolean) => void;
   onCreated?: (id: Id<"campaigns">) => void;
 }) {
-  const leads = useQuery(api.leads.list) ?? [];
+  // Phone-only leads can't be emailed — keep them out of the picker.
+  const leads = (useQuery(api.leads.list) ?? []).filter((l) => !isPlaceholderEmail(l.email));
   const inboxes = useQuery(api.outreach.listInboxes) ?? [];
   const createCampaign = useMutation(api.outreach.createCampaign);
 
@@ -116,7 +119,7 @@ export function CampaignWizard({
       setSequence([{ waitDays: 0, subject: "", variants: [""] }]);
       setSelectedInboxes(new Set());
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't create the campaign.");
+      toast.error(errorText(e, "Couldn't create the campaign."));
     } finally {
       setPublishing(false);
     }

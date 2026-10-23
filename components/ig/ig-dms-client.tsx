@@ -9,10 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { Inbox } from "./ig-inbox";
+import { errorText } from "@/lib/public-errors";
 
 function serverMessage(e: unknown, fallback: string): string {
-  const raw = e instanceof Error ? e.message : "";
-  return raw.split("Uncaught Error: ").pop() || fallback;
+  return errorText(e, fallback);
 }
 
 /** Admin-only card: one-time agency installs (two private GHL apps). */

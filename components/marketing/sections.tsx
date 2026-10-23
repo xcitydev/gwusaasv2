@@ -43,9 +43,9 @@ const MODELS = [
   "Luma Ray 2", "MiniMax Hailuo", "Nano Banana",
 ];
 const STACK = [
-  "Voice cloning", "AI phone calls", "Recall.ai meeting bots",
-  "Instagram DMs", "Cal.com booking", "Instantly email", "Google Maps leads",
-  "LinkedIn leads", "Claude by Anthropic",
+  "Voice cloning", "AI phone calls", "AI meeting notes",
+  "Instagram DMs", "Cal.com booking", "Cold email engine", "Google Maps leads",
+  "LinkedIn leads", "AI agents",
 ];
 
 function Chip({ children }: { children: ReactNode }) {

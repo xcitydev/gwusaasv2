@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
+import { errorText } from "@/lib/public-errors";
 
 /** Code input + Unlock button; shared by the gate page and Settings. */
 export function InviteCodeForm({ autoFocus }: { autoFocus?: boolean }) {
@@ -34,7 +35,7 @@ export function InviteCodeForm({ autoFocus }: { autoFocus?: boolean }) {
       );
       setCode("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "That invite code is not valid.");
+      toast.error(errorText(e, "That invite code is not valid."));
     } finally {
       setBusy(false);
     }
@@ -145,7 +146,7 @@ function LiveGate({ children }: { children: ReactNode }) {
               <p className="font-medium">Invite only</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Enter the invite code you received from the Creatily team to unlock
-                the onboarding forms. You can also add it later in Settings.
+                the onboarding forms.
               </p>
             </div>
             <InviteCodeForm autoFocus />

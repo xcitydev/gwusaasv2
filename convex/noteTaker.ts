@@ -5,6 +5,7 @@ import {
   internalMutation,
   type QueryCtx,
 } from "./_generated/server";
+import { publicRowError } from "./incidents";
 import { internal } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
@@ -586,6 +587,14 @@ export const patchMeeting = internalMutation({
   handler: async (ctx, { meetingId, clearStatusDetail, ...patch }) => {
     const meeting = await ctx.db.get(meetingId);
     if (!meeting) return;
+    if (patch.statusDetail) {
+      patch.statusDetail = await publicRowError(ctx, patch.statusDetail, {
+        source: "note taker bot",
+        area: "meetings",
+        userId: meeting.userId,
+        workspaceId: meeting.workspaceId,
+      });
+    }
     await ctx.db.patch(meetingId, {
       ...patch,
       ...(clearStatusDetail && { statusDetail: undefined }),

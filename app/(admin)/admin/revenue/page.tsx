@@ -8,8 +8,19 @@ import { toast } from "sonner";
 import { DollarSign, Gift, Loader2, Receipt, TrendingUp } from "lucide-react";
 import { LivePage } from "@/components/live-page";
 import { PageHeader } from "@/components/page-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { errorText } from "@/lib/public-errors";
 
 const KIND_LABELS: Record<string, string> = {
   subscription: "Subscriptions",
@@ -79,17 +90,24 @@ function ReferralPayouts() {
   const rows = useQuery(api.admin.referralPayouts);
   const markPaid = useMutation(api.admin.markReferralPayoutsPaid);
   const [busy, setBusy] = useState<string | null>(null);
+  const [payTarget, setPayTarget] = useState<{
+    userId: Id<"users">;
+    email: string;
+    owedUsd: number;
+  } | null>(null);
 
-  const pay = async (userId: Id<"users">, email: string, owedUsd: number) => {
-    if (!window.confirm(`Mark $${owedUsd.toFixed(2)} as paid to ${email}? Do this after the transfer has actually been sent.`)) return;
+  const confirmPay = async () => {
+    if (!payTarget) return;
+    const { userId, email } = payTarget;
     setBusy(userId);
     try {
       const result = await markPaid({ referrerUserId: userId });
       toast.success(`Recorded $${result.total.toFixed(2)} paid to ${email} (${result.count} item${result.count === 1 ? "" : "s"}).`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message.split("Uncaught Error: ").pop() : "Couldn't mark as paid.");
+      toast.error(e instanceof Error ? errorText(e, "") : "Couldn't mark as paid.");
     } finally {
       setBusy(null);
+      setPayTarget(null);
     }
   };
 
@@ -123,7 +141,7 @@ function ReferralPayouts() {
                   size="sm"
                   variant="outline"
                   disabled={r.owedUsd <= 0 || busy === r.userId}
-                  onClick={() => pay(r.userId, r.email, r.owedUsd)}
+                  onClick={() => setPayTarget({ userId: r.userId, email: r.email, owedUsd: r.owedUsd })}
                 >
                   {busy === r.userId ? <Loader2 className="size-4 animate-spin" /> : null}
                   Mark paid
@@ -133,6 +151,37 @@ function ReferralPayouts() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={payTarget !== null}
+        onOpenChange={(o) => !o && busy === null && setPayTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Mark {usd(payTarget?.owedUsd)} as paid to {payTarget?.email}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Do this after the transfer has actually been sent. The referrer is
+              notified; no money moves from here.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy !== null}
+              onClick={(e) => {
+                // Keep the dialog open until the mutation settles.
+                e.preventDefault();
+                void confirmPay();
+              }}
+            >
+              {busy !== null && <Loader2 className="size-4 animate-spin" />}
+              Mark paid
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

@@ -10,6 +10,7 @@ import type { Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { spendCredits } from "./lib/credits";
 import { getConfigValue } from "./config";
+import { publicRowError } from "./incidents";
 
 /**
  * Post-paid charge, clamped to the balance (the run already happened — a
@@ -81,7 +82,12 @@ export const finishAudit = internalMutation({
     await ctx.db.patch(args.id, {
       status: args.status,
       result: args.result,
-      error: args.error,
+      error: await publicRowError(ctx, args.error, {
+        source: "Get Found audit",
+        area: "ai",
+        userId: audit?.userId,
+        workspaceId: audit?.workspaceId,
+      }),
     });
     // Successful audits bill the flat token-cost rate; failures are free.
     if (audit && args.status === "done" && audit.status !== "done") {
@@ -148,7 +154,12 @@ export const finishTranscript = internalMutation({
     await ctx.db.patch(args.id, {
       status: args.status,
       text: args.text,
-      error: args.error,
+      error: await publicRowError(ctx, args.error, {
+        source: "audio to text",
+        area: "transcription",
+        userId: transcript?.userId,
+        workspaceId: transcript?.workspaceId,
+      }),
     });
     if (transcript && args.status === "done" && transcript.status !== "done") {
       const rate = await getConfigValue(ctx, "transcribeCreditsPerMinute");
