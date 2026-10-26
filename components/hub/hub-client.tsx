@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Bot, Images, MessageSquare } from "lucide-react";
-import { isConfigured } from "@/lib/runtime";
+import { hasConvex, isConfigured } from "@/lib/runtime";
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +16,23 @@ import { GenerationsRail } from "./generations-rail";
  * phones the two become a Chat / Generations switch, Runway-style.
  */
 export function HubTab({ onOpenLibrary }: { onOpenLibrary: () => void }) {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <Bot className="size-8 text-muted-foreground" />
+          <p className="font-medium">AI Hub</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            The chat comes alive once Clerk, Convex and the Anthropic key are configured.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <HubTabLive onOpenLibrary={onOpenLibrary} />;
+}
+
+function HubTabLive({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   const thread = useQuery(api.hub.getThread, isConfigured ? {} : "skip");
   const [mobileView, setMobileView] = useState<"chat" | "generations">("chat");
 

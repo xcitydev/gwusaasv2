@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { hasConvex } from "@/lib/runtime";
 import { api } from "@/convex/_generated/api";
 import {
   Bar,
@@ -19,9 +20,25 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 // gold #b48d05 (sent) and blue #0284c7 (replies) — CVD-safe pair.
 const SERIES = { sent: "#b48d05", replied: "#0284c7" } as const;
 
-export function AnalyticsTab() {
-  const analytics = useQuery(api.outreach.analytics);
+function useAnalytics() {
+  return useQuery(api.outreach.analytics);
+}
 
+/** Setup mode (no Convex provider): zeroed stats and the empty chart state. */
+export function AnalyticsTab() {
+  if (!hasConvex) return <AnalyticsTabBody analytics={undefined} />;
+  return <AnalyticsTabLive />;
+}
+
+function AnalyticsTabLive() {
+  return <AnalyticsTabBody analytics={useAnalytics()} />;
+}
+
+function AnalyticsTabBody({
+  analytics,
+}: {
+  analytics: ReturnType<typeof useAnalytics>;
+}) {
   const cards = [
     { label: "Emails sent", value: analytics?.totals.sent ?? 0, icon: Mail },
     { label: "Unique leads contacted", value: analytics?.uniqueLeadsContacted ?? 0, icon: Users },

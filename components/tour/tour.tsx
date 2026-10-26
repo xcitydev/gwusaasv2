@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { AnimatePresence, motion } from "motion/react";
 import { MousePointerClick, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { hasConvex } from "@/lib/runtime";
 
 /**
  * Guided product tours. A dark overlay spotlights one real element at a
@@ -248,11 +249,30 @@ function TourOverlay({
   );
 }
 
+/** Setup-mode stand-in: tour progress persists in Convex, which isn't connected. */
+function TourLauncherSetup() {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled
+      title="Tours save progress once Convex is connected."
+    >
+      <Sparkles className="size-4" /> Show me around
+    </Button>
+  );
+}
+
 /**
  * Drop this on a page (e.g. in its header actions): renders the "Show me
  * around" replay button, auto-starts the tour on first visit, and drives it.
  */
 export function TourLauncher({ tour }: { tour: TourDefinition }) {
+  if (!hasConvex) return <TourLauncherSetup />;
+  return <TourLauncherLive tour={tour} />;
+}
+
+function TourLauncherLive({ tour }: { tour: TourDefinition }) {
   const progress = useQuery(api.tours.myProgress, { tourId: tour.id });
   const saveStep = useMutation(api.tours.setStep);
   const finish = useMutation(api.tours.finish);

@@ -53,8 +53,26 @@ function subscribeNever(): () => void {
   return () => {};
 }
 
+/** The signed-in user snapshot; "skip" keeps the Convex-only tier from running the query. */
+function useMeQuery() {
+  return useQuery(api.users.me, isConfigured ? {} : "skip");
+}
+
+/**
+ * Front door of the dashboard. In setup mode there is no Convex provider, and
+ * useQuery throws without one even when skipped — so the live subtree swaps
+ * for a static one, the same pattern as LiveStats and MySubmissions.
+ */
 export function DashboardClient() {
-  const me = useQuery(api.users.me, isConfigured ? {} : "skip");
+  if (!hasConvex) return <DashboardContent me={undefined} />;
+  return <DashboardLive />;
+}
+
+function DashboardLive() {
+  return <DashboardContent me={useMeQuery()} />;
+}
+
+function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
   const firstName = me?.name?.split(" ")[0];
   // The page is prerendered at build time, so a greeting computed during
   // render bakes the build hour into the HTML and mismatches the visitor's

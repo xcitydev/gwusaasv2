@@ -26,6 +26,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { hasConvex } from "@/lib/runtime";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { errorText } from "@/lib/public-errors";
@@ -90,11 +91,36 @@ const PLAN_COPY = {
   },
 } as const;
 
+function useSavePlanQuiz() {
+  return useMutation(api.users.savePlanQuiz);
+}
+function useConfigAll() {
+  return useQuery(api.config.getAll);
+}
+
+/**
+ * Setup mode (no Convex provider): the quiz renders fully, but "Show my plan"
+ * asks the server to compute the recommendation, so it stays disabled; Skip
+ * just navigates without persisting.
+ */
 export function PlanQuiz() {
+  if (!hasConvex) return <PlanQuizForm savePlanQuiz={null} config={undefined} />;
+  return <PlanQuizLive />;
+}
+
+function PlanQuizLive() {
+  return <PlanQuizForm savePlanQuiz={useSavePlanQuiz()} config={useConfigAll()} />;
+}
+
+function PlanQuizForm({
+  savePlanQuiz,
+  config,
+}: {
+  savePlanQuiz: ReturnType<typeof useSavePlanQuiz> | null;
+  config: ReturnType<typeof useConfigAll>;
+}) {
   const router = useRouter();
   const reduce = useReducedMotion();
-  const savePlanQuiz = useMutation(api.users.savePlanQuiz);
-  const config = useQuery(api.config.getAll);
 
   const [step, setStep] = useState(0);
   const [audience, setAudience] = useState("");
@@ -114,6 +140,7 @@ export function PlanQuiz() {
   };
 
   const submit = async () => {
+    if (!savePlanQuiz) return;
     setBusy("submit");
     try {
       setResult(await savePlanQuiz({ audience, teamSize, goals }));
@@ -125,6 +152,11 @@ export function PlanQuiz() {
   };
 
   const skip = async () => {
+    if (!savePlanQuiz) {
+      // Setup mode has nothing to persist — just leave the quiz.
+      router.push("/dashboard");
+      return;
+    }
     setBusy("skip");
     try {
       await savePlanQuiz({ audience, teamSize, goals, skipped: true });
@@ -248,12 +280,22 @@ export function PlanQuiz() {
             Next <ArrowRight className="size-4" />
           </Button>
         ) : (
-          <Button onClick={submit} disabled={!canNext || busy !== null} className="rounded-full px-6">
+          <Button
+            onClick={submit}
+            disabled={!canNext || busy !== null || !savePlanQuiz}
+            className="rounded-full px-6"
+          >
             {busy === "submit" ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
             Show my plan
           </Button>
         )}
       </div>
+      {!savePlanQuiz && (
+        <p className="mt-4 text-center text-xs text-muted-foreground">
+          Saving answers and revealing your plan need Convex — use “Skip for now”
+          to continue in setup mode.
+        </p>
+      )}
     </Shell>
   );
 }

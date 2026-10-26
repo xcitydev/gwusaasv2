@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useQuery } from "convex/react";
+import { hasConvex } from "@/lib/runtime";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -49,6 +50,11 @@ function Meter({
  * sent this month and connected inboxes against the plan's caps.
  */
 export function OutreachUsageCard() {
+  if (!hasConvex) return null;
+  return <UsageLive />;
+}
+
+function UsageLive() {
   const usage = useQuery(api.outreachLimits.usage);
   if (!usage) return null;
   const resets = new Date(usage.resetsAt).toLocaleDateString(undefined, {

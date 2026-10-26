@@ -33,6 +33,43 @@ function AdminLinkInner() {
   );
 }
 
+function SaasAmbientBackground() {
+  return (
+    <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+      <div className="absolute inset-0 flex justify-between border-x border-white/5 px-4 sm:px-6">
+        {[5, 7, 5, 8].map((duration, index) => (
+          <div
+            key={index}
+            className={`relative h-full w-px overflow-hidden bg-white/5 ${
+              index === 1 ? "hidden md:block" : ""
+            } ${index === 2 ? "hidden lg:block" : ""}`}
+          >
+            <div
+              className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-orange-500/40 to-transparent motion-reduce:hidden"
+              style={{
+                animationDuration: `${duration}s`,
+                animationDelay: `${index === 0 ? 0 : index === 1 ? 2 : index === 2 ? 4 : 1}s`,
+              }}
+            />
+          </div>
+        ))}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          {[8, 23, 41, 63, 82, 96].map((left, index) => (
+            <span
+              key={left}
+              className="absolute top-0 size-1 rounded-full bg-orange-300 shadow-[0_0_10px_2px_rgba(251,146,60,0.55)] motion-reduce:hidden"
+              style={{
+                left: `${left}%`,
+                animation: `saas-particle-fall ${9 + (index % 3) * 2}s linear ${index * -2.1}s infinite`,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** The app nav, minus invite-only sections until the user has access. */
 function AppNav({ onNavigate }: { onNavigate?: () => void }) {
   const me = useQuery(api.users.me);
@@ -109,52 +146,55 @@ export function AppShell({
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="flex min-h-dvh w-full">
-      {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-sidebar-border bg-sidebar lg:block">
-        <SidebarContent variant={variant} />
-      </aside>
+    <div data-saas-shell className="relative isolate min-h-dvh w-full bg-black">
+      <SaasAmbientBackground />
+      <div className="relative z-10 flex min-h-dvh w-full">
+        {/* Desktop sidebar */}
+        <aside className="fixed inset-y-4 left-4 z-30 hidden w-72 overflow-hidden rounded-[1rem] border border-white/15 bg-black shadow-[0_30px_80px_-24px_rgba(0,0,0,0.96),0_0_30px_-14px_rgba(251,146,60,0.16)] ring-1 ring-white/5 lg:block">
+          <SidebarContent variant={variant} />
+        </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col lg:pl-64">
-        {/* Topbar */}
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur sm:px-6">
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="lg:hidden"
-                aria-label="Open menu"
-              >
-                <Menu className="size-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-72 bg-sidebar p-0">
-              <SheetTitle className="sr-only">Navigation</SheetTitle>
-              <SidebarContent
-                variant={variant}
-                onNavigate={() => setMobileOpen(false)}
-              />
-            </SheetContent>
-          </Sheet>
+        <div className="flex min-w-0 flex-1 flex-col lg:pl-80">
+          {/* Topbar */}
+          <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-white/10 bg-black/95 px-4 backdrop-blur sm:px-6">
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="lg:hidden"
+                  aria-label="Open menu"
+                >
+                  <Menu className="size-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-72 bg-black p-0">
+                <SheetTitle className="sr-only">Navigation</SheetTitle>
+                <SidebarContent
+                  variant={variant}
+                  onNavigate={() => setMobileOpen(false)}
+                />
+              </SheetContent>
+            </Sheet>
 
-          <div className="lg:hidden">
-            <BrandMark />
-          </div>
+            <div className="lg:hidden">
+              <BrandMark />
+            </div>
 
-          <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            <CreditsPill />
-            <NotificationsBell />
-            <ShellUserButton />
-          </div>
-        </header>
+            <div className="ml-auto flex items-center gap-2 sm:gap-3">
+              <CreditsPill />
+              <NotificationsBell />
+              <ShellUserButton />
+            </div>
+          </header>
 
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          {children}
-        </main>
-        {/* One top-up dialog for every page: Settings opens it, and any
+          <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            {children}
+          </main>
+          {/* One top-up dialog for every page: Settings opens it, and any
             action that runs short of credits opens it with the exact gap. */}
-        {hasConvex && <TopUpDialogHost />}
+          {hasConvex && <TopUpDialogHost />}
+        </div>
       </div>
     </div>
   );

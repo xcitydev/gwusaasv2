@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Loader2, ShieldMinus, UserPlus } from "lucide-react";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { LivePage } from "@/components/live-page";
+import { hasConvex } from "@/lib/runtime";
 import { PageHeader } from "@/components/page-header";
 import {
   AlertDialog,
@@ -197,6 +198,15 @@ function AdminsManager() {
 }
 
 export default function AdminAdminsPage() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="py-12 text-center text-sm text-muted-foreground">
+          Admin roles are managed here once Convex is connected.
+        </CardContent>
+      </Card>
+    );
+  }
   return (
     <LivePage>
       <AdminsManager />

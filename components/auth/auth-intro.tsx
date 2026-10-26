@@ -58,7 +58,7 @@ export function AuthIntro({ mode }: { mode: Mode }) {
       <div>
         <h1 className="text-balance text-3xl font-semibold leading-[1.08] tracking-tight sm:text-[2.5rem]">
           {copy.lead}{" "}
-          <span className="font-display font-normal italic text-primary">{copy.accent}</span>
+          <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">{copy.accent}</span>
         </h1>
         <p className="mt-2 text-sm text-muted-foreground sm:text-[15px]">{copy.sub}</p>
       </div>

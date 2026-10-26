@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import { LifeBuoy, Loader2, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -24,10 +25,31 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 
+function useTicketsQuery() {
+  return useQuery(api.tickets.mine);
+}
+function useCreateTicket() {
+  return useMutation(api.tickets.create);
+}
+
+/** Setup mode (no Convex provider): the ticket list renders empty; creating needs Convex. */
 export function SupportClient() {
-  const ticketsQuery = useQuery(api.tickets.mine);
+  if (!hasConvex) return <SupportBody ticketsQuery={[]} create={null} />;
+  return <SupportLive />;
+}
+
+function SupportLive() {
+  return <SupportBody ticketsQuery={useTicketsQuery()} create={useCreateTicket()} />;
+}
+
+function SupportBody({
+  ticketsQuery,
+  create,
+}: {
+  ticketsQuery: ReturnType<typeof useTicketsQuery>;
+  create: ReturnType<typeof useCreateTicket> | null;
+}) {
   const tickets = ticketsQuery ?? [];
-  const create = useMutation(api.tickets.create);
   const [createOpen, setCreateOpen] = useState(false);
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
@@ -39,6 +61,7 @@ export function SupportClient() {
       toast.error("Subject and message are both required.");
       return;
     }
+    if (!create) return; // setup mode: button is disabled
     setCreating(true);
     try {
       const id = await create({ subject, body: message });
@@ -125,9 +148,14 @@ export function SupportClient() {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={submit} disabled={creating}>
+            <Button onClick={submit} disabled={creating || !create}>
               {creating && <Loader2 className="size-4 animate-spin" />} Create ticket
             </Button>
+            {!create && (
+              <p className="w-full text-center text-xs text-muted-foreground">
+                Creating tickets needs Convex — preview-only until it is connected.
+              </p>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { hasConvex } from "@/lib/runtime";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -67,7 +68,25 @@ const IMAP_CSV_COLUMNS = [
   "smtp_host", "smtp_port", "smtp_username", "smtp_password", "daily_limit",
 ];
 
+/** Setup mode (no Convex provider): connecting inboxes needs Convex. */
 export function InboxesTab() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <Inbox className="size-8 text-muted-foreground" />
+          <p className="font-medium">No inboxes connected yet</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Connecting sending inboxes needs Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <InboxesTabLive />;
+}
+
+function InboxesTabLive() {
   const inboxesQuery = useQuery(api.outreach.listInboxes);
   const inboxes = inboxesQuery ?? [];
   const connectInboxes = useAction(api.outreachActions.connectInboxes);

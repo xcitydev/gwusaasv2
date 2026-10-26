@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { formatClock, type AgendaItem, type CoachState } from "@/lib/note-taker";
+import { hasConvex } from "@/lib/runtime";
 import { cn } from "@/lib/utils";
 
 /**
@@ -146,6 +147,27 @@ export function TalkBalance({
 
 /** Full-screen card for the bot camera (1280×720 canvas). */
 export function CoachCard({ token }: { token: string }) {
+  // Public page with no app shell or LivePage wrapper: without a Convex
+  // provider the query hook would throw even before the token is checked.
+  if (!hasConvex) return <SetupCoachFrame />;
+  return <LiveCoachCard token={token} />;
+}
+
+/** Static setup-mode frame: no provider, so the query never runs. */
+function SetupCoachFrame() {
+  return (
+    <div className="flex h-screen w-screen flex-col items-center justify-center gap-2 bg-black text-white">
+      <p className="text-sm font-semibold uppercase tracking-[0.25em] text-primary">
+        Agenda coach
+      </p>
+      <p className="text-lg text-white/60">
+        The live agenda card appears once Convex is connected.
+      </p>
+    </div>
+  );
+}
+
+function LiveCoachCard({ token }: { token: string }) {
   const data = useQuery(api.noteTakerCoach.coachCard, { token });
   const live = data?.status === "recording";
   useClock(Boolean(live));

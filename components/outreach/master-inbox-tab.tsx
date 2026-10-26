@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { hasConvex } from "@/lib/runtime";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -133,7 +134,25 @@ function ReplyDetail({ reply }: { reply: Doc<"replies"> }) {
   );
 }
 
+/** Setup mode (no Convex provider): replies arrive once campaigns send. */
 export function MasterInboxTab() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <MailOpen className="size-8 text-muted-foreground" />
+          <p className="font-medium">No replies yet</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Replies land here once campaigns start sending — Convex required.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <MasterInboxTabLive />;
+}
+
+function MasterInboxTabLive() {
   const [category, setCategory] = useState<string>("all");
   const [campaignFilter, setCampaignFilter] = useState<string>("all");
   const campaigns = useQuery(api.outreach.listCampaigns) ?? [];

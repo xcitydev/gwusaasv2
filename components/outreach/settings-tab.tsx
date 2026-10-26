@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import { CornerUpRight, Globe, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +21,21 @@ import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/status-badge";
 import { errorText } from "@/lib/public-errors";
 
+/** Setup mode (no Convex provider): outreach settings need Convex. */
 export function SettingsTab() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="py-12 text-center text-sm text-muted-foreground">
+          Outreach settings appear once Convex is connected.
+        </CardContent>
+      </Card>
+    );
+  }
+  return <SettingsTabLive />;
+}
+
+function SettingsTabLive() {
   const settings = useQuery(api.outreach.outreachSettings);
   // Mount the form only once settings resolve so state initializes from them.
   if (settings === undefined) {

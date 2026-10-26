@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { Pencil } from "lucide-react";
 import { LivePage } from "@/components/live-page";
+import { hasConvex } from "@/lib/runtime";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -288,6 +289,22 @@ function ConfigEditor() {
 }
 
 export default function AdminConfigPage() {
+  if (!hasConvex) {
+    return (
+      <div>
+        <PageHeader
+          title="Platform Config"
+          description="Superadmin-controlled pricing and platform settings."
+        />
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            This page fills in once Convex is connected — platform settings stay
+            preview-only until then.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   return (
     <LivePage>
       <PageHeader

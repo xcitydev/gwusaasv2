@@ -10,6 +10,7 @@ import {
   useReducedMotion,
   type Variants,
 } from "motion/react";
+import { TextAnimate } from "@/components/ui/text-animate";
 import { cn } from "@/lib/utils";
 
 /**
@@ -114,13 +115,14 @@ export function Section({
   id?: string;
   eyebrow?: string;
   title: ReactNode;
-  /** Rendered in the display serif, violet — the emotional word. */
+  /** The emotional word — orange gradient, matching the pricing heading. */
   accent?: string;
   description?: string;
   children?: ReactNode;
   className?: string;
   align?: "center" | "left";
 }) {
+  const reduce = useReducedMotion();
   return (
     <section id={id} className={cn("relative scroll-mt-24 py-20 sm:py-28", className)}>
       <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-9">
@@ -132,11 +134,23 @@ export function Section({
         >
           {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
           <h2 className="mt-4 text-balance text-3xl font-semibold tracking-tight sm:text-5xl">
-            {title}
+            {typeof title === "string" && !reduce ? (
+              <TextAnimate
+                as="span"
+                animation="blurIn"
+                by="word"
+                once
+                duration={0.5}
+              >
+                {title}
+              </TextAnimate>
+            ) : (
+              title
+            )}
             {accent && (
               <>
                 {" "}
-                <span className="font-display font-normal italic text-primary">
+                <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">
                   {accent}
                 </span>
               </>
@@ -189,7 +203,7 @@ export function GlowCard({
       className={cn(
         "group relative overflow-hidden rounded-2xl border border-white/10 bg-card/70 backdrop-blur-sm transition-colors duration-300 hover:border-primary/40",
         "before:pointer-events-none before:absolute before:inset-0 before:opacity-0 before:transition-opacity before:duration-500 group-hover:before:opacity-100 hover:before:opacity-100",
-        "before:[background:radial-gradient(420px_circle_at_var(--mx,50%)_var(--my,50%),oklch(0.598_0.241_294.3/0.14),transparent_60%)]",
+        "before:[background:radial-gradient(420px_circle_at_var(--mx,50%)_var(--my,50%),oklch(0.75_0.183_55.934/0.14),transparent_60%)]",
         className,
       )}
     >
@@ -297,7 +311,7 @@ export function Backdrop({ className }: { className?: string }) {
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(900px 480px at 50% -10%, oklch(0.598 0.241 294.3 / 0.16), transparent 70%)",
+            "radial-gradient(900px 480px at 50% -10%, oklch(0.75 0.183 55.934 / 0.16), transparent 70%)",
         }}
       />
       <div

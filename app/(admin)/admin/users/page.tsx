@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { LivePage } from "@/components/live-page";
+import { hasConvex } from "@/lib/runtime";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -486,6 +487,22 @@ function UsersTable() {
 }
 
 export default function AdminUsersPage() {
+  if (!hasConvex) {
+    return (
+      <div>
+        <PageHeader
+          title="Users"
+          description="Every account on the platform. Invite codes unlock the Creatily Onboarding Forms."
+        />
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            This page fills in once Convex is connected — data and admin actions stay
+            preview-only until then.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   return (
     <LivePage>
       <PageHeader

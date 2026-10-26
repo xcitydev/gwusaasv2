@@ -20,6 +20,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { hasConvex } from "@/lib/runtime";
 
 function BootstrapCard() {
+  if (!hasConvex) return null;
+  return <BootstrapCardLive />;
+}
+
+function BootstrapCardLive() {
   const hasAnyAdmin = useQuery(api.admin.hasAnyAdmin);
   const bootstrap = useMutation(api.admin.bootstrapSuper);
   if (hasAnyAdmin !== false) return null;
@@ -52,6 +57,19 @@ function BootstrapCard() {
 }
 
 function Overview() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="py-12 text-center text-sm text-muted-foreground">
+          Platform stats appear once Convex is connected.
+        </CardContent>
+      </Card>
+    );
+  }
+  return <OverviewLive />;
+}
+
+function OverviewLive() {
   const stats = useQuery(api.admin.overview);
   const openErrors = useQuery(api.incidents.openCount);
   const cards = [
@@ -90,12 +108,10 @@ export default function AdminOverviewPage() {
         title="Admin Overview"
         description="Platform health and activity at a glance."
       />
-      {hasConvex && (
-        <>
-          <BootstrapCard />
-          <Overview />
-        </>
-      )}
+      <>
+        <BootstrapCard />
+        <Overview />
+      </>
     </LivePage>
   );
 }

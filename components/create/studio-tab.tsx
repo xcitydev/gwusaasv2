@@ -5,6 +5,7 @@ import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import { Clapperboard, Loader2, Plus, Sparkles, Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -216,7 +217,25 @@ function ActiveJobs() {
   );
 }
 
+/** Setup mode (no Convex provider): Studio generation needs Convex. */
 export function StudioTab() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <Clapperboard className="size-8 text-muted-foreground" />
+          <p className="font-medium">Studio</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Studio generation needs Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <StudioTabLive />;
+}
+
+function StudioTabLive() {
   const pricing = useQuery(api.generations.pricing);
   const generate = useAction(api.studioActions.generate);
   const estimateCost = useAction(api.studioActions.estimateCost);

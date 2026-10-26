@@ -11,8 +11,12 @@ export const BRAND = {
     mark: "/brand/creatily-mark.png",
     /** Bars + "creatily.ai", 867×192. */
     wordmark: "/brand/creatily-wordmark.png",
+    /** Fresh static URL for the landing header and SaaS shell. */
+    headerWordmark: "/brand/creatily-wordmark-header.png",
     /** Wordmark with the "by Grow With Us Agency" byline, 867×246. */
     wordmarkFull: "/brand/creatily-wordmark-full.png",
+    /** Fresh static URL for the landing footer. */
+    footerWordmarkFull: "/brand/creatily-wordmark-full-footer.png",
     /** Bars only, 232×192. */
     bars: "/brand/creatily-bars.png",
   },

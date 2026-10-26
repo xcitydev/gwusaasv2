@@ -17,21 +17,10 @@ import {
   X,
 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
+import { Background } from "@/components/marketing/background";
 import { usePendingInvite } from "./use-pending-invite";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
-
-const SERVICES = [
-  { name: "Cold Email", icon: Send },
-  { name: "Find Leads", icon: Users },
-  { name: "Receptionist", icon: PhoneCall },
-  { name: "Qualifier", icon: PhoneOutgoing },
-  { name: "Voice Clone", icon: AudioWaveform },
-  { name: "IG DMs", icon: MessageCircle },
-  { name: "Note Taker", icon: NotebookPen },
-  { name: "Studio", icon: Sparkles },
-  { name: "AI Tools", icon: Wrench },
-];
 
 const INVITE_STEPS = [
   ["Create your account", "Or sign in if you already have one"],
@@ -39,8 +28,69 @@ const INVITE_STEPS = [
   ["We get to work", "Done-for-you, reviewed by our team"],
 ];
 
+const SERVICES = [
+  { id: "email", name: "Cold Email", icon: Send },
+  { id: "leads", name: "Find Customers", icon: Users },
+  { id: "receptionist", name: "AI Receptionist", icon: PhoneCall },
+  { id: "qualifier", name: "Lead Qualifier", icon: PhoneOutgoing },
+  { id: "voice", name: "Clone Your Voice", icon: AudioWaveform },
+  { id: "ig", name: "IG DMs & AI Voice", icon: MessageCircle },
+  { id: "notes", name: "AI Note Taker", icon: NotebookPen },
+  { id: "studio", name: "Create with AI", icon: Sparkles },
+  { id: "tools", name: "AI Tools", icon: Wrench },
+];
+
 const BRAND_TEXT =
   "bg-gradient-to-b from-[#5cc3ff] via-[#8a5cfc] to-[#e24ff9] bg-clip-text text-transparent";
+
+function SignupHeroBackdrop({ reduce }: { reduce: boolean }) {
+  const beams = [
+    { duration: 5, delay: 0 },
+    { duration: 7, delay: 2 },
+    { duration: 5, delay: 4 },
+    { duration: 8, delay: 1 },
+  ];
+  const particles = [
+    { left: 12, duration: 10, delay: -3 },
+    { left: 25, duration: 13, delay: -8 },
+    { left: 43, duration: 11, delay: -5 },
+    { left: 58, duration: 14, delay: -10 },
+    { left: 76, duration: 9, delay: -2 },
+    { left: 91, duration: 12, delay: -7 },
+  ];
+
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-black">
+      <Background contained />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_48%_44%,rgba(251,146,60,0.08),transparent_58%),linear-gradient(to_bottom,rgba(0,0,0,0.16),rgba(0,0,0,0.64))]" />
+      <div className="absolute inset-x-0 top-0 mx-auto flex h-full w-full max-w-[80rem] justify-between border-x border-white/[0.045] px-4 sm:px-6">
+        {beams.map((beam, index) => (
+          <div key={index} className={`relative h-full w-px overflow-hidden bg-white/[0.035] ${index === 1 ? "hidden md:block" : index === 2 ? "hidden lg:block" : ""}`}>
+            <div
+              className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-orange-500/35 to-transparent"
+              style={{ animationDuration: `${beam.duration}s`, animationDelay: `${beam.delay}s` }}
+            />
+          </div>
+        ))}
+      </div>
+      {particles.map((particle, index) => (
+        <span
+          key={index}
+          className="absolute top-0 size-1 rounded-full bg-orange-300 shadow-[0_0_12px_2px_rgba(251,146,60,0.45)]"
+          style={{
+            left: `${particle.left}%`,
+            animation: reduce ? "none" : `saas-particle-fall ${particle.duration}s linear ${particle.delay}s infinite`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function AuthSignupBackground() {
+  const reduce = useReducedMotion();
+  return <SignupHeroBackdrop reduce={Boolean(reduce)} />;
+}
 
 function ScreenVideo() {
   const reduce = useReducedMotion();
@@ -75,12 +125,12 @@ export function AuthShowcase() {
       <div className="relative size-full overflow-hidden rounded-[1.5rem]">
         <ScreenVideo />
 
-        <Link href="/" className="absolute left-8 top-7 flex items-center gap-2.5">
+        <Link href="/" className="absolute left-8 top-7 z-20 flex items-center gap-2.5">
           <Image src={BRAND.logo.wordmark} alt={BRAND.name} width={867} height={192} className="h-8 w-auto" priority />
         </Link>
         <Link
           href="/"
-          className="absolute right-7 top-6 flex items-center gap-1.5 rounded-full border border-white/20 bg-black/40 px-3.5 py-2 text-[13px] backdrop-blur-md transition-colors hover:border-primary/50 hover:text-primary"
+          className="absolute right-7 top-6 z-20 flex items-center gap-1.5 rounded-full border border-white/20 bg-black/45 px-3.5 py-2 text-[13px] text-white/80 backdrop-blur-md transition-colors hover:border-primary/50 hover:text-white"
         >
           <ArrowLeft className="size-3.5" /> Back to site
         </Link>
@@ -107,7 +157,7 @@ export function AuthShowcase() {
               </h2>
               <p className="max-w-xl text-lg leading-relaxed text-white/80">
                 You&apos;ve been invited to the{" "}
-                <span className="font-display text-xl italic text-primary">Creatily Onboarding Forms</span>{" "}
+                <span className="text-xl bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">Creatily Onboarding Forms</span>{" "}
                 — tell us about your business once and we take it from there.
               </p>
               <ol className="grid grid-cols-3 gap-4 rounded-2xl border border-white/15 bg-black/45 p-5 backdrop-blur-xl">
@@ -164,6 +214,7 @@ export function AuthShowcase() {
 /** Phones and tablets: a short screen banner above the form. */
 export function AuthBanner() {
   const invite = usePendingInvite();
+
   return (
     <div className="rounded-[1.6rem] bg-[#0a0a0a] p-[7px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)] lg:hidden">
       <div className="relative h-40 overflow-hidden rounded-[1.25rem] sm:h-56">

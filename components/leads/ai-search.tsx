@@ -6,6 +6,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import {
   AlertTriangle,
   FlaskConical,
@@ -84,7 +85,25 @@ const EXAMPLES = [
   "Marketing directors at SaaS companies in the USA",
 ];
 
+/** Setup mode (no Convex provider): searching and importing need Convex. */
 export function AiSearch() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <FlaskConical className="size-8 text-muted-foreground" />
+          <p className="font-medium">AI lead search</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Searching and importing leads need Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <AiSearchLive />;
+}
+
+function AiSearchLive() {
   const startSearch = useAction(api.ai.leadSearch);
   const findMore = useAction(api.ai.findMoreLeads);
   const [findingMore, setFindingMore] = useState(false);

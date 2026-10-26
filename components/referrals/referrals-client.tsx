@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { Copy, DollarSign, Repeat, UserCheck, Users } from "lucide-react";
+import { hasConvex } from "@/lib/runtime";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,8 +13,24 @@ import { Input } from "@/components/ui/input";
 const usd = (n: number) =>
   `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+function useReferrals() {
+  return useQuery(api.referrals.mine);
+}
+
+/**
+ * Setup mode (no Convex provider): render the page with empty values — the
+ * body already defaults everything (15% rate, zero stats, empty lists).
+ */
 export function ReferralsClient() {
-  const data = useQuery(api.referrals.mine);
+  if (!hasConvex) return <ReferralsBody data={undefined} />;
+  return <ReferralsLive />;
+}
+
+function ReferralsLive() {
+  return <ReferralsBody data={useReferrals()} />;
+}
+
+function ReferralsBody({ data }: { data: ReturnType<typeof useReferrals> }) {
   const percent = data?.percent ?? 15;
   const link =
     typeof window !== "undefined" && data

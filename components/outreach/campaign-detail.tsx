@@ -3,10 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import {
   ArrowLeft,
   Inbox,
@@ -71,9 +73,28 @@ type InboxList = NonNullable<
   ReturnType<typeof useQuery<typeof api.outreach.listInboxes>>
 >;
 
+/** Setup mode (no Convex provider): an unknown campaign shows the not-found state. */
 export function CampaignDetail({ campaignId }: { campaignId: string }) {
-  const campaign = useQuery(api.outreach.getCampaign, { id: campaignId });
-  const allInboxes = useQuery(api.outreach.listInboxes) ?? [];
+  if (!hasConvex) return <CampaignDetailBody campaign={null} allInboxes={[]} />;
+  return <CampaignDetailLive campaignId={campaignId} />;
+}
+
+function CampaignDetailLive({ campaignId }: { campaignId: string }) {
+  return (
+    <CampaignDetailBody
+      campaign={useQuery(api.outreach.getCampaign, { id: campaignId })}
+      allInboxes={useQuery(api.outreach.listInboxes) ?? []}
+    />
+  );
+}
+
+function CampaignDetailBody({
+  campaign,
+  allInboxes,
+}: {
+  campaign: FunctionReturnType<typeof api.outreach.getCampaign> | undefined;
+  allInboxes: FunctionReturnType<typeof api.outreach.listInboxes> | undefined;
+}) {
 
   if (campaign === undefined) {
     return (
@@ -94,7 +115,7 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   }
   // Keyed so the editor re-seeds if the route switches campaigns.
   return (
-    <CampaignEditor key={campaign._id} campaign={campaign} allInboxes={allInboxes} />
+    <CampaignEditor key={campaign._id} campaign={campaign} allInboxes={allInboxes ?? []} />
   );
 }
 

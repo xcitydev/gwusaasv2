@@ -18,17 +18,22 @@ import { cn } from "@/lib/utils";
 const LINKS = [
   { label: "Services", href: "#services" },
   { label: "Your voice", href: "#voice" },
-  { label: "Studio", href: "#studio" },
+  { label: "Studio", href: "/create" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
 ];
 
 export function SiteNav() {
-  const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 12);
+    const onScroll = () => {
+      const hero = document.getElementById("hero");
+      if (!hero) return;
+      // Collapsed exactly while the hero is fully scrolled out of view.
+      setCollapsed(hero.getBoundingClientRect().bottom < 0);
+    };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
@@ -43,15 +48,13 @@ export function SiteNav() {
     >
       <div
         className={cn(
-          "mx-auto flex h-14 max-w-[2200px] items-center justify-between rounded-full border px-4 transition-all duration-300 sm:px-5",
-          scrolled
-            ? "border-white/10 bg-background/70 shadow-[0_10px_40px_-15px_rgba(0,0,0,0.8)] backdrop-blur-xl"
-            : "border-transparent bg-transparent",
+          "mx-auto flex max-w-[2200px] items-center justify-between border border-white/5 bg-gradient-to-br from-black/10 to-black/0 px-4 py-3 backdrop-blur-md transition-all duration-300 ease-out motion-reduce:transition-none sm:px-5",
+          collapsed && "md:max-w-6xl md:px-3",
         )}
       >
         <Link href="/" className="flex items-center gap-2.5">
           <Image
-            src={BRAND.logo.wordmark}
+            src={BRAND.logo.headerWordmark}
             alt={BRAND.name}
             width={867}
             height={192}
@@ -60,52 +63,65 @@ export function SiteNav() {
           />
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex">
+        <nav
+          className={cn(
+            "hidden items-center text-sm text-white/70 transition-all duration-300 motion-reduce:transition-none md:flex",
+            collapsed ? "md:gap-5" : "gap-8",
+          )}
+        >
           {LINKS.map((link) => (
             <a
               key={link.href}
               href={link.href}
-              className="rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+              className="group relative flex h-[36px] items-center transition-colors hover:text-white"
             >
               {link.label}
+              <span
+                aria-hidden
+                className="absolute -bottom-[13px] left-0 right-0 h-px bg-gradient-to-r from-transparent via-orange-400 to-transparent opacity-0 shadow-[0_0_10px_2px_rgba(251,146,60,0.5)] transition-all duration-300 group-hover:opacity-100"
+              />
             </a>
           ))}
         </nav>
 
-        <div className="hidden items-center gap-2 md:flex">
-          <Button asChild variant="ghost" size="sm" className="rounded-full">
-            <Link href="/sign-in">Sign in</Link>
-          </Button>
-          <Button asChild size="sm" className="rounded-full px-4">
-            <Link href="/sign-up">
-              Start free <ArrowRight className="size-3.5" />
-            </Link>
-          </Button>
+        <div
+          className={cn(
+            "hidden items-center gap-4 transition-all duration-300 motion-reduce:transition-none md:flex",
+            collapsed && "md:gap-3",
+          )}
+        >
+          <Link
+            href="/sign-in"
+            className="text-sm font-medium text-white/70 transition-colors hover:text-white"
+          >
+            Sign in
+          </Link>
+          <Link
+            href="/sign-up"
+            className="inline-flex items-center gap-2 bg-gradient-to-br from-orange-400 to-orange-600 px-4 py-2 text-sm font-medium text-white shadow-[0_0_20px_rgba(255,140,0,0.4)] transition hover:from-orange-500 hover:to-yellow-400"
+          >
+            Start free <ArrowRight className="size-3.5" />
+          </Link>
         </div>
 
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="md:hidden" aria-label="Menu">
+            <button
+              type="button"
+              aria-label="Menu"
+              className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-white/90 transition hover:bg-white/10 md:hidden"
+            >
               <Menu className="size-5" />
-            </Button>
+            </button>
           </SheetTrigger>
           <SheetContent
             side="right"
-            className="w-[320px] max-w-[88vw] gap-0 overflow-hidden border-white/10 bg-[#0a0a10] p-0 data-[side=right]:w-[320px]"
+            className="w-[320px] max-w-[88vw] gap-0 overflow-hidden border-white/10 bg-black p-0 data-[side=right]:w-[320px]"
           >
-            {/* Violet glow backdrop */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(320px 220px at 85% 0%, oklch(0.598 0.241 294.3 / 0.14), transparent 70%), radial-gradient(360px 260px at 50% 110%, oklch(0.598 0.241 294.3 / 0.1), transparent 70%)",
-              }}
-            />
             <div className="relative flex h-full flex-col px-6 pb-6 pt-5">
               <SheetTitle className="flex items-center gap-2.5 font-normal">
                 <Image
-                  src={BRAND.logo.wordmark}
+                  src={BRAND.logo.headerWordmark}
                   alt={BRAND.name}
                   width={867}
                   height={192}
@@ -121,14 +137,9 @@ export function SiteNav() {
                     initial={{ opacity: 0, x: 24 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.45, delay: 0.08 + i * 0.06, ease: [0.22, 1, 0.36, 1] }}
-                    className="group flex items-center justify-between border-b border-white/[0.07] py-4"
+                    className="group flex items-center justify-between py-4"
                   >
-                    <span className="flex items-baseline gap-3.5">
-                      <span className="font-display text-sm italic text-primary/70">
-                        0{i + 1}
-                      </span>
-                      <span className="text-xl font-medium tracking-tight">{link.label}</span>
-                    </span>
+                    <span className="text-xl font-medium tracking-tight">{link.label}</span>
                     <ArrowUpRight className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
                   </motion.a>
                 ))}

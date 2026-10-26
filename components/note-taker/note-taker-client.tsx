@@ -5,6 +5,7 @@ import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/reac
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import {
   ListChecks,
   Loader2,
@@ -64,7 +65,25 @@ function useDebounced(value: string, delayMs: number): string {
   return debounced;
 }
 
+/** Setup mode (no Convex provider): meeting capture needs Convex. */
 export function NoteTakerClient() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <NotebookPen className="size-8 text-muted-foreground" />
+          <p className="font-medium">AI Note Taker</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Meeting capture and notes need Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <NoteTakerLive />;
+}
+
+function NoteTakerLive() {
   const overview = useQuery(api.noteTaker.overview);
   const [open, setOpen] = useState<OpenMeeting | null>(null);
 

@@ -17,7 +17,7 @@ import {
   Plug,
   UserRound,
 } from "lucide-react";
-import { isConfigured } from "@/lib/runtime";
+import { hasConvex, isConfigured } from "@/lib/runtime";
 import { openTopUp } from "@/lib/top-up-prompt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -273,7 +273,52 @@ function pageNumbers(current: number, total: number): (number | "…")[] {
   return out;
 }
 
+/** Setup mode (no Convex provider): real billing chrome with zeroed values. */
+function BillingTabSetup() {
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Coins className="size-4 text-primary" /> Credits
+          </CardTitle>
+          <Button size="sm" disabled title="Top-ups need Convex, which isn't connected.">
+            Top up
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <p className="text-3xl font-semibold text-primary">0</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Credits power AI generation, lead imports, and per-second voice billing.
+          </p>
+        </CardContent>
+      </Card>
+      <div>
+        <h2 className="mb-3 text-sm font-medium uppercase tracking-widest text-muted-foreground">
+          Plans
+        </h2>
+        <StaticPlanCards currentPlan="free" />
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Credit history</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="pb-6 pt-2 text-center text-sm text-muted-foreground">
+            Credit activity appears here — grants, spends and refunds — once Convex is connected.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function BillingTab() {
+  if (!hasConvex) return <BillingTabSetup />;
+  return <BillingTabLive />;
+}
+
+function BillingTabLive() {
   const me = useQuery(api.users.me);
   // Server-side pages of 10 — only the visible page ships to the browser.
   const [ledgerPage, setLedgerPage] = useState(0);

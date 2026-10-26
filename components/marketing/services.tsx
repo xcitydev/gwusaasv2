@@ -1,14 +1,11 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ComponentType, type RefObject } from "react";
+import type { ComponentType } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import Link from "next/link";
 import {
   ArrowRight,
   AudioWaveform,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   MessageCircle,
   NotebookPen,
   PhoneCall,
@@ -20,7 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { EASE, Item, Stagger } from "./primitives";
+import { EASE, Marquee } from "./primitives";
 import {
   CallVisual,
   InboxVisual,
@@ -34,15 +31,14 @@ import {
 } from "./sections";
 
 /**
- * The services, surfaced above the fold: a glass dock inside the hero
- * screen (desktop), a 3×3 launcher under it (mobile/tablet), and a card rail
- * that both of them scroll to.
+ * The launch services and their copy. The hero marquee renders the names +
+ * icons; the "Your growth team" rail below it renders the full cards.
  */
 
 type Service = {
   id: string;
   icon: LucideIcon;
-  /** Short name for the dock / launcher. */
+  /** Short name for the marquee / dock. */
   name: string;
   /** One-liner under the name in the dock (xl+). */
   sub: string;
@@ -110,231 +106,41 @@ export const SERVICES: Service[] = [
   },
 ];
 
-/** Shared state for the dock, launcher and rail: which service is active, and how to jump to it. */
-export function useServiceFocus() {
-  const [active, setActive] = useState(SERVICES[0].id);
-  const railRef = useRef<HTMLDivElement>(null);
+/** "Your growth team" — centered headline like the other sections, then an
+    auto-sliding marquee of service cards with live mini-visuals. */
+export function ServiceRail() {
   const reduce = useReducedMotion();
-
-  const focus = useCallback(
-    (id: string) => {
-      setActive(id);
-      const behavior: ScrollBehavior = reduce ? "auto" : "smooth";
-      document.getElementById("services")?.scrollIntoView({ behavior, block: "start" });
-      const rail = railRef.current;
-      const card = document.getElementById(`service-${id}`);
-      if (rail && card) {
-        const inset = parseFloat(getComputedStyle(rail).paddingLeft) || 0;
-        rail.scrollTo({ left: card.offsetLeft - inset, behavior });
-      }
-    },
-    [reduce],
-  );
-
-  return { active, focus, railRef };
-}
-
-type FocusProps = { active: string; onSelect: (id: string) => void };
-
-/** Glass dock pinned to the bottom of the hero screen. Desktop only. */
-export function ServiceDock({ active, onSelect }: FocusProps) {
-  return (
-    <motion.nav
-      aria-label="Services"
-      initial={{ opacity: 0, y: 18 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.8, delay: 1.05, ease: EASE }}
-      className="absolute inset-x-5 bottom-5 hidden lg:block"
-    >
-      <div className="mb-2.5 flex items-center justify-between px-1.5">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.28em] text-white/75">
-          10+ AI services · one login
-        </span>
-        <button
-          type="button"
-          onClick={() => onSelect(active)}
-          className="flex items-center gap-1 text-xs font-semibold text-primary transition-opacity hover:opacity-80"
-        >
-          See every service <ChevronDown className="size-3.5" />
-        </button>
-      </div>
-      <ul className="grid grid-cols-9 gap-1.5 rounded-[1.25rem] border border-white/15 bg-black/45 p-2 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] backdrop-blur-xl">
-        {SERVICES.map((s) => {
-          const on = s.id === active;
-          return (
-            <li key={s.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(s.id)}
-                aria-current={on ? "true" : undefined}
-                className={cn(
-                  "group flex h-full w-full flex-col items-start gap-2 rounded-2xl border p-3 text-left transition-colors duration-300",
-                  on
-                    ? "border-primary/45 bg-primary/15"
-                    : "border-transparent hover:border-white/10 hover:bg-white/[0.06]",
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex size-9 items-center justify-center rounded-xl transition-colors duration-300",
-                    on ? "bg-primary text-primary-foreground" : "bg-primary/15 text-primary group-hover:bg-primary/25",
-                  )}
-                >
-                  <s.icon className="size-[18px]" />
-                </span>
-                <span className="text-[13px] font-semibold leading-tight">{s.name}</span>
-                <span className="hidden text-[11px] leading-snug text-white/60 xl:block">{s.sub}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </motion.nav>
-  );
-}
-
-/** 3×3 launcher under the hero screen on phones and tablets. */
-export function ServiceLauncher({ active, onSelect }: FocusProps) {
-  return (
-    <motion.nav
-      aria-label="Services"
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.7, delay: 0.9, ease: EASE }}
-      className="mt-3 sm:mt-4 lg:hidden"
-    >
-      <p className="mb-2.5 px-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-        10+ AI services · one login
-      </p>
-      <ul className="grid grid-cols-3 gap-2 sm:gap-3">
-        {SERVICES.map((s) => {
-          const on = s.id === active;
-          return (
-            <li key={s.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(s.id)}
-                aria-current={on ? "true" : undefined}
-                className={cn(
-                  "flex h-full min-h-[84px] w-full flex-col justify-between gap-2.5 rounded-2xl border bg-card p-3 text-left transition-colors active:scale-[0.98] sm:min-h-0 sm:flex-row sm:items-center sm:justify-start sm:p-4",
-                  on ? "border-primary/45 bg-primary/[0.08]" : "border-white/10",
-                )}
-              >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
-                  <s.icon className="size-[18px]" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-semibold leading-tight sm:text-sm">{s.name}</span>
-                  <span className="mt-0.5 hidden truncate text-xs text-muted-foreground sm:block">{s.sub}</span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </motion.nav>
-  );
-}
-
-/** "Your growth team" — a snap-scrolling rail of service cards with live mini-visuals. */
-export function ServiceRail({
-  active,
-  railRef,
-}: {
-  active: string;
-  railRef: RefObject<HTMLDivElement | null>;
-}) {
-  const [edges, setEdges] = useState({ start: true, end: false });
-
-  const measure = useCallback(() => {
-    const el = railRef.current;
-    if (!el) return;
-    setEdges({
-      start: el.scrollLeft <= 4,
-      end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4,
-    });
-  }, [railRef]);
-
-  useEffect(() => {
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [measure]);
-
-  const page = (dir: 1 | -1) => {
-    const el = railRef.current;
-    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: "smooth" });
-  };
-
   return (
     <section id="services" aria-labelledby="services-title" className="scroll-mt-24 pt-8 sm:pt-12">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h2 id="services-title" className="text-lg font-black uppercase tracking-tight sm:text-2xl">
-            Your growth team
-          </h2>
-          <p className="mt-1 max-w-xl text-sm text-muted-foreground sm:text-[15px]">
-            10+ AI services that hand off to each other — a lead found becomes a call booked becomes a client answered.
-          </p>
-        </div>
-        <div className="hidden shrink-0 items-center gap-2 sm:flex">
-          <RailButton label="Previous services" disabled={edges.start} onClick={() => page(-1)}>
-            <ChevronLeft className="size-5" />
-          </RailButton>
-          <RailButton label="More services" disabled={edges.end} onClick={() => page(1)}>
-            <ChevronRight className="size-5" />
-          </RailButton>
-        </div>
+      <div className="mx-auto max-w-2xl text-center">
+        <motion.h2
+          id="services-title"
+          initial={reduce ? false : { opacity: 0, y: 12, filter: "blur(6px)" }}
+          whileInView={reduce ? undefined : { opacity: 1, y: 0, filter: "blur(0px)" }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          className="text-balance text-3xl font-semibold tracking-tight sm:text-5xl"
+        >
+          Your Entire Growth Team, {" "}
+          <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">
+            Powered by AI.
+          </span>
+        </motion.h2>
+        <p className="mt-4 text-pretty text-base text-muted-foreground sm:text-lg">
+          10+ AI services that hand off to each other: a lead found becomes a call booked becomes a client answered.
+        </p>
       </div>
 
-      <div className="relative mt-5">
-        <div
-          ref={railRef}
-          onScroll={measure}
-          className="relative -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-3 scrollbar-none sm:-mx-6 sm:scroll-px-6 sm:gap-4 sm:px-6 lg:mx-0 lg:scroll-px-0 lg:px-0"
-        >
-          <Stagger className="flex gap-3 sm:gap-4">
-            {SERVICES.map((s) => (
-              <Item key={s.id} className="w-[78vw] max-w-[300px] shrink-0 snap-start sm:w-[300px] lg:w-[318px]">
-                <ServiceCard service={s} active={s.id === active} />
-              </Item>
-            ))}
-          </Stagger>
-        </div>
-        {/* Edge fade, desktop only — on touch the peeking card is the hint. */}
-        <div
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-y-0 right-0 hidden w-40 bg-gradient-to-l from-background to-transparent transition-opacity duration-300 lg:block",
-            edges.end && "opacity-0",
-          )}
-        />
+      <div className="relative mt-10">
+        <Marquee duration={70} className="items-stretch">
+          {SERVICES.map((s) => (
+            <div key={s.id} className="mx-3 w-[78vw] max-w-[300px] shrink-0 sm:w-[300px] lg:w-[318px]">
+              <ServiceCard service={s} active={false} />
+            </div>
+          ))}
+        </Marquee>
       </div>
     </section>
-  );
-}
-
-function RailButton({
-  label,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string;
-  disabled: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="flex size-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] transition-colors hover:border-primary/50 hover:text-primary disabled:pointer-events-none disabled:opacity-35"
-    >
-      {children}
-    </button>
   );
 }
 
@@ -347,11 +153,11 @@ function ServiceCard({ service: s, active }: { service: Service; active: boolean
       className={cn(
         "flex h-full flex-col overflow-hidden rounded-3xl border bg-card transition-[border-color,box-shadow] duration-500",
         active
-          ? "border-primary/45 shadow-[0_0_60px_-24px_oklch(0.598_0.241_294.3/0.8)]"
+          ? "border-primary/45 shadow-[0_0_60px_-24px_oklch(0.75_0.183_55.934/0.8)]"
           : "border-white/10 hover:border-white/20",
       )}
     >
-      <div className="relative h-[200px] overflow-hidden bg-[radial-gradient(120%_90%_at_30%_0%,oklch(0.598_0.241_294.3/0.14),transparent_60%)] px-4 pt-12 [&>*]:mt-0">
+      <div className="relative h-[200px] overflow-hidden bg-[radial-gradient(120%_90%_at_30%_0%,oklch(0.75_0.183_55.934/0.14),transparent_60%)] px-4 pt-12 [&>*]:mt-0">
         <span className="absolute left-3.5 top-3.5 rounded-full border border-white/10 bg-black/40 px-2.5 py-0.5 text-[10px] font-medium text-white/90 backdrop-blur">
           {s.tag}
         </span>
@@ -359,9 +165,7 @@ function ServiceCard({ service: s, active }: { service: Service; active: boolean
       </div>
       <div className="flex flex-1 flex-col p-5">
         <h3 className="flex items-center gap-2.5 text-base font-semibold sm:text-lg">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
-            <s.icon className="size-4" />
-          </span>
+          <s.icon className="size-6 shrink-0 text-primary" strokeWidth={3} aria-hidden />
           {s.title}
         </h3>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.blurb}</p>

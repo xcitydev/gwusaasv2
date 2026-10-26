@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { toast } from "sonner";
 import { Archive, Megaphone, MoreHorizontal, Pause, Play, Plus, Trash2 } from "lucide-react";
+import { hasConvex } from "@/lib/runtime";
 import { OutreachUsageCard } from "@/components/outreach/usage-card";
 import {
   AlertDialog,
@@ -41,7 +42,26 @@ import { errorText } from "@/lib/public-errors";
 
 type CampaignRow = Doc<"campaigns"> & { leadCount: number };
 
+/** Setup mode (no Convex provider): campaigns need Convex. */
 export function CampaignsTab() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <Megaphone className="size-8 text-muted-foreground" />
+          <p className="font-medium">No campaigns yet</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Creating and running cold-email campaigns need Convex — preview-only until it is
+            connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <CampaignsTabLive />;
+}
+
+function CampaignsTabLive() {
   const router = useRouter();
   const campaignsQuery = useQuery(api.outreach.listCampaigns);
   const campaigns = (campaignsQuery ?? []) as CampaignRow[];

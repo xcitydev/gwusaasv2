@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ServerCog } from "lucide-react";
 import { LivePage } from "@/components/live-page";
+import { hasConvex } from "@/lib/runtime";
 import { ModulePlaceholder } from "@/components/module-placeholder";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -73,6 +74,22 @@ function InstantlyPool() {
 }
 
 export default function AdminInfraPage() {
+  if (!hasConvex) {
+    return (
+      <div>
+        <PageHeader
+          title="Infrastructure"
+          description="Technical view for dev admins — service health and shared capacity."
+        />
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            This page fills in once Convex is connected — service health and capacity stay
+            preview-only until then.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   return (
     <LivePage>
       <PageHeader

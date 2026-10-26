@@ -51,7 +51,7 @@
 }
 
 /*
- * Dark-only creatily.ai theme (violet/black/white). Dark IS the theme — :root and .dark are
+ * Dark-only creatily.ai theme (orange/black/white). Dark IS the theme — :root and .dark are
  * intentionally identical so both bare and `.dark`-scoped styles resolve.
  */
 :root,
@@ -62,8 +62,8 @@
   --card-foreground: oklch(0.977 0.005 286.3);
   --popover: oklch(0.193 0.008 285.6);
   --popover-foreground: oklch(0.977 0.005 286.3);
-  --primary: oklch(0.598 0.241 294.3);
-  --primary-foreground: oklch(1 0 0);
+  --primary: oklch(75% 0.183 55.934);
+  --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.229 0.012 285.5);
   --secondary-foreground: oklch(0.977 0.005 286.3);
   --muted: oklch(0.220 0.010 285.6);
@@ -73,21 +73,29 @@
   --destructive: oklch(0.64 0.21 25);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 6%);
-  --ring: oklch(0.598 0.241 294.3 / 60%);
-  --chart-1: oklch(0.598 0.241 294.3);
+  --ring: oklch(75% 0.183 55.934 / 60%);
+  --chart-1: oklch(75% 0.183 55.934);
   --chart-2: oklch(0.722 0.153 239.4);
-  --chart-3: oklch(0.675 0.275 320);
+  --chart-3: oklch(83.7% 0.128 66.29);
   --chart-4: oklch(0.690 0.017 285.9);
   --chart-5: oklch(0.372 0.019 285.5);
   --radius: 0.75rem;
   --sidebar: oklch(0.141 0.004 285.8);
   --sidebar-foreground: oklch(0.926 0.007 286.3);
-  --sidebar-primary: oklch(0.598 0.241 294.3);
-  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-primary: oklch(75% 0.183 55.934);
+  --sidebar-primary-foreground: oklch(0.145 0 0);
   --sidebar-accent: oklch(0.207 0.010 285.5);
   --sidebar-accent-foreground: oklch(0.977 0.005 286.3);
   --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.598 0.241 294.3 / 60%);
+  --sidebar-ring: oklch(75% 0.183 55.934 / 60%);
+}
+
+/* The authenticated SaaS surfaces follow the landing pricing section's
+   crisp geometry. Marketing pages retain the shared theme's normal radius. */
+html:has([data-saas-shell]) {
+  --radius: 0rem;
+  --card: oklch(0.145 0 0);
+  --popover: oklch(0.145 0 0);
 }
 
 @layer base {
@@ -103,6 +111,20 @@
     @apply font-sans;
     color-scheme: dark;
   }
+}
+
+/* Keep Lucide glyphs crisp and prominent throughout the app. Icon holders are
+   decorative; don't let them draw a second outline around the glyph. */
+svg.lucide {
+  stroke-width: 2.5;
+  scale: 1.12;
+}
+
+:where(span, div)[class*="size-"]:has(> svg.lucide) {
+  background: transparent !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
 }
 
 @utility scrollbar-none {
@@ -133,5 +155,112 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .animate-marquee { animation: none; }
+}
+@keyframes dashboard-glow-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  30% { transform: translate3d(-32px, 26px, 0) scale(1.16); }
+  65% { transform: translate3d(-8px, 48px, 0) scale(0.92); }
+}
+.dashboard-card-glow {
+  animation: dashboard-glow-drift 12s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-card-glow { animation: none; }
+}
+@keyframes credits-pill-beam-sweep {
+  from { transform: translateX(-160%) skewX(-18deg); }
+  to { transform: translateX(360%) skewX(-18deg); }
+}
+.credits-pill-beam {
+  position: absolute;
+  z-index: -1;
+  top: -35%;
+  bottom: -35%;
+  left: 0;
+  width: 26%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 12%), transparent);
+  animation: credits-pill-beam-sweep 4.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .credits-pill-beam { animation: none; }
+}
+/* Hero backdrop: beams falling down the vertical grid lines (gold-bg reference). */
+@keyframes border-beam {
+  from { transform: translateY(-200px); }
+  to { transform: translateY(100vh); }
+}
+@utility animate-border-beam {
+  animation: border-beam 6s linear infinite;
+}
+@keyframes saas-particle-fall {
+  0% { transform: translateY(-8px); opacity: 0; }
+  8% { opacity: 0.9; }
+  92% { opacity: 0.55; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-border-beam { animation: none; }
+}
+/* HowItWorks convergence (how-it-works reference): scattered cards pulled
+   into a pulsing core — the core glow is the site orange, not white. */
+@keyframes core-pulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 40px rgba(251, 146, 60, 0.25), inset 0 0 20px rgba(251, 146, 60, 0.15);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.1);
+    box-shadow: 0 0 80px rgba(251, 146, 60, 0.8), inset 0 0 40px rgba(251, 146, 60, 0.35);
+  }
+}
+@keyframes radar-pull {
+  0% { transform: translate(-50%, -50%) scale(1.2); opacity: 0; }
+  10% { opacity: 0.2; }
+  80% { opacity: 0.6; border-width: 1px; }
+  100% { transform: translate(-50%, -50%) scale(0); opacity: 0; border-width: 3px; }
+}
+@keyframes gravity-well {
+  0% {
+    transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1.1) rotate(calc(var(--rot) * -1));
+    opacity: 0;
+    filter: blur(4px);
+  }
+  15% {
+    opacity: 1;
+    filter: blur(0px);
+    transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1) rotate(0deg);
+  }
+  60% {
+    transform: translate(calc(-50% + var(--tx) * 0.6), calc(-50% + var(--ty) * 0.6)) scale(0.85) rotate(var(--rot));
+    opacity: 1;
+    filter: blur(0px);
+  }
+  85% {
+    transform: translate(calc(-50% + var(--tx) * 0.2), calc(-50% + var(--ty) * 0.2)) scale(0.4) rotate(calc(var(--rot) * 2));
+    opacity: 0.8;
+    filter: blur(2px);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0) rotate(calc(var(--rot) * 3));
+    opacity: 0;
+    filter: blur(8px);
+  }
+}
+@utility animate-core-pulse {
+  animation: core-pulse 2s ease-in-out infinite;
+}
+@utility animate-radar-pull {
+  animation: radar-pull 4s cubic-bezier(0.5, 0, 0.8, 1) infinite;
+}
+@utility animate-gravity-well {
+  animation: gravity-well 4.8s cubic-bezier(0.5, 0, 0.8, 1) infinite both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-core-pulse { animation: none; }
+  /* Rings and cards are positioned by their animation — hide them when
+     it is off instead of letting them pile up uncentered. */
+  .animate-radar-pull,
+  .animate-gravity-well { animation: none; opacity: 0; }
 }
 html { scroll-behavior: smooth; }

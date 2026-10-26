@@ -5,6 +5,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import {
   CalendarCheck,
   ChevronRight,
@@ -109,7 +110,26 @@ function MotionCard({
 
 type ReceptionistDoc = FunctionReturnType<typeof api.voice.listReceptionists>[number];
 
+/** Setup mode (no Convex provider): receptionists need Convex. */
 export function ReceptionistClient() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <Headphones className="size-8 text-muted-foreground" />
+          <p className="font-medium">AI Receptionist</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Creating and managing receptionists needs Convex — preview-only until it is
+            connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <ReceptionistLive />;
+}
+
+function ReceptionistLive() {
   const receptionists = useQuery(api.voice.listReceptionists);
   // Nothing selected = the blank "New receptionist" editor (the page IS the
   // create form). Clicking a saved receptionist opens it for changes.

@@ -5,7 +5,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { CheckCircle2, Loader2, Plug, Trash2, Webhook } from "lucide-react";
-import { isConfigured } from "@/lib/runtime";
+import { hasConvex, isConfigured } from "@/lib/runtime";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,19 @@ function message(e: unknown, fallback: string): string {
 type Option = { id: string; name: string };
 
 export function IntegrationsTab() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="py-12 text-center text-sm text-muted-foreground">
+          Integrations come alive once Clerk and Convex keys are added.
+        </CardContent>
+      </Card>
+    );
+  }
+  return <IntegrationsTabLive />;
+}
+
+function IntegrationsTabLive() {
   const integrations = useQuery(api.integrations.list, isConfigured ? {} : "skip");
   if (!isConfigured) {
     return (

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import { AtSign, Loader2, MessageCircle, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -195,7 +196,25 @@ function ConnectStep() {
   );
 }
 
+/** Setup mode (no Convex provider): connecting Instagram needs Convex. */
 export function IgDmsClient() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <MessageCircle className="size-8 text-muted-foreground" />
+          <p className="font-medium">Instagram DMs & AI Voice</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Connecting Instagram needs Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <IgDmsLive />;
+}
+
+function IgDmsLive() {
   const account = useQuery(api.igDms.myAccount);
 
   return (

@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { LivePage } from "@/components/live-page";
+import { hasConvex } from "@/lib/runtime";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { TicketThread } from "@/components/support/ticket-thread";
@@ -77,6 +78,22 @@ function TicketQueue() {
 }
 
 export default function AdminTicketsPage() {
+  if (!hasConvex) {
+    return (
+      <div>
+        <PageHeader
+          title="Tickets"
+          description="Reply to join a ticket — the user sees when you jump in."
+        />
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            This page fills in once Convex is connected — data and admin actions stay
+            preview-only until then.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   return (
     <LivePage>
       <PageHeader

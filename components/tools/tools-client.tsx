@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { promptTopUpIfInsufficient } from "@/lib/top-up-prompt";
+import { hasConvex } from "@/lib/runtime";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -97,10 +98,28 @@ function detectLinkKind(url: string): string {
   return "Audio link";
 }
 
+function useRunAudit() {
+  return useAction(api.ai.runAudit);
+}
+
+/** Setup mode (no Convex provider): the audit form renders; running needs Convex. */
 export function AuditTab() {
-  const auditsQuery = useQuery(api.tools.listAudits);
+  if (!hasConvex) return <AuditTabBody runAudit={null} auditsQuery={[]} />;
+  return <AuditTabLive />;
+}
+
+function AuditTabLive() {
+  return <AuditTabBody runAudit={useRunAudit()} auditsQuery={useQuery(api.tools.listAudits)} />;
+}
+
+function AuditTabBody({
+  runAudit,
+  auditsQuery,
+}: {
+  runAudit: ReturnType<typeof useRunAudit> | null;
+  auditsQuery: Doc<"audits">[] | undefined;
+}) {
   const audits = auditsQuery ?? [];
-  const runAudit = useAction(api.ai.runAudit);
   const [target, setTarget] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
@@ -112,6 +131,7 @@ export function AuditTab() {
       toast.error("Enter your website or business name.");
       return;
     }
+    if (!runAudit) return; // setup mode: button is disabled
     setBusy(true);
     try {
       await runAudit({ target, description: description.trim() || undefined });
@@ -153,11 +173,16 @@ export function AuditTab() {
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
-          <div className="flex justify-end">
-            <Button onClick={run} disabled={busy} data-tour="getfound-run">
+          <div className="flex flex-col items-end gap-2">
+            <Button onClick={run} disabled={busy || !runAudit} data-tour="getfound-run">
               {busy ? <Loader2 className="size-4 animate-spin" /> : <ScanSearch className="size-4" />}
               Run audit
             </Button>
+            {!runAudit && (
+              <p className="text-xs text-muted-foreground">
+                Running audits needs Convex — preview-only until it is connected.
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -383,7 +408,25 @@ function FixQuoteDialog({
   );
 }
 
+/** Setup mode (no Convex provider): transcription needs Convex. */
 export function TranscribeTab() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <AudioLines className="size-8 text-muted-foreground" />
+          <p className="font-medium">Nothing transcribed yet</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Link and file transcription need Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <TranscribeTabLive />;
+}
+
+function TranscribeTabLive() {
   const transcriptsQuery = useQuery(api.tools.listTranscripts);
   const transcripts = transcriptsQuery ?? [];
   const transcribe = useAction(api.ai.transcribe);
@@ -852,7 +895,25 @@ function DeckViewer({ carousel }: { carousel: Doc<"carousels"> }) {
   );
 }
 
+/** Setup mode (no Convex provider): carousel generation needs Convex. */
 export function CarouselTab() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <GalleryHorizontalEnd className="size-8 text-muted-foreground" />
+          <p className="font-medium">No carousels yet</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Generating carousels needs Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <CarouselTabLive />;
+}
+
+function CarouselTabLive() {
   const carouselsQuery = useQuery(api.carousels.list);
   const carousels = carouselsQuery ?? [];
   const pricing = useQuery(api.generations.pricing);

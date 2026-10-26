@@ -7,6 +7,7 @@ import type { BlandWebClient } from "bland-client-js-sdk";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import { Loader2, Mic, PhoneOutgoing, Plus, Square } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -172,7 +173,25 @@ function normalizePhone(raw: string): string | null {
   return null; // non-US without a country code — ask for the +
 }
 
+/** Setup mode (no Convex provider): qualifier campaigns need Convex. */
 export function QualifierClient() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <PhoneOutgoing className="size-8 text-muted-foreground" />
+          <p className="font-medium">AI Cold Calling</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Qualifier campaigns need Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <QualifierLive />;
+}
+
+function QualifierLive() {
   const campaignsQuery = useQuery(api.voice.listQualifierCampaigns);
   const campaigns = campaignsQuery ?? [];
   const leads = useQuery(api.leads.list) ?? [];

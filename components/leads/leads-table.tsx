@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Doc, Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import {
   ArrowLeft,
   ChevronLeft,
@@ -66,11 +67,42 @@ function groupKey(lead: Lead): string {
   return lead.sourceDetail ?? `src:${lead.source}`;
 }
 
+function useLeads() {
+  return useQuery(api.leads.list);
+}
+function useImportLeads() {
+  return useMutation(api.leads.importLeads);
+}
+function useRemoveLeads() {
+  return useMutation(api.leads.removeLeads);
+}
+
+/** Setup mode (no Convex provider): the real table renders empty; imports need Convex. */
 export function LeadsTable() {
-  const leadsQuery = useQuery(api.leads.list);
+  if (!hasConvex) return <LeadsTableBody leadsQuery={[]} importLeads={null} removeLeads={null} />;
+  return <LeadsTableLive />;
+}
+
+function LeadsTableLive() {
+  return (
+    <LeadsTableBody
+      leadsQuery={useLeads()}
+      importLeads={useImportLeads()}
+      removeLeads={useRemoveLeads()}
+    />
+  );
+}
+
+function LeadsTableBody({
+  leadsQuery,
+  importLeads,
+  removeLeads,
+}: {
+  leadsQuery: Doc<"leads">[] | undefined;
+  importLeads: ReturnType<typeof useImportLeads> | null;
+  removeLeads: ReturnType<typeof useRemoveLeads> | null;
+}) {
   const leads = (leadsQuery ?? []) as Lead[];
-  const importLeads = useMutation(api.leads.importLeads);
-  const removeLeads = useMutation(api.leads.removeLeads);
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -182,6 +214,10 @@ export function LeadsTable() {
         toast.error("No valid rows found in the CSV.");
         return;
       }
+      if (!importLeads) {
+        toast.error("Importing needs Convex — preview-only until it is connected.");
+        return;
+      }
       const { imported, skipped } = await importLeads({
         leads: parsed,
         source: "csv",
@@ -201,6 +237,10 @@ export function LeadsTable() {
   };
 
   const doDelete = async () => {
+    if (!removeLeads) {
+      toast.error("Deleting needs Convex — preview-only until it is connected.");
+      return;
+    }
     await removeLeads({ ids: [...selected] as Id<"leads">[] });
     toast.success(`Deleted ${selected.size} lead${selected.size === 1 ? "" : "s"}.`);
     setSelected(new Set());

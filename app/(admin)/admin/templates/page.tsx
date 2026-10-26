@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { hasConvex } from "@/lib/runtime";
 
 type Draft = DbCarouselTemplateFields & { published: boolean };
 
@@ -457,9 +458,57 @@ function TemplatesManager() {
 }
 
 export default function TemplatesAdminPage() {
+  // Setup mode (no Convex provider): render the static stand-in with the
+  // library's genuine empty state instead of degrading to LivePage's
+  // generic placeholder. The editor's save/remove call the backend, so they
+  // stay unavailable there.
+  if (!hasConvex) return <TemplatesAdminSetup />;
   return (
     <LivePage>
       <TemplatesManager />
     </LivePage>
+  );
+}
+
+/** Setup-mode stand-in: real chrome plus the library's genuine empty state. */
+function TemplatesAdminSetup() {
+  return (
+    <div>
+      <PageHeader
+        title="Carousel Templates"
+        description="Curate the design library users pick from in AI Tools → IG Carousels."
+      />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted-foreground">New template from:</span>
+        {CAROUSEL_TEMPLATES.map((base) => (
+          <Button
+            key={base.id}
+            variant="outline"
+            size="sm"
+            disabled
+            title="Templates save to Convex, which isn't connected."
+          >
+            <Plus className="size-3.5" /> {base.name}
+          </Button>
+        ))}
+      </div>
+
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <GalleryHorizontalEnd className="size-8 text-muted-foreground" />
+          <p className="font-medium">No library templates yet</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Start from one of the built-in styles above, tweak the fonts,
+            colors and art direction, and publish it to every workspace.
+          </p>
+        </CardContent>
+      </Card>
+
+      <p className="mt-4 text-center text-xs text-muted-foreground">
+        Creating and editing templates needs Convex — the library is
+        preview-only until it is connected.
+      </p>
+    </div>
   );
 }

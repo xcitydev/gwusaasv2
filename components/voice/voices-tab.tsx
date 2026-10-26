@@ -5,6 +5,7 @@ import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { AudioWaveform, Loader2, Play, Square, Trash2 } from "lucide-react";
+import { hasConvex } from "@/lib/runtime";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,7 +43,25 @@ const ENGINE_BADGES = {
   },
 } as const;
 
+/** Setup mode (no Convex provider): voice cloning needs Convex. */
 export function VoicesTab() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <AudioWaveform className="size-8 text-muted-foreground" />
+          <p className="font-medium">No cloned voices yet</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Voice cloning needs Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <VoicesTabLive />;
+}
+
+function VoicesTabLive() {
   const listVoices = useAction(api.voiceActions.listVoices);
   const voicePreview = useAction(api.voiceActions.voicePreview);
   const deleteClonedVoice = useAction(api.voiceActions.deleteClonedVoice);

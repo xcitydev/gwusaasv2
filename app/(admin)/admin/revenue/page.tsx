@@ -7,6 +7,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { DollarSign, Gift, Loader2, Receipt, TrendingUp } from "lucide-react";
 import { LivePage } from "@/components/live-page";
+import { hasConvex } from "@/lib/runtime";
 import { PageHeader } from "@/components/page-header";
 import {
   AlertDialog,
@@ -187,6 +188,22 @@ function ReferralPayouts() {
 }
 
 export default function AdminRevenuePage() {
+  if (!hasConvex) {
+    return (
+      <div>
+        <PageHeader
+          title="Revenue"
+          description="Money generated across the platform. Superadmin only."
+        />
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            This page fills in once Convex is connected — data and admin actions stay
+            preview-only until then.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   return (
     <LivePage>
       <PageHeader

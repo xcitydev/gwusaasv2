@@ -22,13 +22,14 @@ function Pill({
   onTopUp?: () => void;
 }) {
   const className = cn(
-    "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+    "credits-pill relative isolate flex items-center gap-1.5 overflow-hidden rounded-full border px-3 py-1 text-xs font-medium transition-colors",
     low
-      ? "border-amber-500/40 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"
-      : "border-primary/30 bg-primary/10 text-primary hover:bg-primary/20",
+      ? "border-amber-500/40 bg-black text-amber-500 hover:bg-zinc-950"
+      : "border-primary/30 bg-black text-primary hover:bg-zinc-950",
   );
   const label = (
     <>
+      <span aria-hidden className="credits-pill-beam" />
       <Coins className="size-3.5" />
       {credits === null ? "—" : credits.toLocaleString()}
       <span className="hidden sm:inline">{low ? "credits · top up" : "credits"}</span>

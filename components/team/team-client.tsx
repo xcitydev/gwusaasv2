@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import { Copy, Crown, Loader2, Sparkles, Trash2, UserPlus, UsersRound, X } from "lucide-react";
 import {
   AlertDialog,
@@ -31,12 +32,52 @@ import {
 import { Input } from "@/components/ui/input";
 import { errorText } from "@/lib/public-errors";
 
-export function TeamClient() {
-  const data = useQuery(api.team.members);
-  const invite = useMutation(api.team.invite);
-  const revokeInvite = useMutation(api.team.revokeInvite);
-  const removeMember = useMutation(api.team.removeMember);
+function useTeamData() {
+  return useQuery(api.team.members);
+}
+function useInvite() {
+  return useMutation(api.team.invite);
+}
+function useRevokeInvite() {
+  return useMutation(api.team.revokeInvite);
+}
+function useRemoveMember() {
+  return useMutation(api.team.removeMember);
+}
 
+/**
+ * Setup mode (no Convex provider): renders with no data — invite/remove
+ * controls are owner-gated, so every backend action is naturally unreachable.
+ */
+export function TeamClient() {
+  if (!hasConvex) {
+    return <TeamBody data={undefined} invite={null} revokeInvite={null} removeMember={null} />;
+  }
+  return <TeamLive />;
+}
+
+function TeamLive() {
+  return (
+    <TeamBody
+      data={useTeamData()}
+      invite={useInvite()}
+      revokeInvite={useRevokeInvite()}
+      removeMember={useRemoveMember()}
+    />
+  );
+}
+
+function TeamBody({
+  data,
+  invite,
+  revokeInvite,
+  removeMember,
+}: {
+  data: ReturnType<typeof useTeamData>;
+  invite: ReturnType<typeof useInvite> | null;
+  revokeInvite: ReturnType<typeof useRevokeInvite> | null;
+  removeMember: ReturnType<typeof useRemoveMember> | null;
+}) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [inviting, setInviting] = useState(false);
@@ -68,6 +109,7 @@ export function TeamClient() {
   }
 
   const sendInvite = async () => {
+    if (!invite) return; // setup mode: unreachable (invite button hidden)
     setInviting(true);
     try {
       const token = await invite({ email });
@@ -141,6 +183,7 @@ export function TeamClient() {
                     size="icon"
                     aria-label="Revoke invite"
                     onClick={async () => {
+                      if (!revokeInvite) return; // setup mode: unreachable
                       await revokeInvite({ id: pendingInvite._id });
                       toast.success("Invite revoked.");
                     }}
@@ -214,6 +257,7 @@ export function TeamClient() {
             <AlertDialogAction
               onClick={async () => {
                 if (!removeTarget) return;
+                if (!removeMember) return; // setup mode: unreachable
                 try {
                   await removeMember({ membershipId: removeTarget.id });
                   toast.success("Member removed.");

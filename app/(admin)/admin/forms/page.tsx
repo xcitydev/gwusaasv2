@@ -9,6 +9,7 @@ import { Eye, FileText, Loader2 } from "lucide-react";
 import { getFormDef } from "@/lib/forms-def";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { LivePage } from "@/components/live-page";
+import { hasConvex } from "@/lib/runtime";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import {
@@ -281,6 +282,22 @@ function FormsQueue() {
 }
 
 export default function AdminFormsPage() {
+  if (!hasConvex) {
+    return (
+      <div>
+        <PageHeader
+          title="Form Submissions"
+          description="Verify payment off-platform, then mark requests active."
+        />
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            This page fills in once Convex is connected — data and admin actions stay
+            preview-only until then.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   return (
     <LivePage>
       <PageHeader

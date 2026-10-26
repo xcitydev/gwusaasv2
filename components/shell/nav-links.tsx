@@ -44,11 +44,11 @@ export function NavLinks({
                     href={item.href}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 text-sm transition-colors",
+                      "group/nav-item relative flex items-center gap-3 rounded-none px-3 text-sm transition-colors",
                       item.description ? "py-1.5" : "py-2",
                       active
-                        ? "bg-primary/10 font-medium text-primary"
-                        : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                        ? "font-medium text-white"
+                        : "text-sidebar-foreground/80 hover:text-white",
                       locked && "opacity-60",
                     )}
                   >
@@ -88,6 +88,13 @@ export function NavLinks({
                         )}
                       />
                     )}
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "pointer-events-none absolute inset-x-0 bottom-0 h-px origin-left scale-x-0 bg-gradient-to-r from-orange-300 via-orange-400 to-transparent shadow-[0_0_10px_2px_rgba(251,146,60,0.5)] transition-transform duration-300",
+                        active ? "scale-x-100" : "group-hover/nav-item:scale-x-100",
+                      )}
+                    />
                   </Link>
                   {item.children && active && (
                     <div className="mt-0.5 ml-[22px] flex flex-col gap-0.5 border-l border-sidebar-border pl-3.5">
@@ -96,7 +103,7 @@ export function NavLinks({
                           key={child.href}
                           href={child.href}
                           onClick={onNavigate}
-                          className="rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          className="rounded-none px-2 py-1.5 text-[13px] text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                         >
                           {child.label}
                         </Link>

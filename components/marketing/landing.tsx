@@ -12,11 +12,12 @@ import {
 } from "./sections";
 import { SiteFooter } from "./footer";
 import { Showcases } from "./showcase";
+import { ProgressiveBlur } from "@/components/ui/progressive-blur";
 
 /** The public homepage — a cinematic screen up top, violet light, motion on every reveal. */
 export function Landing() {
   return (
-    <div className="relative min-h-dvh overflow-x-clip bg-background text-foreground">
+    <div className="relative min-h-dvh overflow-x-clip bg-black text-foreground">
       <Grain />
       <SiteNav />
       <main>
@@ -32,6 +33,11 @@ export function Landing() {
         <FinalCta />
       </main>
       <SiteFooter />
+      <ProgressiveBlur
+        className="fixed bottom-0 z-30"
+        height="160px"
+        position="bottom"
+      />
     </div>
   );
 }

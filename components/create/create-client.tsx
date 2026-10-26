@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { GridSkeleton } from "@/components/list-skeleton";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { hasConvex } from "@/lib/runtime";
 import {
   Bot,
   Clapperboard,
@@ -215,7 +216,25 @@ export function ReferenceInput({
   );
 }
 
+/** Setup mode (no Convex provider): image generation needs Convex. */
 function ImageStudio() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <ImageIcon className="size-8 text-muted-foreground" />
+          <p className="font-medium">Image generation</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Generating images needs Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <ImageStudioLive />;
+}
+
+function ImageStudioLive() {
   const pricing = useQuery(api.generations.pricing);
   const generate = useAction(api.createActions.generate);
   const [modelId, setModelId] = useState(IMAGE_MODELS[0].id);
@@ -317,7 +336,25 @@ function ImageStudio() {
   );
 }
 
+/** Setup mode (no Convex provider): video generation needs Convex. */
 function VideoStudio() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <Film className="size-8 text-muted-foreground" />
+          <p className="font-medium">Video generation</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Generating videos needs Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <VideoStudioLive />;
+}
+
+function VideoStudioLive() {
   const pricing = useQuery(api.generations.pricing);
   const generate = useAction(api.createActions.generate);
   const [modelId, setModelId] = useState(VIDEO_MODELS[0].id);
@@ -550,7 +587,25 @@ export function DrivingVideoInput({
 }
 
 /** Character image performs the motion (and speech) of a driving video. */
+/** Setup mode (no Convex provider): motion transfer needs Convex. */
 function MotionStudio() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <PersonStanding className="size-8 text-muted-foreground" />
+          <p className="font-medium">Motion transfer</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Motion transfer needs Convex — preview-only until it is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <MotionStudioLive />;
+}
+
+function MotionStudioLive() {
   const pricing = useQuery(api.generations.pricing);
   const generate = useAction(api.createActions.generate);
   const models = MOTION_MODELS.filter((m) => m.available);
@@ -723,7 +778,25 @@ function MotionStudio() {
   );
 }
 
+/** Setup mode (no Convex provider): the library fills in once Convex is connected. */
 function LibraryGrid() {
+  if (!hasConvex) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <Library className="size-8 text-muted-foreground" />
+          <p className="font-medium">Your library is empty</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Generated images and videos land here once Convex is connected.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <LibraryGridLive />;
+}
+
+function LibraryGridLive() {
   const generationsQuery = useQuery(api.generations.list);
   const generations = generationsQuery ?? [];
   const removeGeneration = useMutation(api.generations.remove);

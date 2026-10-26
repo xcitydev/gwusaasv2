@@ -7,7 +7,7 @@ export function BrandMark({ className }: { className?: string }) {
   return (
     <Link href="/dashboard" className={cn("flex items-center", className)}>
       <Image
-        src={BRAND.logo.wordmark}
+        src={BRAND.logo.headerWordmark}
         alt={BRAND.name}
         width={867}
         height={192}

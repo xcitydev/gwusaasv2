@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { ArrowLeft, CheckCircle2, ChevronDown, Info, Loader2 } from "lucide-react";
 import type { FormDef, FormFieldDef } from "@/lib/forms-def";
+import { hasConvex } from "@/lib/runtime";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -153,9 +154,44 @@ function SectionHeading({
   );
 }
 
+function useSubmitAction() {
+  return useAction(api.forms.submit);
+}
+function useGenerateUploadUrl() {
+  return useMutation(api.files.generateUploadUrl);
+}
+
+/**
+ * Setup mode (no Convex provider): the whole form renders from its static
+ * definition; submitting uploads files and calls the backend, so the submit
+ * button stays disabled.
+ */
 export function ServiceForm({ def }: { def: FormDef }) {
-  const submit = useAction(api.forms.submit);
-  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+  if (!hasConvex) {
+    return <ServiceFormBody def={def} submit={null} generateUploadUrl={null} />;
+  }
+  return <ServiceFormLive def={def} />;
+}
+
+function ServiceFormLive({ def }: { def: FormDef }) {
+  return (
+    <ServiceFormBody
+      def={def}
+      submit={useSubmitAction()}
+      generateUploadUrl={useGenerateUploadUrl()}
+    />
+  );
+}
+
+function ServiceFormBody({
+  def,
+  submit,
+  generateUploadUrl,
+}: {
+  def: FormDef;
+  submit: ReturnType<typeof useSubmitAction> | null;
+  generateUploadUrl: ReturnType<typeof useGenerateUploadUrl> | null;
+}) {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [fileInputs, setFileInputs] = useState<Record<string, File | null>>({});
@@ -179,6 +215,7 @@ export function ServiceForm({ def }: { def: FormDef }) {
   const values = useWatch({ control });
 
   const onSubmit = handleSubmit(async (values) => {
+    if (!submit || !generateUploadUrl) return; // setup mode: button is disabled
     setSubmitting(true);
     try {
       const files: { field: string; storageId: string; name: string }[] = [];
@@ -342,7 +379,7 @@ export function ServiceForm({ def }: { def: FormDef }) {
               <Button
                 type="submit"
                 size="lg"
-                disabled={submitting}
+                disabled={submitting || !submit}
                 className="min-w-36 font-bold"
               >
                 {submitting ? (
@@ -354,6 +391,12 @@ export function ServiceForm({ def }: { def: FormDef }) {
                 )}
               </Button>
             </div>
+            {!submit && (
+              <p className="mt-3 text-right text-xs text-muted-foreground">
+                Submitting uploads files and calls Convex — preview-only until it
+                is connected.
+              </p>
+            )}
           </form>
         </CardContent>
       </Card>
