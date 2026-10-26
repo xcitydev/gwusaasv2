@@ -36,7 +36,7 @@ type Option = { id: string; name: string };
 export function IntegrationsTab() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="py-12 text-center text-sm text-muted-foreground">
           Integrations come alive once Clerk and Convex keys are added.
         </CardContent>
@@ -50,7 +50,7 @@ function IntegrationsTabLive() {
   const integrations = useQuery(api.integrations.list, isConfigured ? {} : "skip");
   if (!isConfigured) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="py-12 text-center text-sm text-muted-foreground">
           Integrations come alive once Clerk and Convex keys are added.
         </CardContent>

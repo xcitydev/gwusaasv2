@@ -254,7 +254,7 @@ export function Inbox({ account }: { account: IgAccount }) {
       </div>
 
       {counts && counts.all === 0 ? (
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
             <MessageCircle className="size-7 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">

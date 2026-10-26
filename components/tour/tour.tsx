@@ -179,7 +179,7 @@ function TourOverlay({
           <motion.div className={shade} animate={{ left: hole.x + hole.w, top: hole.y, width: Math.max(0, viewport.w - hole.x - hole.w), height: hole.h }} transition={SPRING} initial={false} />
           {/* Violet ring on the target. */}
           <motion.div
-            className="pointer-events-none fixed rounded-xl border-2 border-primary shadow-[0_0_0_4px_oklch(0.598_0.241_294.3/0.25),0_0_40px_-4px_oklch(0.598_0.241_294.3/0.8)]"
+            className="pointer-events-none fixed rounded-xl border-2 border-primary shadow-[0_0_0_4px_oklch(0.75_0.183_55.934/0.25),0_0_40px_-4px_oklch(0.75_0.183_55.934/0.8)]"
             animate={{ left: hole.x, top: hole.y, width: hole.w, height: hole.h }}
             transition={SPRING}
             initial={false}
@@ -210,7 +210,7 @@ function TourOverlay({
           }
           style={{ ...tooltipStyle, ...(!centered && !mobile && { width: TOOLTIP_W }) }}
         >
-          <div className="relative rounded-2xl border border-primary/30 bg-[#141418] p-5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.9),0_0_40px_-20px_oklch(0.598_0.241_294.3/0.5)]">
+          <div className="relative rounded-none border border-white/10 bg-black p-5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.9)]">
             <button
               type="button"
               onClick={onSkip}
@@ -237,7 +237,7 @@ function TourOverlay({
                   <MousePointerClick className="size-4" /> Click the highlighted button
                 </span>
               ) : (
-                <Button size="sm" className="rounded-full px-4" onClick={onAdvance}>
+                <Button size="sm" className="px-4" onClick={onAdvance}>
                   {last ? "Finish" : "Next"}
                 </Button>
               )}

@@ -81,7 +81,7 @@ export default function AdminInfraPage() {
           title="Infrastructure"
           description="Technical view for dev admins — service health and shared capacity."
         />
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             This page fills in once Convex is connected — service health and capacity stay
             preview-only until then.

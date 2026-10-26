@@ -44,7 +44,7 @@ function AdminSetupCard() {
   };
 
   return (
-    <Card className="mt-6 border-dashed">
+    <Card className="mt-6 border-white/10">
       <CardContent className="flex flex-col items-start justify-between gap-3 py-4 sm:flex-row sm:items-center">
         <div className="flex items-center gap-3">
           <ShieldCheck className="size-4 shrink-0 text-primary" />
@@ -200,7 +200,7 @@ function ConnectStep() {
 export function IgDmsClient() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <MessageCircle className="size-8 text-muted-foreground" />
           <p className="font-medium">Instagram DMs & AI Voice</p>

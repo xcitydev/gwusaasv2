@@ -46,7 +46,7 @@ type CampaignRow = Doc<"campaigns"> & { leadCount: number };
 export function CampaignsTab() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <Megaphone className="size-8 text-muted-foreground" />
           <p className="font-medium">No campaigns yet</p>
@@ -118,7 +118,7 @@ function CampaignsTabLive() {
       {campaignsQuery === undefined ? (
         <ListSkeleton rows={3} />
       ) : campaigns.length === 0 ? (
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
             <Megaphone className="size-8 text-muted-foreground" />
             <p className="font-medium">No campaigns yet</p>

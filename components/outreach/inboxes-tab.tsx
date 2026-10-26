@@ -72,7 +72,7 @@ const IMAP_CSV_COLUMNS = [
 export function InboxesTab() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <Inbox className="size-8 text-muted-foreground" />
           <p className="font-medium">No inboxes connected yet</p>
@@ -289,7 +289,7 @@ function InboxesTabLive() {
       {inboxesQuery === undefined ? (
         <ListSkeleton rows={4} />
       ) : inboxes.length === 0 ? (
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
             <Flame className="size-8 text-muted-foreground" />
             <p className="font-medium">No inboxes yet</p>

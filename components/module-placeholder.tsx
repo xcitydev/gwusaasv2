@@ -34,7 +34,7 @@ export function ModulePlaceholder({
           </Badge>
         }
       />
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-6 py-14 text-center">
           <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <Icon className="size-7" />

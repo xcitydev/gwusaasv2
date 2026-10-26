@@ -265,7 +265,7 @@ function LivePanel({ meetingId }: { meetingId: Id<"meetings"> }) {
           {data.agenda.length > 0 ? (
             <AgendaProgress agenda={data.agenda} state={state} elapsedSec={elapsed} compact />
           ) : (
-            <p className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+            <p className="rounded-lg border border-white/10 border-border px-3 py-4 text-sm text-muted-foreground">
               No agenda for this meeting — add one below and the coach starts timing items on
               its next pass.
             </p>

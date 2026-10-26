@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { formatClock, type AgendaItem, type CoachState } from "@/lib/note-taker";
 import { hasConvex } from "@/lib/runtime";
 import { cn } from "@/lib/utils";
+import { AnimatedHeading } from "@/components/ui/animated-heading";
 
 /**
  * The live coach card. Rendered two ways: full-screen at /coach/<token>
@@ -187,9 +188,9 @@ function LiveCoachCard({ token }: { token: string }) {
             <p className="text-sm font-semibold uppercase tracking-[0.25em] text-primary">
               Agenda coach
             </p>
-            <h1 className="mt-1 max-w-3xl truncate text-3xl font-bold">
+            <AnimatedHeading as="h1" className="mt-1 max-w-3xl truncate text-3xl font-bold">
               {data === undefined ? "Loading…" : data === null ? "This card has expired" : data.title}
-            </h1>
+            </AnimatedHeading>
           </div>
           <div className="text-right">
             <p className="font-mono text-5xl font-bold tabular-nums">{formatClock(elapsed)}</p>

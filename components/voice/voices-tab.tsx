@@ -39,7 +39,7 @@ const ENGINE_BADGES = {
   bland: { label: "Standard", className: "bg-sky-500/15 text-sky-400" },
   elevenlabs: {
     label: "Studio HD",
-    className: "bg-violet-500/15 text-violet-300",
+    className: "bg-orange-500/15 text-orange-300",
   },
 } as const;
 
@@ -47,7 +47,7 @@ const ENGINE_BADGES = {
 export function VoicesTab() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <AudioWaveform className="size-8 text-muted-foreground" />
           <p className="font-medium">No cloned voices yet</p>
@@ -217,7 +217,7 @@ function VoicesTabLive() {
       {voices === null ? (
         <ListSkeleton rows={2} />
       ) : owned.length === 0 ? (
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
             <AudioWaveform className="size-7 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">

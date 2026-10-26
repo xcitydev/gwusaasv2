@@ -50,7 +50,7 @@ function RevenueView() {
           <Card key={c.label}>
             <CardContent className="flex items-center gap-4">
               <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <c.icon className="size-5" />
+                <c.icon className="size-6" strokeWidth={2.5} />
               </span>
               <div>
                 <p className="text-xs text-muted-foreground">{c.label}</p>
@@ -195,7 +195,7 @@ export default function AdminRevenuePage() {
           title="Revenue"
           description="Money generated across the platform. Superadmin only."
         />
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             This page fills in once Convex is connected — data and admin actions stay
             preview-only until then.

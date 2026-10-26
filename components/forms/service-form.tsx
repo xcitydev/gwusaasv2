@@ -22,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { AnimatedHeading } from "@/components/ui/animated-heading";
 
 type FieldValues = Record<string, string | boolean>;
 
@@ -352,7 +353,7 @@ function ServiceFormBody({
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{def.title}</h1>
+        <AnimatedHeading as="h1" className="text-2xl font-semibold tracking-tight sm:text-3xl">{def.title}</AnimatedHeading>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{def.description}</p>
       </div>
 

@@ -220,7 +220,7 @@ export function ReferenceInput({
 function ImageStudio() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <ImageIcon className="size-8 text-muted-foreground" />
           <p className="font-medium">Image generation</p>
@@ -340,7 +340,7 @@ function ImageStudioLive() {
 function VideoStudio() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <Film className="size-8 text-muted-foreground" />
           <p className="font-medium">Video generation</p>
@@ -591,7 +591,7 @@ export function DrivingVideoInput({
 function MotionStudio() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <PersonStanding className="size-8 text-muted-foreground" />
           <p className="font-medium">Motion transfer</p>
@@ -782,7 +782,7 @@ function MotionStudioLive() {
 function LibraryGrid() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <Library className="size-8 text-muted-foreground" />
           <p className="font-medium">Your library is empty</p>
@@ -845,7 +845,7 @@ function LibraryGridLive() {
   }
   if (generations.length === 0) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <Library className="size-8 text-muted-foreground" />
           <p className="font-medium">Nothing generated yet</p>

@@ -379,7 +379,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3 text-center">
+                <div className="rounded-lg border border-white/10 border-primary/40 bg-primary/5 p-3 text-center">
                   <p className="text-[11px] uppercase tracking-widest text-muted-foreground">
                     Don&apos;t know what to say? Answer this
                   </p>

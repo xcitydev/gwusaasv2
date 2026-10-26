@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { AnimatedHeading } from "@/components/ui/animated-heading";
 
 export function PageHeader({
   title,
@@ -20,11 +21,11 @@ export function PageHeader({
       )}
     >
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+        <AnimatedHeading as="h1" className="text-3xl font-medium tracking-tight text-white sm:text-4xl">
           {title}
-        </h1>
+        </AnimatedHeading>
         {description && (
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
             {description}
           </p>
         )}

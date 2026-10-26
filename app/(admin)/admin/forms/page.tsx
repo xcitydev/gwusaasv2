@@ -289,7 +289,7 @@ export default function AdminFormsPage() {
           title="Form Submissions"
           description="Verify payment off-platform, then mark requests active."
         />
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             This page fills in once Convex is connected — data and admin actions stay
             preview-only until then.

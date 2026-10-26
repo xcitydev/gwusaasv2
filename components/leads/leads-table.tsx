@@ -276,7 +276,7 @@ function LeadsTableBody({
         {leadsQuery === undefined ? (
           <ListSkeleton rows={5} />
         ) : leads.length === 0 ? (
-          <Card className="border-dashed">
+          <Card className="border-white/10">
             <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
               <Users className="size-8 text-muted-foreground" />
               <p className="font-medium">No leads yet</p>

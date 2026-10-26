@@ -14,6 +14,7 @@ import { BRAND } from "@/lib/brand";
 import { formatInviteCode, INVITE_STORAGE_KEY, normalizeInviteCode } from "@/lib/invite-codes";
 import { isConfigured } from "@/lib/runtime";
 import { errorText } from "@/lib/public-errors";
+import { AnimatedHeading } from "@/components/ui/animated-heading";
 
 const STEPS = [
   "Create your account — or sign in if you already have one",
@@ -103,7 +104,7 @@ function LiveJoin({ code }: { code: string }) {
         <span className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-white/5 text-muted-foreground">
           <ShieldAlert className="size-6" />
         </span>
-        <h1 className="mt-5 text-2xl font-semibold tracking-tight">{dead.title}</h1>
+        <AnimatedHeading as="h1" className="mt-5 text-2xl font-semibold tracking-tight">{dead.title}</AnimatedHeading>
         <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">{dead.body}</p>
         <Button asChild variant="outline" className="mt-7 rounded-full">
           <Link href="/">Go to the homepage</Link>
@@ -119,7 +120,7 @@ function LiveJoin({ code }: { code: string }) {
       </span>
       <h1 className="mt-5 text-balance text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
         You&apos;re invited to{" "}
-        <span className="font-display font-normal italic text-primary">Creatily Onboarding Forms.</span>
+        <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">Creatily Onboarding Forms.</span>
       </h1>
       <p className="mt-3 text-muted-foreground">
         Your done-for-you onboarding starts here. This link unlocks the forms on your account.
@@ -173,7 +174,7 @@ function Frame({ children }: { children: React.ReactNode }) {
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
-        style={{ background: "radial-gradient(640px 320px at 50% 0%, oklch(0.598 0.241 294.3 / 0.14), transparent 70%)" }}
+        style={{ background: "radial-gradient(640px 320px at 50% 0%, oklch(0.75 0.183 55.934 / 0.14), transparent 70%)" }}
       />
       <Link href="/" className="relative z-10 mb-8 flex items-center gap-2.5">
         <Image src={BRAND.logo.wordmark} alt={BRAND.name} width={867} height={192} className="h-8 w-auto" priority />

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Check, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AnimatedHeading } from "@/components/ui/animated-heading";
 import { planNeededLabel, type Plan } from "@/lib/plan";
 
 const PERSONAL_UNLOCKS = [
@@ -40,16 +41,16 @@ export function UpgradeGate({
           className="pointer-events-none absolute inset-0"
           style={{
             background:
-              "radial-gradient(420px 260px at 50% -10%, oklch(0.598 0.241 294.3 / 0.12), transparent 70%)",
+              "radial-gradient(420px 260px at 50% -10%, oklch(0.75 0.183 55.934 / 0.12), transparent 70%)",
           }}
         />
         <div className="relative">
           <span className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary">
             <Lock className="size-6" />
           </span>
-          <h1 className="mt-5 text-2xl font-semibold tracking-tight">
-            {feature} needs {planNeededLabel(minPlan)}
-          </h1>
+          <AnimatedHeading as="h1" className="mt-5 text-2xl font-semibold tracking-tight">
+            {`${feature} needs ${planNeededLabel(minPlan)}`}
+          </AnimatedHeading>
           <p className="mt-2 text-sm text-muted-foreground">
             {minPlan === "team"
               ? "Bring your team into one shared workspace — same leads, inboxes, campaigns and credit pool."

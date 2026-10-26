@@ -494,7 +494,7 @@ export default function AdminUsersPage() {
           title="Users"
           description="Every account on the platform. Invite codes unlock the Creatily Onboarding Forms."
         />
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             This page fills in once Convex is connected — data and admin actions stay
             preview-only until then.

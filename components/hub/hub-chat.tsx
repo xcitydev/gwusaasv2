@@ -14,7 +14,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
 import {
-  Bot,
   Check,
   Download,
   ExternalLink,
@@ -402,42 +401,50 @@ export function HubChat({
   };
 
   return (
-    <Card className="flex h-[min(78dvh,860px)] min-h-[560px] flex-col overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-border bg-sidebar/60 px-4 py-2.5">
-        <span className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
-          <Bot className="size-4" />
+    <Card className="flex h-[min(78dvh,860px)] min-h-[500px] flex-col overflow-hidden border-white/10 bg-black sm:min-h-[560px]">
+      <div className="flex items-center gap-3 border-b border-white/10 bg-black px-4 py-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary">
+          <Sparkles className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">AI Hub</p>
-          <p className="truncate text-[11px] text-muted-foreground">
+          <p className="text-sm font-semibold tracking-tight">AI Hub</p>
+          <p className="truncate text-xs text-muted-foreground">
             Describe it. I pick the model, show the price, you tap Run.
           </p>
         </div>
-        <Badge variant="outline" className="hidden font-mono text-xs sm:inline-flex">
+        <Badge variant="outline" className="hidden border-white/10 bg-zinc-950 font-mono text-xs text-zinc-300 sm:inline-flex">
           {balance.toLocaleString()} credits
         </Badge>
-        <Button variant="ghost" size="sm" onClick={newChat} disabled={messages.length === 0}>
+        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={newChat} disabled={messages.length === 0}>
           <RotateCcw className="size-3.5" /> New chat
         </Button>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1 px-4 py-4">
-        <div className="flex flex-col gap-3">
+      <ScrollArea className="min-h-0 flex-1 bg-black px-4 py-5 sm:px-6">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
           {messages.length === 0 && (
-            <div className="py-6">
-              <p className="text-sm text-muted-foreground">
-                Tell me what to make — an image, a video, a vertical clip, a motion transfer
-                from a photo and a video, or a directed Cinema Studio shot. Attach files
-                with the paperclip.
+            <div className="flex min-h-[330px] flex-col justify-center py-8 sm:min-h-[390px]">
+              <span className="mb-5 flex size-11 items-center justify-center rounded-2xl border border-primary/25 bg-primary/10 text-primary">
+                <Wand2 className="size-5" />
+              </span>
+              <h2 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+                What are we making today?
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
+                Describe an image, video, vertical clip, motion transfer, or directed Cinema Studio shot. I’ll find the right model and show the price before you run it.
               </p>
-              <div className="mt-3 flex flex-col items-start gap-1.5">
-                {STARTERS.map((starter) => (
+              <div className="mt-6 grid gap-2 sm:grid-cols-2">
+                {STARTERS.map((starter, index) => (
                   <button
                     key={starter}
                     onClick={() => submit(starter)}
-                    className="rounded-full border border-border px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                    aria-label={`Use prompt: ${starter}`}
+                    className="group flex min-h-14 items-start gap-3 rounded-xl border border-white/10 bg-zinc-950/70 px-3.5 py-3 text-left text-xs leading-relaxed text-zinc-400 transition-colors hover:border-primary/35 hover:bg-zinc-900 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                   >
-                    {starter}
+                    <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md bg-white/[0.05] font-mono text-[10px] text-zinc-500 transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+                      0{index + 1}
+                    </span>
+                    <span>{starter}</span>
                   </button>
                 ))}
               </div>
@@ -483,7 +490,7 @@ export function HubChat({
       </ScrollArea>
 
       <form
-        className="border-t border-border p-3"
+        className="border-t border-white/10 bg-black p-3 sm:p-4"
         onSubmit={(e) => {
           e.preventDefault();
           submit(input);
@@ -515,20 +522,22 @@ export function HubChat({
             ))}
           </div>
         )}
-        <Textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit(input);
-            }
-          }}
-          rows={2}
-          placeholder="What should we make? Attach an image or video if you have one…"
-          className="min-h-[60px] resize-none"
-        />
+        <div className="rounded-xl border border-white/10 bg-zinc-950/80 transition-colors focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10">
+          <Textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit(input);
+              }
+            }}
+            rows={2}
+            placeholder="Describe what you want to create…"
+            className="min-h-[72px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+          />
+        </div>
         <div className="mt-2 flex items-center gap-2">
           <input
             ref={fileRef}

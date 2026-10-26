@@ -296,7 +296,7 @@ export default function AdminConfigPage() {
           title="Platform Config"
           description="Superadmin-controlled pricing and platform settings."
         />
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             This page fills in once Convex is connected — platform settings stay
             preview-only until then.

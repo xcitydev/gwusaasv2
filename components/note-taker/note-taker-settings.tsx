@@ -329,7 +329,7 @@ export function NoteTakerSettings({ overview }: { overview: Overview }) {
           </section>
 
           {overview.isAdmin && overview.webhookUrl && (
-            <section className="space-y-2 rounded-lg border border-dashed border-border p-3">
+            <section className="space-y-2 rounded-lg border border-white/10 border-border p-3">
               <p className="text-sm font-medium">Admin · Recall webhook</p>
               <p className="text-xs text-muted-foreground">
                 Add in the Recall dashboard (Webhooks) for instant status

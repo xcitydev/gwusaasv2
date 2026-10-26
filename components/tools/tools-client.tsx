@@ -412,7 +412,7 @@ function FixQuoteDialog({
 export function TranscribeTab() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <AudioLines className="size-8 text-muted-foreground" />
           <p className="font-medium">Nothing transcribed yet</p>
@@ -899,7 +899,7 @@ function DeckViewer({ carousel }: { carousel: Doc<"carousels"> }) {
 export function CarouselTab() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <GalleryHorizontalEnd className="size-8 text-muted-foreground" />
           <p className="font-medium">No carousels yet</p>
@@ -1075,7 +1075,7 @@ function CarouselTabLive() {
               <button
                 type="button"
                 onClick={() => setLibraryOpen(true)}
-                className="w-[150px] rounded-xl border border-dashed border-border p-2 text-left transition-all hover:border-primary/50"
+                className="w-[150px] rounded-xl border border-white/10 border-border p-2 text-left transition-all hover:border-primary/50"
               >
                 <div className="flex aspect-[4/5] w-[132px] flex-col items-center justify-center gap-2 rounded-[10px] bg-secondary/40">
                   <LibraryBig className="size-6 text-primary" />

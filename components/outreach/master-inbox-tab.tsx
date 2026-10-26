@@ -138,7 +138,7 @@ function ReplyDetail({ reply }: { reply: Doc<"replies"> }) {
 export function MasterInboxTab() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <MailOpen className="size-8 text-muted-foreground" />
           <p className="font-medium">No replies yet</p>
@@ -201,7 +201,7 @@ function MasterInboxTabLive() {
       {repliesQuery === undefined ? (
         <ListSkeleton rows={5} />
       ) : replies.length === 0 ? (
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
             <MailOpen className="size-8 text-muted-foreground" />
             <p className="font-medium">No replies yet</p>

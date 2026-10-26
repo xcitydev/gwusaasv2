@@ -177,7 +177,7 @@ function normalizePhone(raw: string): string | null {
 export function QualifierClient() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <PhoneOutgoing className="size-8 text-muted-foreground" />
           <p className="font-medium">AI Cold Calling</p>
@@ -410,7 +410,7 @@ function QualifierLive() {
       {campaignsQuery === undefined ? (
         <ListSkeleton rows={3} />
       ) : campaigns.length === 0 ? (
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
             <PhoneOutgoing className="size-8 text-muted-foreground" />
             <p className="font-medium">No qualifier campaigns yet</p>
@@ -536,7 +536,7 @@ function QualifierLive() {
                 Leads to call ({selectedLeads.size} selected)
               </Label>
               {leadsWithPhone.length === 0 ? (
-                <p className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">
+                <p className="rounded-lg border border-white/10 py-6 text-center text-sm text-muted-foreground">
                   None of your leads have phone numbers yet — import leads with a
                   phone column in Find Leads.
                 </p>

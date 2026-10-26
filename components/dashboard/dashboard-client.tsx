@@ -63,7 +63,7 @@ function useMeQuery() {
 
 /**
  * Front door of the dashboard. In setup mode there is no Convex provider, and
- * useQuery throws without one even when skipped ÔÇö so the live subtree swaps
+ * useQuery throws without one even when skipped — so the live subtree swaps
  * for a static one, the same pattern as LiveStats and MySubmissions.
  */
 export function DashboardClient() {
@@ -155,7 +155,7 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
               </AnimatedHeading>
               <p className="mt-3 max-w-xl text-sm text-white/80 sm:text-base">
                 Describe it in a sentence. The Hub picks the right model, shows the exact
-                price, and renders it here ÔÇö images, video, motion control and Studio.
+                price, and renders it here — images, video, motion control and Studio.
               </p>
               <span className="mt-5 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition-transform group-hover:translate-x-0.5">
                 Open the AI Hub <ArrowRight className="size-4" />
@@ -216,7 +216,7 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
               <div>
                 <AnimatedHeading className="text-xl font-semibold">Create with AI + Studio</AnimatedHeading>
                 <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-                  Images, video, motion control and the Higgsfield Studio models ÔÇö priced
+                  Images, video, motion control and the Higgsfield Studio models — priced
                   per generation, no separate subscriptions.
                 </p>
               </div>

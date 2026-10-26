@@ -132,7 +132,7 @@ export function VoicePicker({
             <SelectItem key={voice.id} value={voice.id}>
               <span>{voice.name.trim()}</span>
               {voice.provider === "elevenlabs" && (
-                <span className="ml-1.5 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] text-violet-300">
+                <span className="ml-1.5 rounded-full bg-orange-500/15 px-1.5 py-0.5 text-[10px] text-orange-300">
                   Studio HD
                 </span>
               )}

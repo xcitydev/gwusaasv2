@@ -114,7 +114,7 @@ type ReceptionistDoc = FunctionReturnType<typeof api.voice.listReceptionists>[nu
 export function ReceptionistClient() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <Headphones className="size-8 text-muted-foreground" />
           <p className="font-medium">AI Receptionist</p>

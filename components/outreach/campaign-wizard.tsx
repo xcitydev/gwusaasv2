@@ -200,7 +200,7 @@ export function CampaignWizard({
                   </div>
                 </div>
                 {leads.length === 0 ? (
-                  <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+                  <div className="flex flex-col items-center gap-3 rounded-lg border border-white/10 py-8 text-center text-sm text-muted-foreground">
                     <p>
                       No leads yet — import a CSV right here (it lands in your
                       lead store too), or find them in Find Leads.
@@ -289,7 +289,7 @@ export function CampaignWizard({
                   Send from ({selectedInboxes.size} selected)
                 </Label>
                 {inboxes.length === 0 ? (
-                  <p className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+                  <p className="rounded-lg border border-white/10 py-8 text-center text-sm text-muted-foreground">
                     No inboxes yet — connect one in the Inboxes tab first.
                   </p>
                 ) : (

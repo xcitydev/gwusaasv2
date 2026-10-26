@@ -200,7 +200,7 @@ function AdminsManager() {
 export default function AdminAdminsPage() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="py-12 text-center text-sm text-muted-foreground">
           Admin roles are managed here once Convex is connected.
         </CardContent>

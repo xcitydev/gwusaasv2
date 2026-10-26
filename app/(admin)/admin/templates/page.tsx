@@ -205,7 +205,7 @@ function TemplatesManager() {
       {templates === undefined ? (
         <GridSkeleton tiles={4} className="sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4" />
       ) : templates.length === 0 ? (
-        <Card className="border-dashed">
+        <Card className="border-white/10">
           <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
             <GalleryHorizontalEnd className="size-8 text-muted-foreground" />
             <p className="font-medium">No library templates yet</p>
@@ -494,7 +494,7 @@ function TemplatesAdminSetup() {
         ))}
       </div>
 
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <GalleryHorizontalEnd className="size-8 text-muted-foreground" />
           <p className="font-medium">No library templates yet</p>

@@ -25,7 +25,7 @@ import { errorText } from "@/lib/public-errors";
 export function SettingsTab() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="py-12 text-center text-sm text-muted-foreground">
           Outreach settings appear once Convex is connected.
         </CardContent>

@@ -18,7 +18,7 @@ import { GenerationsRail } from "./generations-rail";
 export function HubTab({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <Bot className="size-8 text-muted-foreground" />
           <p className="font-medium">AI Hub</p>
@@ -38,7 +38,7 @@ function HubTabLive({ onOpenLibrary }: { onOpenLibrary: () => void }) {
 
   if (!isConfigured) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <Bot className="size-8 text-muted-foreground" />
           <p className="font-medium">AI Hub</p>

@@ -59,7 +59,7 @@ function BootstrapCardLive() {
 function Overview() {
   if (!hasConvex) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="py-12 text-center text-sm text-muted-foreground">
           Platform stats appear once Convex is connected.
         </CardContent>
@@ -86,7 +86,7 @@ function OverviewLive() {
           <Card className="transition-colors group-hover:border-primary/40">
             <CardContent className="flex items-center gap-4">
               <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <c.icon className="size-5" />
+                <c.icon className="size-6" strokeWidth={2.5} />
               </span>
               <div className="min-w-0">
                 <p className="text-xs text-muted-foreground">{c.label}</p>

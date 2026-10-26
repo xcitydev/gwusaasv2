@@ -487,7 +487,7 @@ function CampaignEditor({
                 />
               </div>
               {availableLeads.length === 0 ? (
-                <p className="rounded-lg border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
+                <p className="rounded-lg border border-white/10 px-3 py-4 text-center text-xs text-muted-foreground">
                   Every saved lead is already in this campaign — quick-add below
                   or import a CSV.
                 </p>

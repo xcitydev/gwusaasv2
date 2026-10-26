@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
@@ -23,6 +24,7 @@ export function AiSupportWidget() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
+  const reduceMotion = useReducedMotion();
 
   const { messages, sendMessage, status, addToolResult } = useChat({
     transport: new DefaultChatTransport({ api: "/api/support-chat" }),
@@ -86,100 +88,112 @@ export function AiSupportWidget() {
       </button>
 
       {/* Panel */}
-      {open && (
-        <div className="fixed bottom-20 right-5 z-40 flex h-[min(560px,calc(100dvh-8rem))] w-[min(380px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-          <div className="flex items-center gap-2 border-b bg-sidebar px-4 py-3">
-            <span className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
-              <Sparkles className="size-3.5" />
-            </span>
-            <div>
-              <p className="text-sm font-medium">Assistant</p>
-              <p className="text-[11px] text-muted-foreground">
-                Knows the whole platform — can take you anywhere
-              </p>
-            </div>
-          </div>
-
-          <ScrollArea className="min-h-0 flex-1 px-4 py-3">
-            <div className="flex flex-col gap-2.5">
-              {messages.length === 0 && (
-                <div className="py-4">
-                  <p className="text-sm text-muted-foreground">
-                    Hi! Ask me anything about the platform — pricing, features,
-                    or where to find something.
-                  </p>
-                  <div className="mt-3 flex flex-col items-start gap-1.5">
-                    {SUGGESTIONS.map((suggestion) => (
-                      <button
-                        key={suggestion}
-                        onClick={() => submit(suggestion)}
-                        className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "max-w-[85%] rounded-xl px-3.5 py-2 text-sm whitespace-pre-wrap",
-                    message.role === "user"
-                      ? "self-end bg-primary/15"
-                      : "self-start bg-secondary",
-                  )}
-                >
-                  {message.parts.map((part, i) => {
-                    if (part.type === "text") {
-                      return <span key={i}>{part.text}</span>;
-                    }
-                    if (part.type === "tool-navigate") {
-                      return (
-                        <span key={i} className="block text-xs italic text-primary">
-                          → taking you there…
-                        </span>
-                      );
-                    }
-                    return null;
-                  })}
-                </div>
-              ))}
-              {busy && (
-                <div className="self-start rounded-xl bg-secondary px-3.5 py-2">
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                </div>
-              )}
-              {status === "error" && (
-                <p className="self-start rounded-xl bg-destructive/10 px-3.5 py-2 text-xs text-destructive">
-                  The assistant isn&apos;t available right now — please open a
-                  ticket on the Support page instead.
-                </p>
-              )}
-              <div ref={endRef} />
-            </div>
-          </ScrollArea>
-
-          <form
-            className="flex items-center gap-2 border-t p-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              submit(input);
-            }}
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="support-chat-panel"
+            role="dialog"
+            aria-label="Assistant"
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 18, scale: 0.96, filter: "blur(6px)" }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.97, filter: "blur(4px)" }}
+            transition={reduceMotion ? { duration: 0.12 } : { type: "spring", stiffness: 360, damping: 32, mass: 0.8 }}
+            style={{ transformOrigin: "bottom right" }}
+            className="fixed bottom-20 right-5 z-40 flex h-[min(560px,calc(100dvh-8rem))] w-[min(380px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
           >
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask anything…"
-              className="h-9"
-            />
-            <Button type="submit" size="icon" className="size-9 shrink-0" disabled={busy || !input.trim()}>
-              <Send className="size-4" />
-            </Button>
-          </form>
-        </div>
-      )}
+            <div className="flex items-center gap-2 border-b bg-sidebar px-4 py-3">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                <Sparkles className="size-3.5" />
+              </span>
+              <div>
+                <p className="text-sm font-medium">Assistant</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Knows the whole platform — can take you anywhere
+                </p>
+              </div>
+            </div>
+
+            <ScrollArea className="min-h-0 flex-1 px-4 py-3">
+              <div className="flex flex-col gap-2.5">
+                {messages.length === 0 && (
+                  <div className="py-4">
+                    <p className="text-sm text-muted-foreground">
+                      Hi! Ask me anything about the platform — pricing, features,
+                      or where to find something.
+                    </p>
+                    <div className="mt-3 flex flex-col items-start gap-1.5">
+                      {SUGGESTIONS.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          onClick={() => submit(suggestion)}
+                          className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={cn(
+                      "max-w-[85%] rounded-xl px-3.5 py-2 text-sm whitespace-pre-wrap",
+                      message.role === "user"
+                        ? "self-end bg-primary/15"
+                        : "self-start bg-secondary",
+                    )}
+                  >
+                    {message.parts.map((part, i) => {
+                      if (part.type === "text") {
+                        return <span key={i}>{part.text}</span>;
+                      }
+                      if (part.type === "tool-navigate") {
+                        return (
+                          <span key={i} className="block text-xs italic text-primary">
+                            → taking you there…
+                          </span>
+                        );
+                      }
+                      return null;
+                    })}
+                  </div>
+                ))}
+                {busy && (
+                  <div className="self-start rounded-xl bg-secondary px-3.5 py-2">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+                {status === "error" && (
+                  <p className="self-start rounded-xl bg-destructive/10 px-3.5 py-2 text-xs text-destructive">
+                    The assistant isn&apos;t available right now — please open a
+                    ticket on the Support page instead.
+                  </p>
+                )}
+                <div ref={endRef} />
+              </div>
+            </ScrollArea>
+
+            <form
+              className="flex items-center gap-2 border-t p-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                submit(input);
+              }}
+            >
+              <Input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask anything…"
+                className="h-9"
+              />
+              <Button type="submit" size="icon" className="size-9 shrink-0" disabled={busy || !input.trim()}>
+                <Send className="size-4" />
+              </Button>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }
