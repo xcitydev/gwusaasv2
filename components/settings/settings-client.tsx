@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -33,6 +33,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { errorText } from "@/lib/public-errors";
+import { BeamButton } from "@/components/marketing/beam-button";
 
 const PLANS = [
   {
@@ -71,7 +72,7 @@ const PLANS = [
 function AccountTab() {
   if (!isConfigured) {
     return (
-      <Card className="border-dashed">
+      <Card className="border-white/10">
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <UserRound className="size-8 text-muted-foreground" />
           <p className="font-medium">Account management</p>
@@ -85,27 +86,26 @@ function AccountTab() {
   }
   return (
     <div className="space-y-6">
-      <div className="overflow-x-auto rounded-xl border border-border bg-card">
+      <div className="overflow-x-auto rounded-none border border-white/10 bg-black">
       <UserProfile
         routing="hash"
         appearance={{
-          // Match the platform's violet/black (creatily.ai) theme so nothing reads as
-          // stock Clerk. Hex values mirror the oklch tokens in globals.css.
+          // Match the platform's orange/black theme so nothing reads as stock Clerk.
           options: { unsafe_disableDevelopmentModeWarnings: true },
           variables: {
-            colorPrimary: "#8e50fd",
-            colorPrimaryForeground: "#ffffff",
-            colorBackground: "#141418",
+            colorPrimary: "#fb923c",
+            colorPrimaryForeground: "#090909",
+            colorBackground: "#050505",
             colorForeground: "#f7f7f7",
             colorMutedForeground: "#9a9aa6",
-            colorMuted: "#1c1c22",
-            colorInput: "#121214",
+            colorMuted: "#1a1a1a",
+            colorInput: "#090909",
             colorInputForeground: "#f7f7f7",
-            colorBorder: "#2c2c34",
+            colorBorder: "#303030",
             colorNeutral: "#f7f7f7",
             colorDanger: "#e05d44",
             colorSuccess: "#4fbf7c",
-            borderRadius: "0.65rem",
+            borderRadius: "0",
             fontFamily: "var(--font-geist-sans), sans-serif",
           },
           elements: {
@@ -165,32 +165,15 @@ function WhopPlanCards({
       {PLANS.map((plan) => {
         const isCurrent = plan.id === currentPlan;
         return (
-          <Card
+          <PlanCard
             key={plan.id}
-            className={cn(isCurrent && "border-primary/50 bg-primary/5")}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between text-base">
-                {plan.label}
-                {isCurrent && (
-                  <Badge className="bg-primary text-primary-foreground">Current</Badge>
-                )}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">{plan.blurb}</p>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-1.5 text-sm">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2">
-                    <Check className="mt-0.5 size-3.5 shrink-0 text-primary" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              {!isCurrent && plan.id !== "free" && (
-                <Button
-                  className="mt-4 w-full"
-                  variant={plan.id === "team" ? "default" : "outline"}
+            plan={plan}
+            isCurrent={isCurrent}
+            action={
+              !isCurrent && plan.id !== "free" ? (
+                <BeamButton
+                  variant={plan.id === "personal" ? "orange" : "white"}
+                  className="w-full"
                   disabled={busy !== null || !isOwner}
                   title={isOwner ? undefined : "Only the workspace owner can upgrade"}
                   onClick={() => void upgrade(plan.id as "personal" | "team")}
@@ -201,13 +184,78 @@ function WhopPlanCards({
                     <CreditCard className="size-4" />
                   )}
                   Upgrade
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+                </BeamButton>
+              ) : undefined
+            }
+          />
         );
       })}
     </div>
+  );
+}
+
+function PlanCard({
+  plan,
+  isCurrent,
+  action,
+}: {
+  plan: (typeof PLANS)[number];
+  isCurrent: boolean;
+  action?: ReactNode;
+}) {
+  const isFeatured = plan.id === "personal";
+
+  return (
+    <Card
+      className={cn(
+        "relative h-full gap-0 overflow-hidden rounded-none border border-white/10 bg-black py-0 ring-0 transition-colors duration-300 hover:border-white/20",
+        isFeatured && "border-orange-500/40 bg-zinc-900/30",
+        isCurrent && "border-orange-400/70",
+      )}
+    >
+      {isFeatured && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-24 -top-24 size-64 rounded-full bg-orange-500/10 blur-[90px]"
+        />
+      )}
+      <CardHeader className="relative z-10 gap-3 px-6 pt-6 pb-5 sm:px-7">
+        <div className="flex items-start justify-between gap-3">
+          <CardTitle className="text-3xl font-medium tracking-tight text-white">
+            {plan.label}
+          </CardTitle>
+          {isCurrent ? (
+            <Badge className="rounded-sm border border-orange-400/30 bg-orange-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-orange-300 shadow-none">
+              Current
+            </Badge>
+          ) : isFeatured ? (
+            <span className="shrink-0 rounded-sm bg-orange-500 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-black shadow-[0_0_10px_rgba(251,146,60,0.25)]">
+              Most popular
+            </span>
+          ) : null}
+        </div>
+        <p className="text-sm leading-relaxed text-zinc-400">{plan.blurb}</p>
+      </CardHeader>
+      <div className="relative z-10 mx-6 border-t border-zinc-800/80 sm:mx-7" />
+      <CardContent className="relative z-10 flex flex-1 flex-col px-6 pt-5 pb-6 sm:px-7">
+        <h4 className="mb-5 text-xs font-medium uppercase tracking-wider text-white">
+          What&apos;s included
+        </h4>
+        <ul className="space-y-3.5">
+          {plan.features.map((feature) => (
+            <li key={feature} className="flex items-start gap-3">
+              <Check className="mt-0.5 size-4 shrink-0 text-orange-400" />
+              <span className="text-sm leading-snug text-zinc-300">{feature}</span>
+            </li>
+          ))}
+        </ul>
+        {action && (
+          <div className="mt-auto border-t border-zinc-800/80 pt-5">
+            {action}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -218,41 +266,24 @@ function StaticPlanCards({ currentPlan }: { currentPlan: string }) {
       {PLANS.map((plan) => {
         const isCurrent = plan.id === currentPlan;
         return (
-          <Card
+          <PlanCard
             key={plan.id}
-            className={cn(isCurrent && "border-primary/50 bg-primary/5")}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between text-base">
-                {plan.label}
-                {isCurrent && (
-                  <Badge className="bg-primary text-primary-foreground">Current</Badge>
-                )}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">{plan.blurb}</p>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-1.5 text-sm">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2">
-                    <Check className="mt-0.5 size-3.5 shrink-0 text-primary" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              {!isCurrent && plan.id !== "free" && (
-                <Button
-                  className="mt-4 w-full"
-                  variant={plan.id === "team" ? "default" : "outline"}
+            plan={plan}
+            isCurrent={isCurrent}
+            action={
+              !isCurrent && plan.id !== "free" ? (
+                <BeamButton
+                  variant={plan.id === "personal" ? "orange" : "white"}
+                  className="w-full"
                   onClick={() =>
                     toast.info("Upgrades activate once billing keys are added.")
                   }
                 >
                   <CreditCard className="size-4" /> Upgrade
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+                </BeamButton>
+              ) : undefined
+            }
+          />
         );
       })}
     </div>
