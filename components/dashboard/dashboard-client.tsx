@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { motion } from "motion/react";
-import { ArrowRight, ArrowUpRight, Bot, Images, Lock as LockIcon, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Images, Lock as LockIcon, Sparkles } from "lucide-react";
 import { APP_NAV, filterNav, type NavItem } from "@/lib/nav";
 import { planAtLeast } from "@/lib/plan";
 import { hasConvex, isConfigured } from "@/lib/runtime";
@@ -13,7 +13,6 @@ import { cn } from "@/lib/utils";
 import {
   EASE,
   Eyebrow,
-  GlowCard,
   Item,
   Reveal,
   Stagger,
@@ -22,14 +21,18 @@ import {
 import { LiveStats } from "@/components/dashboard/live-stats";
 import { TourLauncher } from "@/components/tour/tour";
 import { WELCOME_TOUR } from "@/components/tour/tours";
+import { AnimatedHeading } from "@/components/ui/animated-heading";
+import { DotmSquare3 } from "@/components/ui/dotm-square-3";
+import { Card } from "@/components/ui/card";
+import { BorderBeam } from "@/components/ui/border-beam";
 
 /** Section accents so the shortcut wall reads as a map, not a list. */
-const SECTION_STYLE: Record<string, { blob: string; label: string }> = {
-  "Marketing AI Hub": { blob: "from-primary/35 to-transparent", label: "Marketing AI Hub" },
-  "Meeting tools": { blob: "from-sky-400/30 to-transparent", label: "Meetings" },
-  "Create with AI": { blob: "from-fuchsia-400/30 to-transparent", label: "Create with AI" },
-  "Creatily Onboarding Forms": { blob: "from-emerald-400/30 to-transparent", label: "Done for you" },
-  Earn: { blob: "from-rose-400/30 to-transparent", label: "Earn" },
+const SECTION_STYLE: Record<string, { label: string }> = {
+  "Marketing AI Hub": { label: "Marketing AI Hub" },
+  "Meeting tools": { label: "Meetings" },
+  "Create with AI": { label: "Create with AI" },
+  "Creatily Onboarding Forms": { label: "Done for you" },
+  Earn: { label: "Earn" },
 };
 
 const STUDIO_CLIPS = [
@@ -60,7 +63,7 @@ function useMeQuery() {
 
 /**
  * Front door of the dashboard. In setup mode there is no Convex provider, and
- * useQuery throws without one even when skipped — so the live subtree swaps
+ * useQuery throws without one even when skipped ÔÇö so the live subtree swaps
  * for a static one, the same pattern as LiveStats and MySubmissions.
  */
 export function DashboardClient() {
@@ -85,7 +88,8 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
   );
 
   return (
-    <div className="space-y-10">
+    <div className="relative isolate">
+      <div className="relative z-10 space-y-10">
       {/* Greeting */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -94,10 +98,9 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
         className="flex flex-wrap items-start justify-between gap-3"
       >
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            {greet ?? "Welcome"}
-            {firstName ? `, ${firstName}` : ""}.
-          </h1>
+          <AnimatedHeading as="h1" className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            {`${greet ?? "Welcome"}${firstName ? `, ${firstName}` : ""}.`}
+          </AnimatedHeading>
           <p className="mt-1 text-sm text-muted-foreground">
             Everything happening across your workspace, at a glance.
           </p>
@@ -114,21 +117,23 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
         <Link
           href="/create"
           data-tour="dash-aihub"
-          className="group relative block overflow-hidden rounded-3xl border border-primary/25 bg-black shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)] transition-colors hover:border-primary/60"
+          className="group relative block overflow-hidden rounded-none border border-white/10 bg-black transition-colors hover:border-primary/50"
         >
           <div className="absolute inset-0">
-            <TileVideo
-              src="/hero.mp4"
-              poster="/hero-poster.jpg"
-              className="transition-transform duration-[1600ms] group-hover:scale-105"
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/55 to-black/10" />
-            <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent" />
+            <div className="absolute inset-0 bg-black" />
           </div>
           <div className="relative flex min-h-[300px] flex-col justify-between gap-8 p-6 sm:min-h-[340px] sm:p-10">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <Eyebrow>
-                <Bot className="size-3.5" /> Create with AI
+                <DotmSquare3
+                  size={18}
+                  dotSize={2}
+                  speed={1.2}
+                  bloom
+                  color="#fb923c"
+                  ariaLabel="Create with AI"
+                />
+                Create with AI
               </Eyebrow>
               <div className="hidden flex-wrap justify-end gap-1.5 sm:flex">
                 {HERO_MODELS.map((m) => (
@@ -142,20 +147,29 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
               </div>
             </div>
             <div className="max-w-2xl">
-              <h2 className="text-3xl font-black uppercase leading-[0.95] tracking-tight sm:text-5xl">
-                <span className="bg-gradient-to-b from-[#5cc3ff] via-[#8a5cfc] to-[#e24ff9] bg-clip-text text-transparent">
-                  Make something today.
-                </span>
-              </h2>
+              <AnimatedHeading
+                className="text-3xl font-black uppercase leading-[0.95] tracking-tight sm:text-5xl"
+                segmentClassName="text-zinc-200"
+              >
+                Make something today.
+              </AnimatedHeading>
               <p className="mt-3 max-w-xl text-sm text-white/80 sm:text-base">
                 Describe it in a sentence. The Hub picks the right model, shows the exact
-                price, and renders it here — images, video, motion control and Studio.
+                price, and renders it here ÔÇö images, video, motion control and Studio.
               </p>
               <span className="mt-5 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition-transform group-hover:translate-x-0.5">
                 Open the AI Hub <ArrowRight className="size-4" />
               </span>
             </div>
           </div>
+          <BorderBeam
+            className="z-20 opacity-70 motion-reduce:hidden"
+            duration={9}
+            size={90}
+            borderWidth={1}
+            colorFrom="#fdba74"
+            colorTo="#fb923c"
+          />
         </Link>
       </Reveal>
 
@@ -163,58 +177,53 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
       <section data-tour="dash-shortcuts">
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Everything in your workspace</h2>
+            <AnimatedHeading className="text-lg font-semibold">Everything in your workspace</AnimatedHeading>
             <p className="text-sm text-muted-foreground">
               Every tool, one click away.
             </p>
           </div>
         </div>
         <div className="space-y-6">
-          {sections.map((section) => (
-            <div key={section.section}>
-              <p className="mb-2.5 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/80">
-                {SECTION_STYLE[section.section]?.label ?? section.section}
-              </p>
-              <Stagger className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {section.items.map((item) => (
-                  <Item key={item.href} className="h-full">
-                    <ShortcutCard
-                      item={item}
-                      blob={SECTION_STYLE[section.section]?.blob}
-                      locked={Boolean(
-                        item.minPlan &&
-                          me !== undefined &&
-                          !me?.adminRole &&
-                          !planAtLeast(me?.workspace?.plan, item.minPlan),
-                      )}
-                    />
-                  </Item>
-                ))}
-              </Stagger>
-            </div>
-          ))}
+          {sections.map((section) => {
+            if (section.section === "Earn" || section.section === "Meeting tools") return null;
+            if (section.section === "Creatily Onboarding Forms") {
+              const earn = sections.find((entry) => entry.section === "Earn");
+              return (
+                <div key="forms-and-earn" className="grid gap-6 lg:grid-cols-2">
+                  <ShortcutSection section={section} me={me} compact />
+                  {earn && <ShortcutSection section={earn} me={me} compact />}
+                </div>
+              );
+            }
+            return <ShortcutSection key={section.section} section={section} me={me} />;
+          })}
+          {sections
+            .filter((section) => section.section === "Meeting tools")
+            .map((section) => (
+              <ShortcutSection key={section.section} section={section} me={me} />
+            ))}
         </div>
       </section>
 
       {/* Studio showcase */}
       <Reveal>
-        <GlowCard className="p-6 sm:p-8">
+        <Card className="p-6 sm:p-8">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-4">
-              <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/30 to-primary/5 text-primary">
+              <span className="flex size-12 shrink-0 items-center justify-center rounded-none bg-primary/10 text-primary">
                 <Sparkles className="size-6" />
               </span>
               <div>
-                <h2 className="text-xl font-semibold">Create with AI + Studio</h2>
+                <AnimatedHeading className="text-xl font-semibold">Create with AI + Studio</AnimatedHeading>
                 <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-                  Images, video, motion control and the Higgsfield Studio models — priced
+                  Images, video, motion control and the Higgsfield Studio models ÔÇö priced
                   per generation, no separate subscriptions.
                 </p>
               </div>
             </div>
             <Link
               href="/create"
-              className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+            className="inline-flex items-center gap-1.5 rounded-none border border-primary/40 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
             >
               Open studio <ArrowUpRight className="size-4" />
             </Link>
@@ -224,7 +233,7 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
               <Link
                 key={tile.clip}
                 href="/create"
-                className="group relative aspect-[4/5] overflow-hidden rounded-xl border border-white/10 bg-secondary"
+                className="group relative aspect-[4/5] overflow-hidden rounded-none border border-white/10 bg-zinc-950"
               >
                 <TileVideo
                   src={`/models/${tile.clip}.mp4`}
@@ -241,32 +250,63 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
               </Link>
             ))}
           </div>
-        </GlowCard>
+        </Card>
       </Reveal>
 
       {hasConvex && <RecentRenders />}
+      </div>
     </div>
   );
 }
 
-function ShortcutCard({ item, blob, locked }: { item: NavItem; blob?: string; locked?: boolean }) {
+function ShortcutSection({
+  section,
+  me,
+  compact = false,
+}: {
+  section: { section: string; items: NavItem[] };
+  me: ReturnType<typeof useMeQuery>;
+  compact?: boolean;
+}) {
+  return (
+    <div>
+      <p className="mb-2.5 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/80">
+        {SECTION_STYLE[section.section]?.label ?? section.section}
+      </p>
+      <Stagger className={cn("grid gap-3", !compact && "sm:grid-cols-2 xl:grid-cols-3")}>
+        {section.items.map((item) => (
+          <Item key={item.href} className="h-full">
+            <ShortcutCard
+              item={item}
+              locked={Boolean(
+                item.minPlan &&
+                  me !== undefined &&
+                  !me?.adminRole &&
+                  !planAtLeast(me?.workspace?.plan, item.minPlan),
+              )}
+            />
+          </Item>
+        ))}
+      </Stagger>
+    </div>
+  );
+}
+
+function ShortcutCard({ item, locked }: { item: NavItem; locked?: boolean }) {
   return (
     <Link
       href={item.href}
       className={cn(
-        "group relative flex h-full items-start gap-3.5 overflow-hidden rounded-2xl border border-border bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[0_18px_50px_-30px_rgba(142,80,253,0.45)]",
+        "group relative flex h-full items-start gap-3.5 overflow-hidden rounded-none border border-white/10 bg-black p-4 transition-colors hover:border-primary/50 hover:shadow-[0_18px_50px_-30px_rgba(251,146,60,0.22)]",
         locked && "opacity-70",
       )}
     >
       <span
         aria-hidden
-        className={cn(
-          "pointer-events-none absolute -right-10 -top-10 size-32 rounded-full bg-gradient-to-br opacity-60 blur-2xl transition-opacity group-hover:opacity-100",
-          blob ?? "from-primary/30 to-transparent",
-        )}
+        className="dashboard-card-glow pointer-events-none absolute -right-8 -top-10 size-28 rounded-full bg-gradient-to-br from-primary/25 to-transparent blur-2xl"
       />
-      <span className="relative flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/30 to-primary/5 text-primary">
-        <item.icon className="size-5" />
+      <span className="relative flex size-10 shrink-0 items-center justify-center rounded-none bg-primary/10 text-primary">
+        <item.icon className="size-6" strokeWidth={2.5} />
       </span>
       <span className="relative min-w-0 flex-1">
         <span className="flex items-center gap-2">
@@ -303,9 +343,10 @@ function RecentRenders() {
       <section>
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <Images className="size-4 text-primary" /> Your latest renders
-            </h2>
+            <div className="flex items-center gap-2">
+              <Images className="size-4 text-primary" />
+              <AnimatedHeading className="text-lg font-semibold">Your latest renders</AnimatedHeading>
+            </div>
             <p className="text-sm text-muted-foreground">Fresh from the Hub and the Studio.</p>
           </div>
           <Link
@@ -325,7 +366,7 @@ function RecentRenders() {
                 target="_blank"
                 rel="noopener noreferrer"
                 title={g.prompt}
-                className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-secondary"
+                className="group relative aspect-square overflow-hidden rounded-none border border-border bg-zinc-950"
               >
                 {isVideo ? (
                   <video
