@@ -122,7 +122,7 @@ export function ServiceRail() {
           className="text-balance text-3xl font-semibold tracking-tight sm:text-5xl"
         >
           Your Entire Growth Team, {" "}
-          <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">
+          <span className="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">
             Powered by AI.
           </span>
         </motion.h2>
@@ -153,11 +153,11 @@ function ServiceCard({ service: s, active }: { service: Service; active: boolean
       className={cn(
         "flex h-full flex-col overflow-hidden rounded-3xl border bg-card transition-[border-color,box-shadow] duration-500",
         active
-          ? "border-primary/45 shadow-[0_0_60px_-24px_oklch(0.75_0.183_55.934/0.8)]"
+          ? "border-primary/45 shadow-[0_0_60px_-24px_oklch(0.62_0.20_255/0.8)]"
           : "border-white/10 hover:border-white/20",
       )}
     >
-      <div className="relative h-[200px] overflow-hidden bg-[radial-gradient(120%_90%_at_30%_0%,oklch(0.75_0.183_55.934/0.14),transparent_60%)] px-4 pt-12 [&>*]:mt-0">
+      <div className="relative h-[200px] overflow-hidden bg-[radial-gradient(120%_90%_at_30%_0%,oklch(0.62_0.20_255/0.14),transparent_60%)] px-4 pt-12 [&>*]:mt-0">
         <span className="absolute left-3.5 top-3.5 rounded-full border border-white/10 bg-black/40 px-2.5 py-0.5 text-[10px] font-medium text-white/90 backdrop-blur">
           {s.tag}
         </span>

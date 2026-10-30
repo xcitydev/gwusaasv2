@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 /**
  * The hero CTA pair (References/button.html): sharp-cornered button with a
  * glow at its base and a conic border beam that appears on hover.
- * Both variants use the brand-orange beam; the second variant also carries
- * the stronger orange accent treatment.
+ * Both variants use the brand-blue beam; the blue variant carries the
+ * stronger accent treatment.
  */
 export function BeamButton({
   variant = "white",
@@ -19,7 +19,7 @@ export function BeamButton({
   title,
   children,
 }: {
-  variant?: "white" | "orange";
+  variant?: "white" | "blue";
   /** Renders a next/link when set; otherwise a plain button. */
   href?: string;
   onClick?: () => void;
@@ -29,7 +29,7 @@ export function BeamButton({
   children: ReactNode;
 }) {
   const outer = cn(
-    "group relative inline-flex h-[50px] items-center justify-center overflow-hidden rounded-none bg-white/5 outline-none transition-transform active:scale-95 disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
+    "group relative inline-flex h-[50px] items-center justify-center overflow-hidden rounded-xl bg-white/5 outline-none transition-transform active:scale-95 disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
     className,
   );
   const label = (
@@ -38,25 +38,25 @@ export function BeamButton({
     </span>
   );
 
-  if (variant === "orange") {
+  if (variant === "blue") {
     const inner = (
       <>
         {/* Accent beam + glow (reference button 2) */}
         <span
           aria-hidden
-          className="absolute inset-[-100%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,transparent_75%,#fb923c_100%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+          className="absolute inset-[-100%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,transparent_75%,#3b82f6_100%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
         />
         <span
           aria-hidden
           className="absolute inset-0 bg-zinc-800 transition-opacity duration-300 group-hover:opacity-0"
         />
-        <span aria-hidden className="absolute inset-[1px] z-10 bg-black" />
+        <span aria-hidden className="absolute inset-[1px] z-10 rounded-[11px] bg-black" />
         <span
           aria-hidden
           className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-500 group-hover:opacity-100"
           style={{
             background:
-              "radial-gradient(50% 50% at 50% 100%, rgba(251,146,60,0.2) 0%, transparent 100%)",
+              "radial-gradient(50% 50% at 50% 100%, rgba(59,130,246,0.2) 0%, transparent 100%)",
           }}
         />
         {label}
@@ -87,7 +87,7 @@ export function BeamButton({
         className="pointer-events-none absolute inset-0 opacity-100 transition-opacity duration-[1200ms] ease-in-out group-hover:opacity-0"
         style={{
           background:
-              "radial-gradient(15% 50% at 50% 100%, rgb(251,146,60) 0%, rgba(251,146,60,0) 100%)",
+              "radial-gradient(15% 50% at 50% 100%, rgb(59,130,246) 0%, rgba(59,130,246,0) 100%)",
           filter: "blur(15px)",
         }}
       />
@@ -96,7 +96,7 @@ export function BeamButton({
         className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-[1200ms] ease-in-out group-hover:opacity-100"
         style={{
           background:
-              "radial-gradient(60.6% 50% at 50% 100%, rgb(251,146,60) 0%, rgba(251,146,60,0) 100%)",
+              "radial-gradient(60.6% 50% at 50% 100%, rgb(59,130,246) 0%, rgba(59,130,246,0) 100%)",
           filter: "blur(18px)",
         }}
       />
@@ -105,7 +105,7 @@ export function BeamButton({
         className="pointer-events-none absolute inset-0 opacity-100 transition-opacity duration-[1200ms] ease-in-out group-hover:opacity-0"
         style={{
           background:
-              "radial-gradient(10.7% 50% at 50% 100%, rgb(251,146,60) 0%, rgba(251,146,60,0) 100%)",
+              "radial-gradient(10.7% 50% at 50% 100%, rgb(59,130,246) 0%, rgba(59,130,246,0) 100%)",
         }}
       />
       <div
@@ -113,23 +113,23 @@ export function BeamButton({
         className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-[1200ms] ease-in-out group-hover:opacity-100"
         style={{
           background:
-              "radial-gradient(60.1% 50% at 50% 100%, rgb(251,146,60) 0%, rgba(251,146,60,0) 100%)",
+              "radial-gradient(60.1% 50% at 50% 100%, rgb(59,130,246) 0%, rgba(59,130,246,0) 100%)",
         }}
       />
       {/* Border beam */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden rounded-none"
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl"
       >
         <div
           className="absolute -inset-[300%] animate-[spin_4s_linear_infinite]"
           style={{
             background:
-              "conic-gradient(from 90deg at 50% 50%, transparent 0%, transparent 90%, #fb923c 100%)",
+              "conic-gradient(from 90deg at 50% 50%, transparent 0%, transparent 90%, #3b82f6 100%)",
           }}
         />
       </div>
-      <div aria-hidden className="absolute inset-[1px] bg-black" />
+      <div aria-hidden className="absolute inset-[1px] rounded-[11px] bg-black" />
       {label}
     </>
   );

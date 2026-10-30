@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { TextAnimate } from "@/components/ui/text-animate";
 import { cn } from "@/lib/utils";
 import { SERVICES, ServiceRail } from "./services";
+import { AnimatedGenerateButton } from "./animated-generate-button";
 import { BeamButton } from "./beam-button";
-import { Background } from "./background";
 import { Counter, EASE, Eyebrow, Marquee } from "./primitives";
 
 /**
@@ -64,49 +64,28 @@ export function Hero() {
       id="hero"
       className="relative flex flex-col items-center overflow-hidden pb-16 pt-32 sm:pt-40"
     >
-      {/* Top aurora band (References/gold-bg.html UnicornStudio layer). */}
-      <Background />
-
-      {/* Falling-beam grid backdrop (References/gold-bg.html) — fixed behind
-          the page, running edge to edge with no cut. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-0"
-      >
+      <div aria-hidden className="pointer-events-none fixed inset-0 z-0">
         <div className="absolute inset-x-0 top-0 mx-auto flex h-full w-full max-w-[80rem] justify-between border-x border-white/5 px-4 sm:px-6">
           <div className="relative h-full w-px overflow-hidden bg-white/5">
-            <div
-              className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-orange-500/40 to-transparent"
-              style={{ animationDuration: "5s" }}
-            />
+            <div className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-blue-500/40 to-transparent" style={{ animationDuration: "5s" }} />
           </div>
           <div className="relative hidden h-full w-px overflow-hidden bg-white/5 md:block">
-            <div
-              className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-orange-500/40 to-transparent"
-              style={{ animationDuration: "7s", animationDelay: "2s" }}
-            />
+            <div className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-blue-500/40 to-transparent" style={{ animationDuration: "7s", animationDelay: "2s" }} />
           </div>
           <div className="relative hidden h-full w-px overflow-hidden bg-white/5 lg:block">
-            <div
-              className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-orange-500/40 to-transparent"
-              style={{ animationDuration: "5s", animationDelay: "4s" }}
-            />
+            <div className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-blue-500/40 to-transparent" style={{ animationDuration: "5s", animationDelay: "4s" }} />
           </div>
           <div className="relative h-full w-px overflow-hidden bg-white/5">
-            <div
-              className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-orange-500/40 to-transparent"
-              style={{ animationDuration: "8s", animationDelay: "1s" }}
-            />
+            <div className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-blue-500/40 to-transparent" style={{ animationDuration: "8s", animationDelay: "1s" }} />
           </div>
         </div>
       </div>
-
       <div className="relative z-10 max-w-5xl px-6 text-center">
         <Enter delay={0.1} className="flex justify-center">
-          <span className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-white/20 via-white/0 to-white/10 px-3 py-1.5 text-xs font-medium tracking-wide text-orange-100/80 backdrop-blur-sm">
+          <span className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-white/20 via-white/0 to-white/10 px-3 py-1.5 text-xs font-medium tracking-wide text-blue-100/90 backdrop-blur-sm">
             <span className="relative flex size-1.5">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-orange-400 opacity-75" />
-              <span className="relative inline-flex size-1.5 rounded-full bg-orange-400 shadow-[0_0_10px_rgba(251,146,60,0.5)]" />
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
             </span>
             YOUR AI GROWTH TEAM
           </span>
@@ -116,12 +95,12 @@ export function Hero() {
             word by word. The vertical gradient lives on each animated
             segment (per-character gradient reads identically for a
             top-to-bottom fade), the wrapper keeps the per-word brightness. */}
-        <h1 className="mt-8 flex flex-wrap justify-center gap-x-[0.25em] gap-y-2 text-6xl font-medium leading-[1.1] tracking-tighter md:text-8xl">
+        <h1 className="mt-6 flex flex-wrap justify-center gap-x-[0.18em] gap-y-1 text-5xl font-medium leading-[0.98] tracking-[-0.06em] sm:mt-8 sm:gap-x-[0.25em] sm:gap-y-2 sm:text-6xl md:text-8xl md:leading-[1.1]">
           {HEADLINE_WORDS.map((word, i) => (
             <span
               key={word.text}
               className={cn(
-                "leading-[1.3]",
+                "leading-[1.02] sm:leading-[1.3]",
                 word.bright ? "opacity-100" : "opacity-60",
               )}
             >
@@ -148,7 +127,7 @@ export function Hero() {
 
         {/* Supporting text: subtle blur-in by word, after the headline lands. */}
         {reduce ? (
-          <p className="mx-auto mt-6 max-w-3xl text-pretty text-xl font-medium leading-relaxed text-muted-foreground md:text-2xl">
+          <p className="mx-auto mt-6 max-w-3xl text-pretty text-lg font-medium leading-relaxed text-muted-foreground md:text-2xl">
             Find leads, automate outreach, answer calls, manage DMs, and create
             content with 20+ AI models, all from one workspace.
           </p>
@@ -160,7 +139,7 @@ export function Hero() {
             once
             delay={0.9}
             duration={0.6}
-            className="mx-auto mt-6 block max-w-3xl text-pretty text-xl font-medium leading-relaxed text-muted-foreground md:text-2xl"
+            className="mx-auto mt-6 block max-w-3xl text-pretty text-lg font-medium leading-relaxed text-muted-foreground md:text-2xl"
           >
             Find leads, automate outreach, answer calls, manage DMs, and create
             content with 20+ AI models, all from one workspace.
@@ -171,12 +150,14 @@ export function Hero() {
           delay={1.2}
           className="mt-10 flex flex-col items-center justify-center gap-6 md:flex-row"
         >
-          <BeamButton href="/sign-up" className="min-w-[180px]">
-            Try now
-            <ArrowRight className="size-3.5 transition-transform duration-300 group-hover:translate-x-0.5" />
-          </BeamButton>
+          <AnimatedGenerateButton
+            href="/sign-up"
+            label="Try now"
+            trailingIcon={<ArrowRight aria-hidden className="size-4" />}
+            className="min-w-[180px]"
+          />
 
-          <BeamButton variant="orange" onClick={seeMore} className="min-w-[180px]">
+          <BeamButton variant="blue" onClick={seeMore} className="min-w-[180px]">
             See more
             <ChevronDown className="size-3.5 transition-transform duration-300 group-hover:translate-y-0.5" />
           </BeamButton>
@@ -233,7 +214,7 @@ export function Statement() {
           className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(900px 480px at 50% 30%, oklch(0.75 0.183 55.934 / 0.14), transparent 70%)",
+              "radial-gradient(900px 480px at 50% 30%, oklch(0.62 0.20 255 / 0.14), transparent 70%)",
           }}
         />
       </div>
@@ -270,7 +251,7 @@ export function Statement() {
               ))}
             </span>
             <motion.span
-              className="block bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent"
+              className="block bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent"
               variants={{
                 hidden: { opacity: 0, y: 24, filter: "blur(8px)" },
                 show: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.9, ease: EASE } },
@@ -292,10 +273,12 @@ export function Statement() {
             variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.8, ease: EASE } } }}
             className="mt-8 flex flex-wrap items-center justify-center gap-3"
           >
-            <BeamButton href="/sign-up" className="min-w-[180px]">
-              Start free
-              <ArrowRight className="size-3.5 transition-transform duration-300 group-hover:translate-x-0.5" />
-            </BeamButton>
+            <AnimatedGenerateButton
+              href="/sign-up"
+              label="Start free"
+              trailingIcon={<ArrowRight aria-hidden className="size-4" />}
+              className="min-w-[180px]"
+            />
             <Button asChild size="lg" variant="outline" className="h-12 rounded-full px-6 text-base">
               <Link href="#features">See what&apos;s inside</Link>
             </Button>

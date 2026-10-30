@@ -78,7 +78,7 @@ export function SiteNav() {
               {link.label}
               <span
                 aria-hidden
-                className="absolute -bottom-[13px] left-0 right-0 h-px bg-gradient-to-r from-transparent via-orange-400 to-transparent opacity-0 shadow-[0_0_10px_2px_rgba(251,146,60,0.5)] transition-all duration-300 group-hover:opacity-100"
+                className="absolute -bottom-[13px] left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent opacity-0 shadow-[0_0_10px_2px_rgba(59,130,246,0.5)] transition-all duration-300 group-hover:opacity-100"
               />
             </a>
           ))}
@@ -98,7 +98,7 @@ export function SiteNav() {
           </Link>
           <Link
             href="/sign-up"
-            className="inline-flex items-center gap-2 bg-gradient-to-br from-orange-400 to-orange-600 px-4 py-2 text-sm font-medium text-white shadow-[0_0_20px_rgba(255,140,0,0.4)] transition hover:from-orange-500 hover:to-yellow-400"
+            className="inline-flex items-center gap-2 rounded-xl border border-blue-300/30 bg-gradient-to-br from-blue-600 to-blue-700 px-4 py-2 text-sm font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_4px_0_rgba(20,55,120,0.9),0_8px_18px_rgba(37,99,235,0.3)] transition-[transform,box-shadow,background-color] hover:-translate-y-0.5 hover:from-blue-700 hover:to-blue-800 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.32),0_5px_0_rgba(20,55,120,0.9),0_12px_24px_rgba(37,99,235,0.38)] active:translate-y-1 active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.22),0_1px_0_rgba(20,55,120,0.9)]"
           >
             Start free <ArrowRight className="size-3.5" />
           </Link>

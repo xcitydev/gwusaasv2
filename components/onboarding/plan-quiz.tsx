@@ -176,7 +176,7 @@ function PlanQuizForm({
     step === 0 ? audience === id : step === 1 ? teamSize === id : goals.includes(id);
 
   return (
-    <Shell>
+    <Shell glow>
       <div className="flex items-center justify-between gap-4">
         <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary">
           Step {step + 1} of 3
@@ -319,7 +319,7 @@ function PlanReveal({
   const picked = GOALS.filter((g) => goals.includes(g.id));
 
   return (
-    <Shell glow>
+    <Shell>
       <motion.div
         initial={reduce ? false : { opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -328,12 +328,12 @@ function PlanReveal({
         <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary">
           Your plan · unlocked
         </span>
-        <AnimatedHeading as="h1" className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl" segmentClassName="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">
+        <AnimatedHeading as="h1" className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl" segmentClassName="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">
           {`${copy.name} fits you best.`}
         </AnimatedHeading>
         <p className="mt-2 text-muted-foreground">{copy.blurb}</p>
 
-        <div className="mt-6 rounded-2xl border border-primary/40 bg-primary/[0.06] p-5 shadow-[0_0_60px_-24px_oklch(0.75_0.183_55.934/0.8)] sm:p-6">
+        <div className="mt-6 rounded-2xl border border-primary/40 bg-primary/[0.06] p-5 shadow-[0_0_60px_-24px_oklch(0.62_0.20_255/0.8)] sm:p-6">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <motion.span
               className="text-5xl font-semibold tracking-tight"
@@ -410,7 +410,7 @@ function Shell({ children, glow = false }: { children: React.ReactNode; glow?: b
           "pointer-events-none absolute inset-x-0 top-0 h-72 transition-opacity duration-700",
           glow ? "opacity-100" : "opacity-60",
         )}
-        style={{ background: "radial-gradient(520px 240px at 50% 0%, oklch(0.75 0.183 55.934 / 0.14), transparent 70%)" }}
+        style={{ background: "radial-gradient(520px 240px at 50% 0%, oklch(0.62 0.20 255 / 0.14), transparent 70%)" }}
       />
       <div className="relative w-full rounded-3xl border border-white/10 bg-card/80 p-5 backdrop-blur sm:p-8">
         {children}

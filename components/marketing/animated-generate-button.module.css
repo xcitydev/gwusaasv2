@@ -1,0 +1,259 @@
+.frame {
+  --frame-padding: 4px;
+
+  position: relative;
+  display: inline-flex;
+  border-radius: 9999px;
+}
+
+.fullWidth {
+  display: flex;
+  width: 100%;
+}
+
+.button {
+  --highlight-color-hue: 217deg;
+
+  position: relative;
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  border: 1px solid rgb(255 255 255 / 13%);
+  border-radius: 9999px;
+  padding: 0.65rem 1.3rem;
+  background: #0b0f18;
+  color: white;
+  box-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 20%),
+    inset 0 2px 2px rgb(255 255 255 / 10%),
+    inset 0 8px 8px rgb(255 255 255 / 4%),
+    0 2px 6px rgb(0 0 0 / 36%);
+  cursor: pointer;
+  outline: none;
+  text-decoration: none;
+  transition: box-shadow 400ms ease, border-color 400ms ease, background-color 400ms ease;
+}
+
+.button::before {
+  position: absolute;
+  z-index: -1;
+  top: calc(0px - var(--frame-padding));
+  left: calc(0px - var(--frame-padding));
+  width: calc(100% + var(--frame-padding) * 2);
+  height: calc(100% + var(--frame-padding) * 2);
+  border-radius: calc(9999px + var(--frame-padding));
+  background-image: linear-gradient(0deg, rgb(0 0 0 / 27%), rgb(0 0 0 / 67%));
+  box-shadow:
+    0 -8px 8px -6px transparent inset,
+    0 -16px 16px -8px transparent inset,
+    1px 1px 1px rgb(255 255 255 / 13%),
+    2px 2px 2px rgb(255 255 255 / 6%),
+    -1px -1px 1px rgb(0 0 0 / 13%),
+    -2px -2px 2px rgb(0 0 0 / 6%);
+  content: "";
+  pointer-events: none;
+  transition: box-shadow 400ms ease, filter 400ms ease;
+}
+
+.button:disabled,
+.button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.button::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    0deg,
+    white,
+    hsl(var(--highlight-color-hue) 100% 70%) 34%,
+    hsl(var(--highlight-color-hue) 100% 70% / 50%) 66%,
+    transparent
+  );
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 400ms ease, filter 400ms ease;
+}
+
+.content {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  white-space: nowrap;
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.2em;
+}
+
+.letter {
+  display: inline-block;
+  color: rgb(255 255 255 / 66%);
+  animation: letterPulse 2s ease-in-out infinite;
+  animation-delay: calc(var(--letter-index) * 80ms);
+  transition: color 400ms ease, text-shadow 400ms ease, opacity 400ms ease;
+}
+
+.icon {
+  display: inline-flex;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: #dbeafe;
+  animation: iconFlicker 2s linear infinite;
+  animation-delay: 500ms;
+  filter: drop-shadow(0 0 2px rgb(147 197 253 / 70%));
+  transition: color 400ms ease, filter 400ms ease, opacity 400ms ease;
+}
+
+.icon > svg {
+  width: 100%;
+  height: 100%;
+}
+
+.button:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 4px;
+}
+
+.button:focus::before,
+.button:focus-visible::before {
+  box-shadow:
+    0 -8px 12px -6px rgb(255 255 255 / 20%) inset,
+    0 -16px 16px -8px hsl(var(--highlight-color-hue) 100% 70% / 20%) inset,
+    1px 1px 1px rgb(255 255 255 / 20%),
+    2px 2px 2px rgb(255 255 255 / 6%),
+    -1px -1px 1px rgb(0 0 0 / 13%),
+    -2px -2px 2px rgb(0 0 0 / 6%);
+}
+
+.button:focus::after,
+.button:focus-visible::after {
+  opacity: 0.62;
+  mask-image: linear-gradient(0deg, white, transparent);
+}
+
+.button:focus .letter,
+.button:focus-visible .letter {
+  animation:
+    focusedLetter 1s ease-in-out forwards,
+    letterPulse 1.2s ease-in-out infinite;
+  animation-delay:
+    calc(var(--letter-index) * 70ms),
+    calc(1s + var(--letter-index) * 70ms);
+}
+
+.button:focus .icon,
+.button:focus-visible .icon {
+  animation-duration: 1.2s;
+  animation-delay: 200ms;
+}
+
+.button:hover {
+  border-color: hsl(var(--highlight-color-hue) 100% 80% / 60%);
+}
+
+.button:hover::before {
+  box-shadow:
+    0 -8px 8px -6px rgb(255 255 255 / 67%) inset,
+    0 -16px 16px -8px hsl(var(--highlight-color-hue) 100% 70% / 30%) inset,
+    1px 1px 1px rgb(255 255 255 / 13%),
+    2px 2px 2px rgb(255 255 255 / 6%),
+    -1px -1px 1px rgb(0 0 0 / 13%),
+    -2px -2px 2px rgb(0 0 0 / 6%);
+}
+
+.button:hover::after {
+  opacity: 0.8;
+  mask-image: linear-gradient(0deg, white, transparent);
+}
+
+.button:hover .letter {
+  color: white;
+  text-shadow: 0 0 3px rgb(255 255 255 / 55%);
+}
+
+.button:hover .icon {
+  color: white;
+  animation: none;
+  filter: drop-shadow(0 0 4px hsl(var(--highlight-color-hue) 100% 70%)) drop-shadow(0 -4px 6px rgb(0 0 0 / 60%));
+}
+
+.button:active {
+  border-color: hsl(var(--highlight-color-hue) 100% 80% / 78%);
+  background: hsl(var(--highlight-color-hue) 50% 15% / 92%);
+  box-shadow:
+    inset 0 0 14px hsl(var(--highlight-color-hue) 100% 70% / 26%),
+    0 0 18px hsl(var(--highlight-color-hue) 100% 60% / 18%);
+}
+
+.button:active::before {
+  box-shadow:
+    0 -8px 12px -6px rgb(255 255 255 / 67%) inset,
+    0 -16px 16px -8px hsl(var(--highlight-color-hue) 100% 70% / 80%) inset,
+    1px 1px 1px rgb(255 255 255 / 27%),
+    2px 2px 2px rgb(255 255 255 / 13%),
+    -1px -1px 1px rgb(0 0 0 / 13%),
+    -2px -2px 2px rgb(0 0 0 / 6%);
+}
+
+.button:active::after {
+  opacity: 1;
+  filter: brightness(1.5);
+}
+
+.button:active .letter {
+  color: white;
+  animation: none;
+  text-shadow: 0 0 2px hsl(var(--highlight-color-hue) 100% 90% / 90%);
+}
+
+@keyframes letterPulse {
+  50% {
+    color: white;
+    text-shadow: 0 0 3px rgb(255 255 255 / 53%);
+  }
+}
+
+@keyframes iconFlicker {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes focusedLetter {
+  0%, 100% {
+    filter: blur(0);
+    transform: scale(1);
+  }
+  50% {
+    filter: blur(10px) brightness(1.5) drop-shadow(-28px 10px 10px hsl(var(--highlight-color-hue) 100% 70%));
+    transform: scale(1.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .letter,
+  .icon {
+    animation: none;
+  }
+
+  .button,
+  .letter,
+  .icon {
+    transition: none;
+  }
+}

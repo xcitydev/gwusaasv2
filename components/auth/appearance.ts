@@ -1,10 +1,10 @@
 /**
  * Clerk <SignIn>/<SignUp> restyled to sit inside our auth layout: no card,
  * no Clerk header (our own headline sits above it), white Google button,
- * dark fields with a violet focus ring and a violet primary button (creatily.ai).
+ * dark fields with the brand-blue focus ring and primary button.
  */
-const VIOLET = "#8e50fd";
-const VIOLET_TEXT = "#b58cff";
+const BRAND_BLUE = "#3b82f6";
+const BRAND_BLUE_TEXT = "#93c5fd";
 
 export const authAppearance = {
   options: {
@@ -53,7 +53,7 @@ export const authAppearance = {
       borderRadius: "999px",
       border: "none",
       background: "#111111",
-      color: VIOLET_TEXT,
+      color: BRAND_BLUE_TEXT,
       fontSize: "11px",
       fontWeight: 600,
       lineHeight: 1.4,
@@ -71,25 +71,25 @@ export const authAppearance = {
       fontSize: "16px", // 16px keeps iOS from zooming into the field
       paddingInline: "16px",
       "&:focus, &:focus-visible": {
-        borderColor: VIOLET,
-        boxShadow: "0 0 0 4px rgba(142,80,253,0.18)",
+        borderColor: BRAND_BLUE,
+        boxShadow: "0 0 0 4px rgba(59,130,246,0.18)",
       },
     },
     otpCodeFieldInput: { borderRadius: "12px", background: "#121214" },
     formButtonPrimary: {
       height: "54px",
       borderRadius: "14px",
-      background: VIOLET,
+      background: BRAND_BLUE,
       color: "#ffffff",
       fontSize: "16px",
       fontWeight: 700,
       textTransform: "none" as const,
-      boxShadow: "0 0 50px -12px rgba(142,80,253,0.8)",
-      "&:hover, &:focus": { background: "#7b3df0" },
+      boxShadow: "0 0 50px -12px rgba(59,130,246,0.5)",
+      "&:hover, &:focus": { background: "#2563eb" },
     },
     footer: { background: "transparent", "& > div": { background: "transparent" } },
     footerActionText: { color: "rgba(255,255,255,0.6)", fontSize: "14px" },
-    footerActionLink: { color: VIOLET_TEXT, fontWeight: 600, fontSize: "14px" },
+    footerActionLink: { color: BRAND_BLUE_TEXT, fontWeight: 600, fontSize: "14px" },
     identityPreview: { background: "#121214", borderRadius: "14px" },
   },
 };

@@ -37,7 +37,7 @@ import {
   Stagger,
   TileVideo,
 } from "./primitives";
-import { BeamButton } from "./beam-button";
+import { AnimatedGenerateButton } from "./animated-generate-button";
 import { Convergence } from "./convergence";
 import { BorderBeam } from "@/components/ui/border-beam";
 
@@ -66,7 +66,7 @@ function ShapeMark({ seed }: { seed: number }) {
     <svg
       aria-hidden
       viewBox="0 0 256 256"
-      fill="#fb923c"
+      fill="#3b82f6"
       className="size-3 shrink-0"
     >
       <path d={SHAPE_PATHS[seed % SHAPE_PATHS.length]} />
@@ -599,8 +599,8 @@ export function Features() {
                 duration={10}
                 size={72}
                 borderWidth={1}
-                colorFrom="#fdba74"
-                colorTo="#fb923c"
+                colorFrom="#93c5fd"
+                colorTo="#3b82f6"
               />
             </div>
           </Item>
@@ -685,13 +685,13 @@ export function VoiceSection() {
 // (public/models/<clip>.mp4 + .jpg poster); the gradient sits behind it
 // as the fallback while the file loads.
 export const STUDIO_TILES = [
-  { name: "Soul 2", tag: "Image", clip: "soul-2", art: "from-amber-200/80 via-orange-600/50 to-[#141310]" },
+  { name: "Soul 2", tag: "Image", clip: "soul-2", art: "from-blue-200/80 via-blue-600/50 to-[#111827]" },
   { name: "Cinema Studio 4.0", tag: "Video", clip: "cinema-studio", art: "from-slate-200/70 via-indigo-700/50 to-[#0f1220]" },
   { name: "Genjutsu", tag: "Motion transfer", clip: "genjutsu", art: "from-fuchsia-300/70 via-purple-700/50 to-[#150f20]" },
   { name: "Kling 3.0 Motion Control", tag: "Motion", clip: "kling-motion", art: "from-lime-200/70 via-emerald-700/50 to-[#0f1a14]" },
   { name: "Seedance 2.5", tag: "Video · audio", clip: "seedance", art: "from-cyan-200/70 via-sky-700/50 to-[#0e1620]" },
   { name: "Google Veo 3", tag: "Video · audio", clip: "veo", art: "from-rose-200/70 via-red-700/50 to-[#1c0f10]" },
-  { name: "FLUX Pro 1.1", tag: "Image", clip: "flux", art: "from-yellow-100/80 via-amber-700/50 to-[#1a1408]" },
+  { name: "FLUX Pro 1.1", tag: "Image", clip: "flux", art: "from-blue-100/80 via-blue-700/50 to-[#0f172a]" },
   { name: "Nano Banana", tag: "Image edit", clip: "nano-banana", art: "from-emerald-200/70 via-teal-700/50 to-[#0e1a18]" },
 ].map((tile) => ({
   ...tile,
@@ -724,13 +724,13 @@ export function HowItWorks() {
               y2="0"
               spreadMethod={reduce ? "pad" : "repeat"}
             >
-              <stop offset="0%" stopColor="oklch(0.75 0.183 55.934)" stopOpacity="0.5" />
+              <stop offset="0%" stopColor="oklch(0.62 0.20 255)" stopOpacity="0.5" />
               {!reduce && (
                 <>
-                  <stop offset="46%" stopColor="oklch(0.75 0.183 55.934)" stopOpacity="0.5" />
-                  <stop offset="49%" stopColor="#fff7ed" stopOpacity="1" />
-                  <stop offset="51%" stopColor="#fb923c" stopOpacity="1" />
-                  <stop offset="54%" stopColor="oklch(0.75 0.183 55.934)" stopOpacity="0.5" />
+                  <stop offset="46%" stopColor="oklch(0.62 0.20 255)" stopOpacity="0.5" />
+                  <stop offset="49%" stopColor="#dbeafe" stopOpacity="1" />
+                  <stop offset="51%" stopColor="#3b82f6" stopOpacity="1" />
+                  <stop offset="54%" stopColor="oklch(0.62 0.20 255)" stopOpacity="0.5" />
                   <animateTransform
                     attributeName="gradientTransform"
                     type="translate"
@@ -741,7 +741,7 @@ export function HowItWorks() {
                   />
                 </>
               )}
-              <stop offset="100%" stopColor="oklch(0.75 0.183 55.934)" stopOpacity="0.5" />
+              <stop offset="100%" stopColor="oklch(0.62 0.20 255)" stopOpacity="0.5" />
             </linearGradient>
           </defs>
           <line
@@ -826,7 +826,7 @@ const PLANS = [
 function Hidden({ children, label }: { children: ReactNode; label: string }) {
   return (
     <>
-      <span aria-hidden className="select-none blur-[9px]">{children}</span>
+      <span aria-hidden className="select-none blur-[24px]">{children}</span>
       <span className="sr-only">{label}</span>
     </>
   );
@@ -834,7 +834,7 @@ function Hidden({ children, label }: { children: ReactNode; label: string }) {
 
 /**
  * Pricing (References/pricing.html): dashed-border cards on a 12-col grid,
- * orange in place of the reference's red, the hero's beam buttons as CTAs.
+ * brand blue in place of the reference's red, the hero's beam buttons as CTAs.
  * The reference's monthly/yearly toggle is omitted — billing is monthly
  * with credits and no yearly prices exist. Locked plans keep the blurred
  * placeholder price; real figures never ship in the public HTML.
@@ -851,7 +851,7 @@ export function Pricing() {
             {reduce ? (
               <>
                 Simple, transparent{" "}
-                <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">
                   pricing
                 </span>
               </>
@@ -860,7 +860,7 @@ export function Pricing() {
                 <TextAnimate as="span" animation="blurIn" by="word" once duration={0.5}>
                   Simple, transparent
                 </TextAnimate>{" "}
-                <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">
                   pricing
                 </span>
               </>
@@ -900,7 +900,7 @@ function PricingCard({ plan }: { plan: (typeof PLANS)[number] }) {
   return (
     <div
       className={cn(
-        "relative flex flex-col border border-dashed border-zinc-800 p-8 transition-colors duration-300 hover:border-zinc-700 md:p-10 lg:col-span-4",
+        "relative flex flex-col rounded-2xl border border-dashed border-zinc-800 p-8 transition-colors duration-300 hover:border-zinc-700 md:p-10 lg:col-span-4",
         plan.featured ? "overflow-hidden bg-zinc-900/30" : "bg-black",
       )}
     >
@@ -908,7 +908,7 @@ function PricingCard({ plan }: { plan: (typeof PLANS)[number] }) {
       {plan.featured && (
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-orange-500/10 blur-[90px]"
+          className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-blue-500/10 blur-[90px]"
         />
       )}
 
@@ -918,7 +918,7 @@ function PricingCard({ plan }: { plan: (typeof PLANS)[number] }) {
             {plan.name}
           </h3>
           {plan.featured && (
-            <span className="rounded-sm bg-orange-500 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-black shadow-[0_0_10px_rgba(251,146,60,0.35)]">
+            <span className="rounded-sm bg-blue-500 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-black shadow-[0_0_10px_rgba(59,130,246,0.35)]">
               Most popular
             </span>
           )}
@@ -948,14 +948,12 @@ function PricingCard({ plan }: { plan: (typeof PLANS)[number] }) {
           </p>
         )}
 
-        <BeamButton
+        <AnimatedGenerateButton
           href="/sign-up"
-          variant={plan.featured ? "orange" : "white"}
-          className="w-full"
-        >
-          {plan.locked && <Lock className="size-3.5" />}
-          {plan.cta}
-        </BeamButton>
+          label={plan.cta}
+          leadingIcon={plan.locked ? <Lock strokeWidth={2.2} /> : undefined}
+          fullWidth
+        />
       </div>
 
       <div className="my-10 w-full border-t border-zinc-800/80" />
@@ -967,7 +965,7 @@ function PricingCard({ plan }: { plan: (typeof PLANS)[number] }) {
         <ul className="space-y-4">
           {plan.locked && (
             <li className="flex items-start gap-3">
-              <Check className="mt-0.5 size-4 shrink-0 text-orange-400" />
+              <Check className="mt-0.5 size-4 shrink-0 text-blue-400" />
               <span className="text-sm leading-snug text-zinc-300">
                 <Hidden label="A monthly credit allowance">00,000</Hidden>{" "}
                 credits every month
@@ -976,7 +974,7 @@ function PricingCard({ plan }: { plan: (typeof PLANS)[number] }) {
           )}
           {plan.features.map((f) => (
             <li key={f} className="flex items-start gap-3">
-              <Check className="mt-0.5 size-4 shrink-0 text-orange-400" />
+              <Check className="mt-0.5 size-4 shrink-0 text-blue-400" />
               <span className="text-sm leading-snug text-zinc-300">{f}</span>
             </li>
           ))}
@@ -999,7 +997,7 @@ const FAQS = [
 
 /**
  * FAQ (References/faw.html): stacked rounded cards; the open card carries
- * the reference's glare gradient in the site's orange instead of violet.
+ * the reference's glare gradient in the site's brand blue instead of violet.
  * Copy is verbatim from the existing FAQS.
  */
 export function Faq() {
@@ -1015,7 +1013,7 @@ export function Faq() {
             {reduce ? (
               <>
                 Questions,{" "}
-                <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">
                   answered.
                 </span>
               </>
@@ -1024,7 +1022,7 @@ export function Faq() {
                 <TextAnimate as="span" animation="blurIn" by="word" once duration={0.4}>
                   Questions,
                 </TextAnimate>{" "}
-                <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">
                   answered.
                 </span>
               </>
@@ -1041,7 +1039,7 @@ export function Faq() {
                 className={cn(
                   "overflow-hidden rounded-3xl border border-white/10 ring-1 ring-white/5 transition-all duration-300",
                   isOpen
-                    ? "bg-gradient-to-b from-orange-500/15 via-orange-500/10 to-orange-500/0"
+                    ? "bg-gradient-to-b from-blue-500/15 via-blue-500/10 to-blue-500/0"
                     : "bg-neutral-900/40 hover:bg-white/5",
                 )}
               >
@@ -1108,12 +1106,12 @@ export function FinalCta() {
             className="absolute inset-0 -z-10"
             style={{
               background:
-                "radial-gradient(800px 400px at 50% 120%, oklch(0.75 0.183 55.934 / 0.3), transparent 70%), radial-gradient(600px 300px at 20% 120%, oklch(0.646 0.222 41.116 / 0.25), transparent 70%), linear-gradient(to bottom, oklch(0.193 0.008 285.6), oklch(0.156 0.006 285.6))",
+                "radial-gradient(800px 400px at 50% 120%, oklch(0.62 0.20 255 / 0.3), transparent 70%), radial-gradient(600px 300px at 20% 120%, oklch(0.50 0.18 260 / 0.25), transparent 70%), linear-gradient(to bottom, oklch(0.193 0.008 285.6), oklch(0.156 0.006 285.6))",
             }}
           />
           <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-5xl">
             Ready to hand the busywork{" "}
-            <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">to AI?</span>
+            <span className="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">to AI?</span>
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-pretty text-muted-foreground sm:text-lg">
             Start on the free plan — cold email, lead finding, calls answered in
@@ -1121,11 +1119,12 @@ export function FinalCta() {
             studio, all in one workspace.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Button asChild size="lg" className="h-12 rounded-full px-7 text-base">
-              <Link href="/sign-up">
-                Start free <ArrowRight className="size-4" />
-              </Link>
-            </Button>
+            <AnimatedGenerateButton
+              href="/sign-up"
+              label="Start free"
+              trailingIcon={<ArrowRight aria-hidden className="size-4" />}
+              className="min-w-[180px]"
+            />
             <Button asChild size="lg" variant="outline" className="h-12 rounded-full px-7 text-base">
               <Link href="/sign-in">Sign in</Link>
             </Button>

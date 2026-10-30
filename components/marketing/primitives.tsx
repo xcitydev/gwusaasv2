@@ -115,7 +115,7 @@ export function Section({
   id?: string;
   eyebrow?: string;
   title: ReactNode;
-  /** The emotional word — orange gradient, matching the pricing heading. */
+  /** The emotional word — blue gradient, matching the pricing heading. */
   accent?: string;
   description?: string;
   children?: ReactNode;
@@ -150,7 +150,7 @@ export function Section({
             {accent && (
               <>
                 {" "}
-                <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">
                   {accent}
                 </span>
               </>
@@ -176,10 +176,7 @@ export function Eyebrow({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * Card with a violet spotlight that follows the cursor and a border that
- * brightens on hover — the landing page's main surface.
- */
+/** Card with a blue spotlight that follows the cursor and a border that brightens on hover. */
 export function GlowCard({
   children,
   className,
@@ -203,7 +200,7 @@ export function GlowCard({
       className={cn(
         "group relative overflow-hidden rounded-2xl border border-white/10 bg-card/70 backdrop-blur-sm transition-colors duration-300 hover:border-primary/40",
         "before:pointer-events-none before:absolute before:inset-0 before:opacity-0 before:transition-opacity before:duration-500 group-hover:before:opacity-100 hover:before:opacity-100",
-        "before:[background:radial-gradient(420px_circle_at_var(--mx,50%)_var(--my,50%),oklch(0.75_0.183_55.934/0.14),transparent_60%)]",
+        "before:[background:radial-gradient(420px_circle_at_var(--mx,50%)_var(--my,50%),oklch(0.62_0.20_255/0.14),transparent_60%)]",
         className,
       )}
     >
@@ -289,7 +286,7 @@ export function Marquee({
   );
 }
 
-/** Film-grain overlay — the texture both reference sites lean on. */
+/** Film-grain texture overlay used by the landing page. */
 export function Grain() {
   return (
     <div
@@ -303,7 +300,7 @@ export function Grain() {
   );
 }
 
-/** Soft violet light + fine grid behind a section. */
+/** Soft blue light and fine grid behind the features section. */
 export function Backdrop({ className }: { className?: string }) {
   return (
     <div aria-hidden className={cn("pointer-events-none absolute inset-0 -z-10", className)}>
@@ -311,7 +308,7 @@ export function Backdrop({ className }: { className?: string }) {
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(900px 480px at 50% -10%, oklch(0.75 0.183 55.934 / 0.16), transparent 70%)",
+            "radial-gradient(900px 480px at 50% -10%, oklch(0.62 0.20 255 / 0.16), transparent 70%)",
         }}
       />
       <div

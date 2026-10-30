@@ -11,7 +11,7 @@
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-geist-sans);
   --font-display: var(--font-instrument-serif);
-  --color-gold: var(--primary);
+  --color-brand-blue: var(--primary);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -51,7 +51,7 @@
 }
 
 /*
- * Dark-only creatily.ai theme (orange/black/white). Dark IS the theme — :root and .dark are
+ * Dark-only Creatily theme (blue/black/white). Dark IS the theme — :root and .dark are
  * intentionally identical so both bare and `.dark`-scoped styles resolve.
  */
 :root,
@@ -62,7 +62,7 @@
   --card-foreground: oklch(0.977 0.005 286.3);
   --popover: oklch(0.193 0.008 285.6);
   --popover-foreground: oklch(0.977 0.005 286.3);
-  --primary: oklch(75% 0.183 55.934);
+  --primary: oklch(62.3% 0.214 259.8);
   --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.229 0.012 285.5);
   --secondary-foreground: oklch(0.977 0.005 286.3);
@@ -73,29 +73,35 @@
   --destructive: oklch(0.64 0.21 25);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 6%);
-  --ring: oklch(75% 0.183 55.934 / 60%);
-  --chart-1: oklch(75% 0.183 55.934);
+  --ring: oklch(62.3% 0.214 259.8 / 60%);
+  --chart-1: oklch(62.3% 0.214 259.8);
   --chart-2: oklch(0.722 0.153 239.4);
-  --chart-3: oklch(83.7% 0.128 66.29);
+  --chart-3: oklch(83.7% 0.128 240);
   --chart-4: oklch(0.690 0.017 285.9);
   --chart-5: oklch(0.372 0.019 285.5);
   --radius: 0.75rem;
   --sidebar: oklch(0.141 0.004 285.8);
   --sidebar-foreground: oklch(0.926 0.007 286.3);
-  --sidebar-primary: oklch(75% 0.183 55.934);
+  --sidebar-primary: oklch(62.3% 0.214 259.8);
   --sidebar-primary-foreground: oklch(0.145 0 0);
   --sidebar-accent: oklch(0.207 0.010 285.5);
   --sidebar-accent-foreground: oklch(0.977 0.005 286.3);
   --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(75% 0.183 55.934 / 60%);
+  --sidebar-ring: oklch(62.3% 0.214 259.8 / 60%);
 }
 
-/* The authenticated SaaS surfaces follow the landing pricing section's
-   crisp geometry. Marketing pages retain the shared theme's normal radius. */
+/* Give authenticated SaaS surfaces a restrained corner radius without
+   changing the landing-page theme. */
 html:has([data-saas-shell]) {
-  --radius: 0rem;
+  --radius: 0.5rem;
   --card: oklch(0.145 0 0);
   --popover: oklch(0.145 0 0);
+}
+
+/* Bring legacy square surfaces into the app radius while keeping connected
+   controls and navigation edges flush. */
+html:has([data-saas-shell]) [class~="rounded-none"]:not(aside *):not(nav *):not([data-variant="line"]):not([data-slot="input-group-control"]):not([data-slot="button-group"] *) {
+  border-radius: 0.5rem !important;
 }
 
 @layer base {
@@ -185,7 +191,7 @@ svg.lucide {
 @media (prefers-reduced-motion: reduce) {
   .credits-pill-beam { animation: none; }
 }
-/* Hero backdrop: beams falling down the vertical grid lines (gold-bg reference). */
+/* Decorative page beams remain active. */
 @keyframes border-beam {
   from { transform: translateY(-200px); }
   to { transform: translateY(100vh); }
@@ -193,25 +199,19 @@ svg.lucide {
 @utility animate-border-beam {
   animation: border-beam 6s linear infinite;
 }
-@keyframes saas-particle-fall {
-  0% { transform: translateY(-8px); opacity: 0; }
-  8% { opacity: 0.9; }
-  92% { opacity: 0.55; }
-  100% { transform: translateY(100vh); opacity: 0; }
-}
 @media (prefers-reduced-motion: reduce) {
   .animate-border-beam { animation: none; }
 }
 /* HowItWorks convergence (how-it-works reference): scattered cards pulled
-   into a pulsing core — the core glow is the site orange, not white. */
+   into a pulsing core — the core glow uses the brand blue. */
 @keyframes core-pulse {
   0%, 100% {
     transform: translate(-50%, -50%) scale(1);
-    box-shadow: 0 0 40px rgba(251, 146, 60, 0.25), inset 0 0 20px rgba(251, 146, 60, 0.15);
+    box-shadow: 0 0 40px rgba(59, 130, 246, 0.25), inset 0 0 20px rgba(59, 130, 246, 0.15);
   }
   50% {
     transform: translate(-50%, -50%) scale(1.1);
-    box-shadow: 0 0 80px rgba(251, 146, 60, 0.8), inset 0 0 40px rgba(251, 146, 60, 0.35);
+    box-shadow: 0 0 80px rgba(59, 130, 246, 0.8), inset 0 0 40px rgba(59, 130, 246, 0.35);
   }
 }
 @keyframes radar-pull {
