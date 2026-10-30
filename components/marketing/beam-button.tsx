@@ -29,7 +29,8 @@ export function BeamButton({
   children: ReactNode;
 }) {
   const outer = cn(
-    "group relative inline-flex h-[50px] items-center justify-center overflow-hidden rounded-xl bg-white/5 outline-none transition-transform active:scale-95 disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
+    "group relative inline-flex h-[50px] items-center justify-center overflow-hidden rounded-[18px] bg-white/5 outline-none transition-transform active:scale-95 disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
+    variant === "blue" && "border border-white/20",
     className,
   );
   const label = (
@@ -48,9 +49,9 @@ export function BeamButton({
         />
         <span
           aria-hidden
-          className="absolute inset-0 bg-zinc-800 transition-opacity duration-300 group-hover:opacity-0"
+          className="absolute inset-[1px] rounded-[17px] bg-zinc-800 transition-opacity duration-300 group-hover:opacity-0"
         />
-        <span aria-hidden className="absolute inset-[1px] z-10 rounded-[11px] bg-black" />
+        <span aria-hidden className="absolute inset-[1px] z-10 rounded-[17px] bg-black" />
         <span
           aria-hidden
           className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-500 group-hover:opacity-100"
