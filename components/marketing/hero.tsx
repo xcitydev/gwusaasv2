@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { SERVICES, ServiceRail } from "./services";
 import { AnimatedGenerateButton } from "./animated-generate-button";
 import { BeamButton } from "./beam-button";
-import { Counter, EASE, Eyebrow, Marquee } from "./primitives";
+import { Counter, EASE, Marquee } from "./primitives";
 
 /**
  * Hero (References/hero.html): glass eyebrow badge, per-word gradient
@@ -81,31 +81,22 @@ export function Hero() {
         </div>
       </div>
       <div className="relative z-10 max-w-5xl px-6 text-center">
-        <Enter delay={0.1} className="flex justify-center">
-          <span className="inline-flex items-center gap-2 rounded-full bg-gradient-to-b from-white/20 via-white/0 to-white/10 px-3 py-1.5 text-xs font-medium tracking-wide text-blue-100/90 backdrop-blur-sm">
-            <span className="relative flex size-1.5">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex size-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
-            </span>
-            YOUR AI GROWTH TEAM
-          </span>
-        </Enter>
-
         {/* Headline: Magic UI TextAnimate blurInUp per character, sequenced
             word by word. The vertical gradient lives on each animated
             segment (per-character gradient reads identically for a
             top-to-bottom fade), the wrapper keeps the per-word brightness. */}
         <h1 className="mt-6 flex flex-wrap justify-center gap-x-[0.18em] gap-y-1 text-5xl font-medium leading-[0.98] tracking-[-0.06em] sm:mt-8 sm:gap-x-[0.25em] sm:gap-y-2 sm:text-6xl md:text-8xl md:leading-[1.1]">
           {HEADLINE_WORDS.map((word, i) => (
-            <span
-              key={word.text}
-              className={cn(
-                "leading-[1.02] sm:leading-[1.3]",
-                word.bright ? "opacity-100" : "opacity-60",
-              )}
-            >
+            <span key={word.text} className="leading-[1.02] sm:leading-[1.3]">
               {reduce ? (
-                <span className="bg-gradient-to-b from-white via-white to-white/50 bg-clip-text text-transparent">
+                <span
+                  className={cn(
+                    "bg-clip-text text-transparent",
+                    word.bright
+                      ? "bg-gradient-to-b from-blue-300 to-blue-500"
+                      : "bg-gradient-to-b from-white via-white to-white/50",
+                  )}
+                >
                   {word.text}
                 </span>
               ) : (
@@ -116,7 +107,12 @@ export function Hero() {
                   once
                   delay={0.2 + i * 0.1}
                   duration={0.5}
-                  segmentClassName="bg-gradient-to-b from-white via-white to-white/50 bg-clip-text text-transparent"
+                  segmentClassName={cn(
+                    "bg-clip-text text-transparent",
+                    word.bright
+                      ? "bg-gradient-to-b from-blue-300 to-blue-500"
+                      : "bg-gradient-to-b from-white via-white to-white/50",
+                  )}
                 >
                   {word.text}
                 </TextAnimate>
@@ -225,16 +221,7 @@ export function Statement() {
           viewport={{ once: true, margin: "-80px" }}
           variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}
         >
-          <motion.div variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}>
-            <Eyebrow>
-              <span className="relative flex size-1.5">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
-                <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
-              </span>
-              New · AI Note Taker & Higgsfield Studio
-            </Eyebrow>
-          </motion.div>
-          <h2 className="mt-6 text-balance text-4xl font-semibold leading-[1.04] tracking-tight sm:text-6xl">
+          <h2 className="text-balance text-4xl font-semibold leading-[1.04] tracking-tight sm:text-6xl">
             <span className="block">
               {HEADLINE.map((word) => (
                 <span key={word}>

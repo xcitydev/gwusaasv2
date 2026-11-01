@@ -206,11 +206,11 @@ svg.lucide {
    into a pulsing core — the core glow uses the brand blue. */
 @keyframes core-pulse {
   0%, 100% {
-    transform: translate(-50%, -50%) scale(1);
+    transform: scale(1);
     box-shadow: 0 0 40px rgba(59, 130, 246, 0.25), inset 0 0 20px rgba(59, 130, 246, 0.15);
   }
   50% {
-    transform: translate(-50%, -50%) scale(1.1);
+    transform: scale(1.1);
     box-shadow: 0 0 80px rgba(59, 130, 246, 0.8), inset 0 0 40px rgba(59, 130, 246, 0.35);
   }
 }

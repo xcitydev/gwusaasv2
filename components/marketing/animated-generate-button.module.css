@@ -12,7 +12,7 @@
 }
 
 .button {
-  --highlight-color-hue: 217deg;
+  --highlight-color-hue: 224deg;
 
   position: relative;
   display: inline-flex;
@@ -112,10 +112,10 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  color: #dbeafe;
+  color: #3b82f6;
   animation: iconFlicker 2s linear infinite;
   animation-delay: 500ms;
-  filter: drop-shadow(0 0 2px rgb(147 197 253 / 70%));
+  filter: drop-shadow(0 0 2px rgb(37 99 235 / 70%));
   transition: color 400ms ease, filter 400ms ease, opacity 400ms ease;
 }
 
@@ -125,7 +125,7 @@
 }
 
 .button:focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid #2563eb;
   outline-offset: 4px;
 }
 
