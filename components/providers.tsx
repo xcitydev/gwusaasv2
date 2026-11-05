@@ -14,10 +14,10 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const clerkAppearance = {
   baseTheme: dark,
   variables: {
-    colorPrimary: "#f2c518",
-    colorPrimaryForeground: "#151204",
-    colorBackground: "#161613",
-    colorInput: "#1d1d1a",
+    colorPrimary: "#3b82f6",
+    colorPrimaryForeground: "#07111f",
+    colorBackground: "#0b0b0d",
+    colorInput: "#121214",
     borderRadius: "0.75rem",
   },
 } as const;
@@ -70,7 +70,7 @@ function SetupBanner() {
     !hasConvex && "NEXT_PUBLIC_CONVEX_URL",
   ].filter(Boolean);
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-primary/30 bg-[#1a1705] px-4 py-2 text-center text-xs text-primary">
+    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-primary/30 bg-[#081221] px-4 py-2 text-center text-xs text-primary">
       Setup mode — missing {missing.join(", ")} in .env.local. Auth is disabled
       until keys are added.
     </div>

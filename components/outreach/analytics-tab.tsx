@@ -17,8 +17,8 @@ import { BarChart3, Mail, MessageSquareReply, ThumbsUp, Users } from "lucide-rea
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 // Palette validated for the dark surface with the dataviz six-checks script:
-// gold #b48d05 (sent) and blue #0284c7 (replies) — CVD-safe pair.
-const SERIES = { sent: "#b48d05", replied: "#0284c7" } as const;
+// Brand blue #2563eb (sent) and sky blue #0284c7 (replies); labels keep series distinct.
+const SERIES = { sent: "#2563eb", replied: "#0284c7" } as const;
 
 function useAnalytics() {
   return useQuery(api.outreach.analytics);

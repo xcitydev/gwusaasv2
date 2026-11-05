@@ -45,7 +45,7 @@ function SaasAmbientBackground() {
             } ${index === 2 ? "hidden lg:block" : ""}`}
           >
             <div
-              className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-orange-500/40 to-transparent motion-reduce:hidden"
+              className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-blue-500/40 to-transparent motion-reduce:hidden"
               style={{
                 animationDuration: `${duration}s`,
                 animationDelay: `${index === 0 ? 0 : index === 1 ? 2 : index === 2 ? 4 : 1}s`,
@@ -53,18 +53,6 @@ function SaasAmbientBackground() {
             />
           </div>
         ))}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          {[8, 23, 41, 63, 82, 96].map((left, index) => (
-            <span
-              key={left}
-              className="absolute top-0 size-1 rounded-full bg-orange-300 shadow-[0_0_10px_2px_rgba(251,146,60,0.55)] motion-reduce:hidden"
-              style={{
-                left: `${left}%`,
-                animation: `saas-particle-fall ${9 + (index % 3) * 2}s linear ${index * -2.1}s infinite`,
-              }}
-            />
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -150,7 +138,7 @@ export function AppShell({
       <SaasAmbientBackground />
       <div className="relative z-10 flex min-h-dvh w-full">
         {/* Desktop sidebar */}
-        <aside className="fixed inset-y-4 left-4 z-30 hidden w-72 overflow-hidden rounded-[1rem] border border-white/15 bg-black shadow-[0_30px_80px_-24px_rgba(0,0,0,0.96),0_0_30px_-14px_rgba(251,146,60,0.16)] ring-1 ring-white/5 lg:block">
+        <aside className="fixed inset-y-4 left-4 z-30 hidden w-72 overflow-hidden rounded-[1rem] border border-white/15 bg-black shadow-[0_30px_80px_-24px_rgba(0,0,0,0.96),0_0_30px_-14px_rgba(59,130,246,0.16)] ring-1 ring-white/5 lg:block">
           <SidebarContent variant={variant} />
         </aside>
 

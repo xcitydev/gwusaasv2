@@ -179,7 +179,7 @@ function TourOverlay({
           <motion.div className={shade} animate={{ left: hole.x + hole.w, top: hole.y, width: Math.max(0, viewport.w - hole.x - hole.w), height: hole.h }} transition={SPRING} initial={false} />
           {/* Violet ring on the target. */}
           <motion.div
-            className="pointer-events-none fixed rounded-xl border-2 border-primary shadow-[0_0_0_4px_oklch(0.75_0.183_55.934/0.25),0_0_40px_-4px_oklch(0.75_0.183_55.934/0.8)]"
+            className="pointer-events-none fixed rounded-xl border-2 border-primary shadow-[0_0_0_4px_oklch(0.62_0.20_255/0.25),0_0_40px_-4px_oklch(0.62_0.20_255/0.8)]"
             animate={{ left: hole.x, top: hole.y, width: hole.w, height: hole.h }}
             transition={SPRING}
             initial={false}

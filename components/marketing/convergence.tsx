@@ -4,7 +4,7 @@ import type { CSSProperties, ReactNode } from "react";
 /**
  * Convergence stage (References/how-it-works.html): scattered UI fragments
  * pulled into a pulsing core by radar rings. The reference's white core is
- * rendered in the site orange. Decorative only — pointer events are off.
+ * rendered in the site blue. Decorative only — pointer events are off.
  */
 
 const CARD =
@@ -60,10 +60,10 @@ export function Convergence() {
         />
       ))}
 
-      {/* Central converging core — the site orange where the reference is white */}
+      {/* Central converging core — the site blue where the reference is white */}
       <div className="animate-core-pulse pointer-events-none absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2">
-        <div className="absolute inset-0 animate-pulse rounded-full bg-orange-400 opacity-20 blur-xl" />
-        <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-orange-400 text-black shadow-[0_0_60px_rgba(251,146,60,0.7),inset_0_0_20px_rgba(0,0,0,0.2)] before:absolute before:-inset-4 before:animate-[spin_6s_linear_infinite] before:rounded-full before:border before:border-dashed before:border-orange-400/40">
+        <div className="absolute inset-0 animate-pulse rounded-full bg-blue-400 opacity-20 blur-xl" />
+        <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-blue-400 text-black shadow-[0_0_60px_rgba(59,130,246,0.7),inset_0_0_20px_rgba(0,0,0,0.2)] before:absolute before:-inset-4 before:animate-[spin_6s_linear_infinite] before:rounded-full before:border before:border-dashed before:border-blue-400/40">
           <Zap className="size-8 animate-pulse" fill="currentColor" strokeWidth={1.5} />
         </div>
       </div>

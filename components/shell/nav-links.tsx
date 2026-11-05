@@ -91,7 +91,7 @@ export function NavLinks({
                     <span
                       aria-hidden
                       className={cn(
-                        "pointer-events-none absolute inset-x-0 bottom-0 h-px origin-left scale-x-0 bg-gradient-to-r from-orange-300 via-orange-400 to-transparent shadow-[0_0_10px_2px_rgba(251,146,60,0.5)] transition-transform duration-300",
+                        "pointer-events-none absolute inset-x-0 bottom-0 h-px origin-left scale-x-0 bg-gradient-to-r from-blue-300 via-blue-400 to-transparent shadow-[0_0_10px_2px_rgba(59,130,246,0.5)] transition-transform duration-300",
                         active ? "scale-x-100" : "group-hover/nav-item:scale-x-100",
                       )}
                     />

@@ -135,7 +135,7 @@ export function TalkBalance({
           <span className="w-28 truncate text-white/80">{person.name}</span>
           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
             <div
-              className={cn("h-full rounded-full", person.share >= 0.7 ? "bg-amber-400" : "bg-primary/80")}
+              className={cn("h-full rounded-full", person.share >= 0.7 ? "bg-sky-400" : "bg-primary/80")}
               style={{ width: `${Math.round(person.share * 100)}%` }}
             />
           </div>

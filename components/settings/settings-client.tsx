@@ -93,11 +93,11 @@ function AccountTab() {
       <UserProfile
         routing="hash"
         appearance={{
-          // Match the platform's orange/black theme so nothing reads as stock Clerk.
+          // Match the platform's blue/black theme so nothing reads as stock Clerk.
           options: { unsafe_disableDevelopmentModeWarnings: true },
           variables: {
-            colorPrimary: "#fb923c",
-            colorPrimaryForeground: "#090909",
+            colorPrimary: "#3b82f6",
+            colorPrimaryForeground: "#07111f",
             colorBackground: "#050505",
             colorForeground: "#f7f7f7",
             colorMutedForeground: "#9a9aa6",
@@ -177,38 +177,22 @@ function WhopPlanCards({
             plan={plan}
             isCurrent={isCurrent}
             action={
-              plan.id === "free" ? undefined : isCurrent ? (
-                // Auto-renewal disclosure + a working cancel path (Whop portal).
-                <div className="space-y-2">
-                  <a
-                    href={WHOP_MANAGE_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex w-full items-center justify-center gap-2 border border-white/15 px-4 py-2 text-sm text-white transition hover:border-white/30"
-                  >
-                    Manage or cancel subscription <ExternalLink className="size-3.5" />
-                  </a>
-                  <RenewalNote price={priceFor(plan.id)} />
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <BeamButton
-                    variant={plan.id === "personal" ? "orange" : "white"}
-                    className="w-full"
-                    disabled={busy !== null || !isOwner}
-                    title={isOwner ? undefined : "Only the workspace owner can upgrade"}
-                    onClick={() => void upgrade(plan.id as "personal" | "team")}
-                  >
-                    {busy === plan.id ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <CreditCard className="size-4" />
-                    )}
-                    Upgrade
-                  </BeamButton>
-                  <RenewalNote price={priceFor(plan.id)} />
-                </div>
-              )
+              !isCurrent && plan.id !== "free" ? (
+                <BeamButton
+                  variant={plan.id === "personal" ? "blue" : "white"}
+                  className="w-full"
+                  disabled={busy !== null || !isOwner}
+                  title={isOwner ? undefined : "Only the workspace owner can upgrade"}
+                  onClick={() => void upgrade(plan.id as "personal" | "team")}
+                >
+                  {busy === plan.id ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <CreditCard className="size-4" />
+                  )}
+                  Upgrade
+                </BeamButton>
+              ) : undefined
             }
           />
         );
@@ -249,14 +233,14 @@ function PlanCard({
     <Card
       className={cn(
         "relative h-full gap-0 overflow-hidden rounded-none border border-white/10 bg-black py-0 ring-0 transition-colors duration-300 hover:border-white/20",
-        isFeatured && "border-orange-500/40 bg-zinc-900/30",
-        isCurrent && "border-orange-400/70",
+        isFeatured && "border-blue-500/40 bg-zinc-900/30",
+        isCurrent && "border-blue-400/70",
       )}
     >
       {isFeatured && (
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-24 -top-24 size-64 rounded-full bg-orange-500/10 blur-[90px]"
+          className="pointer-events-none absolute -right-24 -top-24 size-64 rounded-full bg-blue-500/10 blur-[90px]"
         />
       )}
       <CardHeader className="relative z-10 gap-3 px-6 pt-6 pb-5 sm:px-7">
@@ -265,11 +249,11 @@ function PlanCard({
             {plan.label}
           </CardTitle>
           {isCurrent ? (
-            <Badge className="rounded-sm border border-orange-400/30 bg-orange-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-orange-300 shadow-none">
+            <Badge className="rounded-sm border border-blue-400/30 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-300 shadow-none">
               Current
             </Badge>
           ) : isFeatured ? (
-            <span className="shrink-0 rounded-sm bg-orange-500 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-black shadow-[0_0_10px_rgba(251,146,60,0.25)]">
+            <span className="shrink-0 rounded-sm bg-blue-500 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-black shadow-[0_0_10px_rgba(59,130,246,0.25)]">
               Most popular
             </span>
           ) : null}
@@ -284,7 +268,7 @@ function PlanCard({
         <ul className="space-y-3.5">
           {plan.features.map((feature) => (
             <li key={feature} className="flex items-start gap-3">
-              <Check className="mt-0.5 size-4 shrink-0 text-orange-400" />
+              <Check className="mt-0.5 size-4 shrink-0 text-blue-400" />
               <span className="text-sm leading-snug text-zinc-300">{feature}</span>
             </li>
           ))}
@@ -313,7 +297,7 @@ function StaticPlanCards({ currentPlan }: { currentPlan: string }) {
             action={
               !isCurrent && plan.id !== "free" ? (
                 <BeamButton
-                  variant={plan.id === "personal" ? "orange" : "white"}
+                  variant={plan.id === "personal" ? "blue" : "white"}
                   className="w-full"
                   onClick={() =>
                     toast.info("Upgrades activate once billing keys are added.")

@@ -100,7 +100,7 @@ function ShowcaseBlock({
           </p>
           <Link
             href="/sign-up"
-            className="mt-7 inline-flex h-12 w-full max-w-sm items-center justify-center gap-2 bg-gradient-to-br from-orange-400 to-orange-600 px-6 text-sm font-medium text-white shadow-[0_0_20px_rgba(255,140,0,0.4)] transition hover:from-orange-500 hover:to-yellow-400"
+            className="mt-7 inline-flex h-12 w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-blue-300/30 bg-gradient-to-br from-blue-600 to-blue-700 px-6 text-sm font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_4px_0_rgba(20,55,120,0.9),0_8px_18px_rgba(37,99,235,0.3)] transition-[transform,box-shadow,background-color] hover:-translate-y-0.5 hover:from-blue-700 hover:to-blue-800 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.32),0_5px_0_rgba(20,55,120,0.9),0_12px_24px_rgba(37,99,235,0.38)] active:translate-y-1 active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.22),0_1px_0_rgba(20,55,120,0.9)]"
           >
             {cta} <ArrowRight className="size-3.5" />
           </Link>
@@ -130,7 +130,7 @@ function ShowcaseBlock({
           </Marquee>
           <Link
             href="/sign-up"
-            className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-xl border border-white/10 bg-black/70 px-4 py-2.5 text-sm font-medium text-white shadow-2xl backdrop-blur transition-colors hover:bg-black/90 hover:text-primary"
+            className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-xl border border-white/20 bg-black/80 px-4 py-2.5 text-sm font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_4px_0_rgba(0,0,0,0.8),0_10px_24px_rgba(0,0,0,0.45)] backdrop-blur transition-[transform,box-shadow,background-color,color] hover:scale-[1.03] hover:bg-black/95 hover:text-primary hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_6px_0_rgba(0,0,0,0.8),0_14px_28px_rgba(0,0,0,0.5)] active:scale-[0.98] active:shadow-[inset_0_2px_4px_rgba(0,0,0,0.5),0_1px_0_rgba(0,0,0,0.8)]"
           >
             {studio} <ArrowUpRight className="size-4" />
           </Link>

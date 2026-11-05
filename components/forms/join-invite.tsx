@@ -120,7 +120,7 @@ function LiveJoin({ code }: { code: string }) {
       </span>
       <h1 className="mt-5 text-balance text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
         You&apos;re invited to{" "}
-        <span className="bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">Creatily Onboarding Forms.</span>
+        <span className="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">Creatily Onboarding Forms.</span>
       </h1>
       <p className="mt-3 text-muted-foreground">
         Your done-for-you onboarding starts here. This link unlocks the forms on your account.
@@ -174,7 +174,7 @@ function Frame({ children }: { children: React.ReactNode }) {
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
-        style={{ background: "radial-gradient(640px 320px at 50% 0%, oklch(0.75 0.183 55.934 / 0.14), transparent 70%)" }}
+        style={{ background: "radial-gradient(640px 320px at 50% 0%, oklch(0.62 0.20 255 / 0.14), transparent 70%)" }}
       />
       <Link href="/" className="relative z-10 mb-8 flex items-center gap-2.5">
         <Image src={BRAND.logo.wordmark} alt={BRAND.name} width={867} height={192} className="h-8 w-auto" priority />

@@ -130,7 +130,7 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
                   dotSize={2}
                   speed={1.2}
                   bloom
-                  color="#fb923c"
+                  color="#3b82f6"
                   ariaLabel="Create with AI"
                 />
                 Create with AI
@@ -167,8 +167,8 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
             duration={9}
             size={90}
             borderWidth={1}
-            colorFrom="#fdba74"
-            colorTo="#fb923c"
+            colorFrom="#93c5fd"
+            colorTo="#3b82f6"
           />
         </Link>
       </Reveal>
@@ -223,7 +223,7 @@ function DashboardContent({ me }: { me: ReturnType<typeof useMeQuery> }) {
             </div>
             <Link
               href="/create"
-            className="inline-flex items-center gap-1.5 rounded-none border border-primary/40 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+              className="inline-flex items-center gap-1.5 rounded-none border border-primary/40 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
             >
               Open studio <ArrowUpRight className="size-4" />
             </Link>
@@ -297,7 +297,7 @@ function ShortcutCard({ item, locked }: { item: NavItem; locked?: boolean }) {
     <Link
       href={item.href}
       className={cn(
-        "group relative flex h-full items-start gap-3.5 overflow-hidden rounded-none border border-white/10 bg-black p-4 transition-colors hover:border-primary/50 hover:shadow-[0_18px_50px_-30px_rgba(251,146,60,0.22)]",
+        "group relative flex h-full items-start gap-3.5 overflow-hidden rounded-none border border-white/10 bg-black p-4 transition-colors hover:border-primary/50 hover:shadow-[0_18px_50px_-30px_rgba(59,130,246,0.22)]",
         locked && "opacity-70",
       )}
     >

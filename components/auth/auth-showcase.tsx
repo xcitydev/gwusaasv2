@@ -17,7 +17,6 @@ import {
   X,
 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
-import { Background } from "@/components/marketing/background";
 import { usePendingInvite } from "./use-pending-invite";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -41,55 +40,35 @@ const SERVICES = [
 ];
 
 const BRAND_TEXT =
-  "bg-gradient-to-b from-[#5cc3ff] via-[#8a5cfc] to-[#e24ff9] bg-clip-text text-transparent";
+  "bg-gradient-to-b from-[#93c5fd] via-[#3b82f6] to-[#1d4ed8] bg-clip-text text-transparent";
 
-function SignupHeroBackdrop({ reduce }: { reduce: boolean }) {
+function SignupHeroBackdrop() {
   const beams = [
     { duration: 5, delay: 0 },
     { duration: 7, delay: 2 },
     { duration: 5, delay: 4 },
     { duration: 8, delay: 1 },
   ];
-  const particles = [
-    { left: 12, duration: 10, delay: -3 },
-    { left: 25, duration: 13, delay: -8 },
-    { left: 43, duration: 11, delay: -5 },
-    { left: 58, duration: 14, delay: -10 },
-    { left: 76, duration: 9, delay: -2 },
-    { left: 91, duration: 12, delay: -7 },
-  ];
 
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-black">
-      <Background contained />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_48%_44%,rgba(251,146,60,0.08),transparent_58%),linear-gradient(to_bottom,rgba(0,0,0,0.16),rgba(0,0,0,0.64))]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_48%_44%,rgba(59,130,246,0.08),transparent_58%),linear-gradient(to_bottom,rgba(0,0,0,0.16),rgba(0,0,0,0.64))]" />
       <div className="absolute inset-x-0 top-0 mx-auto flex h-full w-full max-w-[80rem] justify-between border-x border-white/[0.045] px-4 sm:px-6">
         {beams.map((beam, index) => (
           <div key={index} className={`relative h-full w-px overflow-hidden bg-white/[0.035] ${index === 1 ? "hidden md:block" : index === 2 ? "hidden lg:block" : ""}`}>
             <div
-              className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-orange-500/35 to-transparent"
+              className="absolute inset-x-0 top-0 h-[200px] animate-border-beam bg-gradient-to-b from-transparent via-blue-500/35 to-transparent"
               style={{ animationDuration: `${beam.duration}s`, animationDelay: `${beam.delay}s` }}
             />
           </div>
         ))}
       </div>
-      {particles.map((particle, index) => (
-        <span
-          key={index}
-          className="absolute top-0 size-1 rounded-full bg-orange-300 shadow-[0_0_12px_2px_rgba(251,146,60,0.45)]"
-          style={{
-            left: `${particle.left}%`,
-            animation: reduce ? "none" : `saas-particle-fall ${particle.duration}s linear ${particle.delay}s infinite`,
-          }}
-        />
-      ))}
     </div>
   );
 }
 
 export function AuthSignupBackground() {
-  const reduce = useReducedMotion();
-  return <SignupHeroBackdrop reduce={Boolean(reduce)} />;
+  return <SignupHeroBackdrop />;
 }
 
 function ScreenVideo() {
@@ -157,7 +136,7 @@ export function AuthShowcase() {
               </h2>
               <p className="max-w-xl text-lg leading-relaxed text-white/80">
                 You&apos;ve been invited to the{" "}
-                <span className="text-xl bg-gradient-to-b from-orange-300 to-orange-500 bg-clip-text text-transparent">Creatily Onboarding Forms</span>{" "}
+                <span className="text-xl bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">Creatily Onboarding Forms</span>{" "}
                 — tell us about your business once and we take it from there.
               </p>
               <ol className="grid grid-cols-3 gap-4 rounded-2xl border border-white/15 bg-black/45 p-5 backdrop-blur-xl">

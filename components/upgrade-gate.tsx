@@ -41,7 +41,7 @@ export function UpgradeGate({
           className="pointer-events-none absolute inset-0"
           style={{
             background:
-              "radial-gradient(420px 260px at 50% -10%, oklch(0.75 0.183 55.934 / 0.12), transparent 70%)",
+              "radial-gradient(420px 260px at 50% -10%, oklch(0.62 0.20 255 / 0.12), transparent 70%)",
           }}
         />
         <div className="relative">

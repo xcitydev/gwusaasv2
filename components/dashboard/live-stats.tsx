@@ -24,7 +24,7 @@ function StatsGrid({ stats }: { stats: Stats | null }) {
         const value = stats?.[card.key];
         return (
           <Link key={card.key} href={card.href} className="group block" aria-label={`Open ${card.label}`}>
-            <Card className="relative h-full overflow-hidden transition-colors group-hover:border-primary/50 group-hover:shadow-[0_18px_50px_-30px_rgba(251,146,60,0.22)]">
+            <Card className="relative h-full overflow-hidden transition-colors group-hover:border-primary/50 group-hover:shadow-[0_18px_50px_-30px_rgba(59,130,246,0.22)]">
               <span
                 aria-hidden
                 className="dashboard-card-glow pointer-events-none absolute -right-8 -top-10 size-28 rounded-full bg-gradient-to-br from-primary/25 to-transparent blur-2xl transition-opacity group-hover:opacity-100"
