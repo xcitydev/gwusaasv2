@@ -107,6 +107,8 @@ export function Section({
   eyebrow,
   title,
   accent,
+  accentOnNewLine = false,
+  wideHeading = false,
   description,
   children,
   className,
@@ -117,6 +119,10 @@ export function Section({
   title: ReactNode;
   /** The emotional word — blue gradient, matching the pricing heading. */
   accent?: string;
+  /** Put the blue accent on its own line for stacked headline layouts. */
+  accentOnNewLine?: boolean;
+  /** Give long stacked headlines enough width to hold the main line together. */
+  wideHeading?: boolean;
   description?: string;
   children?: ReactNode;
   className?: string;
@@ -129,6 +135,7 @@ export function Section({
         <Reveal
           className={cn(
             "mb-12 max-w-2xl sm:mb-16",
+            wideHeading && "max-w-4xl",
             align === "center" && "mx-auto text-center",
           )}
         >
@@ -147,13 +154,16 @@ export function Section({
             ) : (
               title
             )}
+            {accent && !accentOnNewLine && " "}
             {accent && (
-              <>
-                {" "}
-                <span className="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">
-                  {accent}
-                </span>
-              </>
+              <span
+                className={cn(
+                  "bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent",
+                  accentOnNewLine && "block",
+                )}
+              >
+                {accent}
+              </span>
             )}
           </h2>
           {description && (

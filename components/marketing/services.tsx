@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentType } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -106,32 +106,11 @@ export const SERVICES: Service[] = [
   },
 ];
 
-/** "Your growth team" — centered headline like the other sections, then an
-    auto-sliding marquee of service cards with live mini-visuals. */
+/** Auto-sliding service cards with live mini-visuals. */
 export function ServiceRail() {
-  const reduce = useReducedMotion();
   return (
-    <section id="services" aria-labelledby="services-title" className="scroll-mt-24 pt-8 sm:pt-12">
-      <div className="mx-auto max-w-2xl text-center">
-        <motion.h2
-          id="services-title"
-          initial={reduce ? false : { opacity: 0, y: 12, filter: "blur(6px)" }}
-          whileInView={reduce ? undefined : { opacity: 1, y: 0, filter: "blur(0px)" }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-          className="text-balance text-3xl font-semibold tracking-tight sm:text-5xl"
-        >
-          Your Entire Growth Team, {" "}
-          <span className="bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent">
-            Powered by AI.
-          </span>
-        </motion.h2>
-        <p className="mt-4 text-pretty text-base text-muted-foreground sm:text-lg">
-          10+ AI services that hand off to each other: a lead found becomes a call booked becomes a client answered.
-        </p>
-      </div>
-
-      <div className="relative mt-10">
+    <section id="services" aria-label="AI services" className="scroll-mt-24">
+      <div className="relative">
         <Marquee duration={70} className="items-stretch">
           {SERVICES.map((s) => (
             <div key={s.id} className="mx-3 w-[78vw] max-w-[300px] shrink-0 sm:w-[300px] lg:w-[318px]">

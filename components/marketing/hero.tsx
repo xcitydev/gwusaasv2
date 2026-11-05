@@ -142,25 +142,31 @@ export function Hero() {
           </TextAnimate>
         )}
 
-        <Enter
-          delay={1.2}
-          className="mt-10 flex flex-col items-center justify-center gap-6 md:flex-row"
-        >
-          <AnimatedGenerateButton
-            href="/sign-up"
-            label="Try now"
-            trailingIcon={<ArrowRight aria-hidden className="size-4" />}
-            className="min-w-[180px]"
-          />
-
-          <BeamButton variant="blue" onClick={seeMore} className="min-w-[180px]">
-            See more
-            <ChevronDown className="size-3.5 transition-transform duration-300 group-hover:translate-y-0.5" />
-          </BeamButton>
-        </Enter>
       </div>
 
-      {/* Services marquee — the reference's dimmed logo wall, holding our services */}
+      {/* The live services carousel now sits directly below the hero copy. */}
+      <div className="relative z-10 mt-8 w-full px-4 sm:px-6 lg:px-9">
+        <ServiceRail />
+      </div>
+
+      <Enter
+        delay={1.2}
+        className="relative z-10 mt-10 flex flex-col items-center justify-center gap-6 md:flex-row"
+      >
+        <AnimatedGenerateButton
+          href="/sign-up"
+          label="Try now"
+          trailingIcon={<ArrowRight aria-hidden className="size-4" />}
+          className="min-w-[180px]"
+        />
+
+        <BeamButton variant="blue" onClick={seeMore} className="min-w-[180px]">
+          See more
+          <ChevronDown className="size-3.5 transition-transform duration-300 group-hover:translate-y-0.5" />
+        </BeamButton>
+      </Enter>
+
+      {/* Keep the original service-name marquee beneath the hero actions. */}
       <div className="relative z-10 mt-20 w-full max-w-6xl px-6">
         <Enter delay={1.35}>
           <p className="text-center text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
@@ -182,11 +188,6 @@ export function Hero() {
             ))}
           </Marquee>
         </Enter>
-      </div>
-
-      {/* "Your growth team" — the full service card rail */}
-      <div className="relative z-10 w-full px-4 sm:px-6 lg:px-9">
-        <ServiceRail />
       </div>
     </section>
   );

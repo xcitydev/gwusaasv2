@@ -16,8 +16,7 @@ import { BRAND } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
-  { label: "Services", href: "#services" },
-  { label: "Your voice", href: "#voice" },
+  { label: "Services", href: "#features" },
   { label: "Studio", href: "/create" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },

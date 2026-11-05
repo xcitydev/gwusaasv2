@@ -576,8 +576,10 @@ export function Features() {
     <Section
       id="features"
       eyebrow="What's inside"
-      title="10+ tools you'd normally rent,"
+      title="10+ tools you'd normally pay for"
       accent="one login."
+      accentOnNewLine
+      wideHeading
       description="Each one runs on its own. Together they hand off to each other: a lead found becomes a call booked becomes a client answered."
       className="relative"
     >
@@ -630,6 +632,7 @@ export function VoiceSection() {
       eyebrow="Clone Your Voice"
       title="Clone your voice once."
       accent="Use it everywhere."
+      accentOnNewLine
       description="Record fifteen seconds. From then on the receptionist, the qualifier and your Instagram voice notes all speak in your voice — set them up to run on auto."
     >
       <Reveal>
