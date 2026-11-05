@@ -1010,7 +1010,7 @@ export function CreateClient() {
   const [tab, setTab] = useState("hub");
   return (
     <Tabs value={tab} onValueChange={setTab}>
-      <TabsList className="mb-4">
+      <TabsList className="no-scrollbar mb-4 max-w-full justify-start overflow-x-auto">
         <TabsTrigger value="hub" className="gap-1.5" data-tour="create-tab-hub">
           <Bot className="size-4" /> AI Hub
         </TabsTrigger>
