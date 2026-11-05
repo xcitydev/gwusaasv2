@@ -82,6 +82,8 @@ export const start = internalMutation({
     prompt: v.string(),
     params: v.any(),
     durationSec: v.optional(v.number()),
+    // fal jobs: the validated size (some models bill by resolution).
+    resolution: v.optional(v.string()),
     // Studio (Higgsfield) jobs: priced from their live /estimate (USD),
     // marked up like everything else.
     provider: v.optional(v.literal("higgsfield")),
@@ -111,6 +113,7 @@ export const start = internalMutation({
             kind: args.kind === "edit" ? "image" : args.kind,
             modelId: args.model,
             durationSec: args.durationSec,
+            resolution: args.resolution,
             markup,
             creditPriceUsd,
           });

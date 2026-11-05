@@ -53,6 +53,13 @@ export type FormDef = {
   successBody?: string;
 };
 
+/**
+ * Instagram account for DM / engagement services. We never collect IG
+ * passwords or 2FA backup codes: the account is connected through the
+ * in-app Instagram connection (Meta authorization). Submissions made before
+ * this change may still hold the old encrypted igPassword / backupCodes
+ * fields — they are left untouched.
+ */
 const IG_CREDENTIAL_FIELDS: FormFieldDef[] = [
   {
     name: "igUsername",
@@ -60,27 +67,10 @@ const IG_CREDENTIAL_FIELDS: FormFieldDef[] = [
     type: "text",
     required: true,
     placeholder: "@username",
-  },
-  {
-    name: "igPassword",
-    label: "Instagram password",
-    type: "password",
-    required: true,
-    placeholder: "••••••••",
-    helper: "Confidential: Only used for automated messaging.",
-    sensitive: true,
-  },
-  {
-    name: "backupCodes",
-    label: "Backup codes",
-    type: "textarea",
-    placeholder: "Enter 8-digit codes (comma separated)",
-    rows: 3,
-    sensitive: true,
     callout: {
-      title: "How to find backup codes",
+      title: "No password needed",
       lines: [
-        "Settings & Privacy → Accounts Center → Password & Security → 2FA → Instagram → Additional Methods → Backup Codes",
+        "Never share your Instagram password or backup codes. Your account is connected securely through the Instagram connection in the app (IG DMs → Connect Instagram), where you authorize access with Meta directly.",
       ],
     },
   },

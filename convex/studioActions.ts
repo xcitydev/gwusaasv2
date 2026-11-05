@@ -365,6 +365,12 @@ export const cancelGeneration = action({
     });
     if (!generation) throw new Error("Not found");
     if (generation.status === "done" || generation.status === "failed") return;
+    // Create with AI (fal) jobs run to completion inside the generate action
+    // and fal bills them regardless — refunding here would hand out the
+    // render for free. They can't be canceled; a failure still refunds.
+    if (generation.provider !== "higgsfield") {
+      throw new Error("This job is already rendering — it can't be canceled now.");
+    }
     const params = paramsOf(generation);
     if (params.hfCancelUrl) {
       try {

@@ -4,13 +4,20 @@ import {
   internalQuery,
   mutation,
   type QueryCtx,
+  type MutationCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { igPriorityValidator, igStageValidator } from "./schema";
-import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
+import {
+  getCurrentUser,
+  requireUser,
+  requireAdmin,
+  getPrimaryWorkspace,
+} from "./lib/auth";
+import { secureToken } from "./lib/tokens";
 import { spendCredits, grantCredits } from "./lib/credits";
 import { getConfigValue } from "./config";
 import { notify } from "./notifications";
@@ -432,6 +439,42 @@ export const setCopilotSettings = mutation({
 
 const ghlRole = v.union(v.literal("provisioner"), v.literal("messenger"));
 
+/** Lifetime of an admin-minted GHL install state. */
+const GHL_STATE_TTL_MS = 30 * 60_000;
+
+/**
+ * Admin starts the agency install: a one-shot state the OAuth callback must
+ * present. Without it any code exchange (anyone can run GHL's install flow
+ * against our client id) would overwrite the platform-wide tokens.
+ */
+export const createGhlOauthState = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<string> => {
+    const admin = await requireAdmin(ctx);
+    const state = secureToken(43);
+    await ctx.db.insert("ghlOauthStates", {
+      state,
+      userId: admin._id,
+      expiresAt: Date.now() + GHL_STATE_TTL_MS,
+    });
+    return state;
+  },
+});
+
+/** Callback side: valid once, before it expires. */
+export const consumeGhlOauthState = internalMutation({
+  args: { state: v.string() },
+  handler: async (ctx, args): Promise<boolean> => {
+    const row = await ctx.db
+      .query("ghlOauthStates")
+      .withIndex("by_state", (q) => q.eq("state", args.state))
+      .first();
+    if (!row) return false;
+    await ctx.db.delete(row._id);
+    return row.expiresAt > Date.now();
+  },
+});
+
 export const getAgencyAuth = internalQuery({
   args: { role: ghlRole },
   handler: async (ctx, args) => {
@@ -524,7 +567,48 @@ export const getAccountByLocation = internalQuery({
   },
 });
 
-/** Webhook ingest: upsert conversation + append message. */
+/** Webhook bursts within this window share one triage run. */
+const TRIAGE_MIN_GAP_MS = 20_000;
+
+/**
+ * Coalesced triage: if a run is already queued for the future it will read
+ * the newest messages anyway, so nothing more is scheduled; otherwise the
+ * next run goes out no sooner than TRIAGE_MIN_GAP_MS after the previous one.
+ * Caps AI spend per conversation however fast messages (or forged webhooks)
+ * arrive.
+ */
+async function queueTriage(
+  ctx: MutationCtx,
+  conversation: Pick<Doc<"igConversations">, "_id" | "triageScheduledFor">,
+): Promise<void> {
+  const now = Date.now();
+  const last = conversation.triageScheduledFor ?? 0;
+  if (last > now) return;
+  const runAt = Math.max(now, last + TRIAGE_MIN_GAP_MS);
+  await ctx.db.patch(conversation._id, { triageScheduledFor: runAt });
+  await ctx.scheduler.runAfter(runAt - now, internal.igAi.triageConversation, {
+    conversationId: conversation._id,
+  });
+}
+
+/** The location's conversation with this GHL id — never another workspace's. */
+async function conversationByGhlId(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  ghlConversationId: string,
+) {
+  return await ctx.db
+    .query("igConversations")
+    .withIndex("by_ghl", (q) => q.eq("ghlConversationId", ghlConversationId))
+    .filter((q) => q.eq(q.field("workspaceId"), workspaceId))
+    .first();
+}
+
+/**
+ * Webhook ingest: upsert conversation + append message. Returns the
+ * conversation (and whether its contact still needs a name), or null when
+ * the location isn't one of ours.
+ */
 export const ingestInbound = internalMutation({
   args: {
     ghlLocationId: v.string(),
@@ -534,24 +618,27 @@ export const ingestInbound = internalMutation({
     body: v.string(),
     sentAt: v.number(),
   },
-  handler: async (ctx, args): Promise<boolean> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ conversationId: Id<"igConversations">; needsName: boolean } | null> => {
     const account = await ctx.db
       .query("igAccounts")
       .withIndex("by_location", (q) =>
         q.eq("ghlLocationId", args.ghlLocationId),
       )
       .first();
-    if (!account) return false; // not one of ours — drop
+    if (!account) return null; // not one of ours — drop
     // First inbound DM proves the IG connection is live.
     if (account.status !== "connected") {
       await ctx.db.patch(account._id, { status: "connected" });
     }
-    const conversation = await ctx.db
-      .query("igConversations")
-      .withIndex("by_ghl", (q) =>
-        q.eq("ghlConversationId", args.ghlConversationId),
-      )
-      .first();
+    const conversation = await conversationByGhlId(
+      ctx,
+      account.workspaceId,
+      args.ghlConversationId,
+    );
+    const needsName = !conversation?.contactName;
     let conversationId: Id<"igConversations">;
     if (conversation) {
       conversationId = conversation._id;
@@ -581,7 +668,9 @@ export const ingestInbound = internalMutation({
         )
         .order("desc")
         .take(20);
-      if (recent.some((m) => m.ghlMessageId === args.ghlMessageId)) return true;
+      if (recent.some((m) => m.ghlMessageId === args.ghlMessageId)) {
+        return { conversationId, needsName };
+      }
     }
     await ctx.db.insert("igMessages", {
       workspaceId: account.workspaceId,
@@ -592,10 +681,11 @@ export const ingestInbound = internalMutation({
       sentAt: args.sentAt,
     });
     // Triage (and autopilot, when on) runs off the webhook, not in it.
-    await ctx.scheduler.runAfter(0, internal.igAi.triageConversation, {
-      conversationId,
+    await queueTriage(ctx, {
+      _id: conversationId,
+      triageScheduledFor: conversation?.triageScheduledFor,
     });
-    return true;
+    return { conversationId, needsName };
   },
 });
 
@@ -759,12 +849,18 @@ export const flagNeedsHuman = internalMutation({
 // ── Voice-note billing ──────────────────────────────────────────────────
 
 export const chargeVoiceNote = internalMutation({
-  args: { chars: v.number() },
+  args: { chars: v.number(), elevenLabs: v.optional(v.boolean()) },
   handler: async (ctx, args): Promise<{ credits: number }> => {
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
-    const rate = await getConfigValue(ctx, "voiceNoteCreditsPer1kChars");
+    // ElevenLabs costs us ~5× Bland per character — its own rate.
+    const rate = await getConfigValue(
+      ctx,
+      args.elevenLabs
+        ? "voiceNoteCreditsPer1kCharsElevenLabs"
+        : "voiceNoteCreditsPer1kChars",
+    );
     const credits = Math.max(1, Math.ceil((args.chars / 1000) * rate));
     await spendCredits(ctx, {
       workspaceId: workspace._id,
@@ -888,12 +984,11 @@ export const upsertSyncedConversation = internalMutation({
     if (account.status !== "connected") {
       await ctx.db.patch(account._id, { status: "connected" });
     }
-    const existing = await ctx.db
-      .query("igConversations")
-      .withIndex("by_ghl", (q) =>
-        q.eq("ghlConversationId", args.ghlConversationId),
-      )
-      .first();
+    const existing = await conversationByGhlId(
+      ctx,
+      account.workspaceId,
+      args.ghlConversationId,
+    );
     if (existing) {
       const newer = args.lastMessageAt > existing.lastMessageAt;
       await ctx.db.patch(existing._id, {
@@ -997,8 +1092,10 @@ export const recordOutbound = internalMutation({
     senderId: v.optional(v.id("users")),
     kind: v.optional(messageKindValidator),
     audioStorageId: v.optional(v.id("_storage")),
+    // Autopilot: this message carried the AI-assistant disclosure.
+    markAiDisclosed: v.optional(v.boolean()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, { markAiDisclosed, ...args }) => {
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) return;
     const now = Date.now();
@@ -1022,6 +1119,53 @@ export const recordOutbound = internalMutation({
       lastDirection: "outbound",
       // A human answering resolves an autopilot hand-off.
       ...(sentBy === "human" && { needsHuman: false, needsHumanReason: undefined }),
+      ...(markAiDisclosed && !conversation.aiDisclosedAt && { aiDisclosedAt: now }),
     });
+  },
+});
+
+// ── Voice-note renders (what /crm/audio may serve) ──────────────────────
+
+/** Remember a render as the caller's workspace's own. */
+export const registerVoiceNote = internalMutation({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    if (!workspace) throw new Error("No workspace");
+    await ctx.db.insert("igVoiceNotes", {
+      workspaceId: workspace._id,
+      storageId: args.storageId,
+    });
+  },
+});
+
+/** /crm/audio: only registered voice-note renders are public. */
+export const isVoiceNote = internalQuery({
+  args: { storageId: v.string() },
+  handler: async (ctx, args): Promise<boolean> => {
+    const storageId = ctx.db.system.normalizeId("_storage", args.storageId);
+    if (!storageId) return false;
+    const row = await ctx.db
+      .query("igVoiceNotes")
+      .withIndex("by_storage", (q) => q.eq("storageId", storageId))
+      .first();
+    return Boolean(row);
+  },
+});
+
+/** sendVoiceNote's reuse of a preview: it must be the caller's own render. */
+export const callerOwnsVoiceNote = internalQuery({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args): Promise<boolean> => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return false;
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    if (!workspace) return false;
+    const row = await ctx.db
+      .query("igVoiceNotes")
+      .withIndex("by_storage", (q) => q.eq("storageId", args.storageId))
+      .first();
+    return row?.workspaceId === workspace._id;
   },
 });

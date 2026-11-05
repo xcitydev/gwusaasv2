@@ -36,6 +36,7 @@ import {
   ACTIVE_STATUSES,
   type MeetingStatus,
 } from "../lib/note-taker";
+import { encryptString, decryptString } from "./lib/crypto";
 
 /**
  * AI Note Taker — bot lifecycle. Send a bot (now / at a time / from a
@@ -71,8 +72,12 @@ function behaviorFor(info: DispatchInfo): Record<string, unknown> {
   const site = process.env.CONVEX_SITE_URL?.replace(/\/$/, "");
   const appUrl = process.env.APP_URL?.replace(/\/$/, "");
   const coach = settings.coachEnabled && meeting.coachToken;
+  // The realtime feed gets its own write token; the coach token is the
+  // public card URL everyone on the call can see. Rows from before the
+  // split fall back to the coach token (ingestRealtime accepts it for them).
+  const writeToken = meeting.realtimeToken ?? meeting.coachToken;
   const realtimeWebhookUrl =
-    coach && site ? `${site}/notes/realtime?token=${meeting.coachToken}` : null;
+    coach && site ? `${site}/notes/realtime?token=${writeToken}` : null;
   const outputMediaUrl =
     coach && settings.coachTile && appUrl ? `${appUrl}/coach/${meeting.coachToken}` : null;
   return botBehavior({
@@ -83,9 +88,9 @@ function behaviorFor(info: DispatchInfo): Record<string, unknown> {
       meetingId: meeting._id,
       workspaceId: meeting.workspaceId,
     },
-    announce: settings.announce
-      ? `${settings.botName} is recording and taking notes for this meeting. The host can remove me at any time.`
-      : null,
+    // Always on: recording-consent laws (two-party states, GDPR) need the
+    // room told, by whom and for whom. Not a user setting.
+    announce: `${settings.botName} is recording and transcribing this meeting on behalf of ${info.hostName}. The host can remove me at any time.`,
     retentionHours: settings.retentionDays * 24,
     maxRecordingSec: info.maxRecordingSec,
   });
@@ -398,6 +403,26 @@ export const pollMeeting = internalAction({
       console.error("Note taker poll failed:", error);
     }
     if (outcome.finalized || !isLive(outcome.status)) return;
+    // Out of credits mid-call: pull the bot rather than record minutes the
+    // workspace can't pay for (storeRecording only bills what's left).
+    if (outcome.status === "recording" && meeting.recallBotId) {
+      const budget = await ctx.runQuery(internal.noteTaker.getRecordingBudget, {
+        meetingId: args.meetingId,
+      });
+      const since = meeting.startedAt ?? Date.now();
+      const owedSoFar = Math.ceil((Date.now() - since) / 60_000) * (budget?.rate ?? 0);
+      if (budget && budget.rate > 0 && owedSoFar >= budget.credits) {
+        try {
+          await leaveCall(meeting.recallBotId);
+          await ctx.runMutation(internal.noteTaker.patchMeeting, {
+            meetingId: args.meetingId,
+            statusDetail: "Out of credits — the bot left the call",
+          });
+        } catch (error) {
+          console.error("Note taker: out-of-credits leave failed", error);
+        }
+      }
+    }
     const polls = (meeting.pollCount ?? 0) + 1;
     if (polls > MAX_POLLS) {
       await ctx.runMutation(internal.noteTaker.patchMeeting, {
@@ -633,10 +658,15 @@ export const calendarConnectUrl = action({
   },
 });
 
-/** OAuth callback: code → refresh token → Recall calendar → first sync. */
+/**
+ * OAuth callback: code → refresh token, parked (encrypted) as a pending
+ * grant. Returns the nonce the callback redirects the browser with; the
+ * calendar is only attached once its owner confirms in-app
+ * (confirmCalendarConnect) — see createPendingCalendar for why.
+ */
 export const completeCalendarConnect = internalAction({
   args: { provider: providerValidator, code: v.string(), state: v.string() },
-  handler: async (ctx, args): Promise<void> => {
+  handler: async (ctx, args): Promise<string> => {
     const owner = await ctx.runMutation(internal.noteTaker.consumeOauthState, {
       state: args.state,
     });
@@ -667,15 +697,48 @@ export const completeCalendarConnect = internalAction({
         "No refresh token came back — remove this app's access in your account's security settings, then connect again.",
       );
     }
+    return await ctx.runMutation(internal.noteTaker.createPendingCalendar, {
+      userId: owner.userId,
+      workspaceId: owner.workspaceId,
+      platform: config.platform,
+      refreshTokenEncrypted: await encryptString(tokens.refresh_token),
+    });
+  },
+});
+
+/**
+ * In-app confirmation (/note-taker/connect?nonce=…): the signed-in user must
+ * be the one who started the flow. Then: refresh token → Recall calendar →
+ * first sync.
+ */
+export const confirmCalendarConnect = action({
+  args: { nonce: v.string() },
+  handler: async (ctx, args): Promise<{ email: string | null }> => {
+    if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    const pending = await ctx.runMutation(internal.noteTaker.claimPendingCalendar, {
+      nonce: args.nonce,
+    });
+    if (!pending.ok) {
+      throw new Error(
+        pending.reason === "wrong_user"
+          ? "This calendar connection was started from a different account. Sign in as that account, or start the connection again yourself."
+          : "This link expired — start the connection again.",
+      );
+    }
+    const provider = pending.platform === "google_calendar" ? "google" : "microsoft";
+    const config = OAUTH[provider];
+    const clientId = config.clientId();
+    const clientSecret = config.clientSecret();
+    if (!clientId || !clientSecret) throw new Error("Calendar connect isn't configured.");
     const calendar = await createCalendar({
       platform: config.platform,
       oauthClientId: clientId,
       oauthClientSecret: clientSecret,
-      oauthRefreshToken: tokens.refresh_token,
+      oauthRefreshToken: await decryptString(pending.refreshTokenEncrypted),
     });
     const calendarDocId = await ctx.runMutation(internal.noteTaker.insertCalendar, {
-      workspaceId: owner.workspaceId,
-      userId: owner.userId,
+      workspaceId: pending.workspaceId,
+      userId: pending.userId,
       platform: config.platform,
       recallCalendarId: calendar.id,
       email: calendar.platform_email ?? undefined,
@@ -684,6 +747,7 @@ export const completeCalendarConnect = internalAction({
     await ctx.scheduler.runAfter(20_000, internal.noteTakerActions.syncCalendar, {
       calendarDocId,
     });
+    return { email: calendar.platform_email ?? null };
   },
 });
 
@@ -925,6 +989,11 @@ export const setEventRecording = action({
     const data = await loadCalendar(ctx, args.calendarDocId);
     if (!data) throw new Error("Calendar not found");
     const event = await getCalendarEvent(args.eventId);
+    // The event id comes from the client: it must live on THIS calendar, or
+    // anyone could schedule/cancel bots on other workspaces' events.
+    if (event.calendar_id !== data.calendar.recallCalendarId) {
+      throw new Error("Event not found");
+    }
     if (args.record) {
       if (!event.meeting_url) throw new Error("That event has no meeting link");
       await reconcileEvent(ctx, data, event, true);
@@ -984,14 +1053,63 @@ function calcomMeetingUrl(payload: Record<string, unknown>): string | null {
   return null;
 }
 
+/** Cal.com's X-Cal-Signature-256: hex HMAC-SHA256 of the raw body. */
+async function calcomSignatureValid(
+  secret: string,
+  rawBody: string,
+  signature: string,
+): Promise<boolean> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = new Uint8Array(
+    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody)),
+  );
+  const expected = Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("");
+  const given = signature.trim().toLowerCase().replace(/^sha256=/, "");
+  if (given.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ given.charCodeAt(i);
+  return diff === 0;
+}
+
 export const onCalcomBooking = internalAction({
-  args: { token: v.string(), body: v.any() },
+  args: {
+    token: v.string(),
+    body: v.any(),
+    // Raw body + X-Cal-Signature-256, for workspaces with a signing secret.
+    rawBody: v.optional(v.string()),
+    signature: v.optional(v.string()),
+  },
   handler: async (ctx, args): Promise<void> => {
     if (!recallConfigured()) return;
     const owner = await ctx.runQuery(internal.noteTaker.getWorkspaceByCalcomToken, {
       token: args.token,
     });
     if (!owner) return;
+    if (owner.calcomSecret) {
+      const signed = Boolean(args.signature && /^(sha256=)?[0-9a-f]{64}$/i.test(args.signature.trim()));
+      if (signed) {
+        const valid = await calcomSignatureValid(owner.calcomSecret, args.rawBody ?? "", args.signature!);
+        if (!valid) {
+          console.warn("CALCOM-WEBHOOK: rejected, bad signature for workspace", owner.workspaceId);
+          return;
+        }
+        // Signing is set up on the Cal.com side — enforce it from now on.
+        if (!owner.calcomSecretVerified) {
+          await ctx.runMutation(internal.noteTaker.markCalcomSecretVerified, {
+            workspaceId: owner.workspaceId,
+          });
+        }
+      } else if (owner.calcomSecretVerified) {
+        console.warn("CALCOM-WEBHOOK: rejected, unsigned delivery for workspace", owner.workspaceId);
+        return;
+      }
+    }
     const body = (args.body ?? {}) as Record<string, unknown>;
     const trigger = String(body.triggerEvent ?? "");
     const payload = (body.payload ?? {}) as Record<string, unknown>;

@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Coins,
   CreditCard,
+  ExternalLink,
   Loader2,
   Plug,
   UserRound,
@@ -34,6 +35,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { errorText } from "@/lib/public-errors";
 import { BeamButton } from "@/components/marketing/beam-button";
+import Link from "next/link";
+import { LEGAL_LINKS, WHOP_MANAGE_URL } from "@/lib/legal";
 
 const PLANS = [
   {
@@ -53,7 +56,7 @@ const PLANS = [
       "Create with AI & AI tools",
       "AI receptionist & qualifier",
       "10,000 credits included",
-      "50% referral earnings",
+      "15% referral commissions",
     ],
   },
   {
@@ -143,6 +146,10 @@ function WhopPlanCards({
 }) {
   const startCheckout = useAction(api.whopActions.startPlanCheckout);
   const [busy, setBusy] = useState<string | null>(null);
+  // Plan prices live in admin config (same source as the /welcome quiz).
+  const config = useQuery(api.config.getAll);
+  const priceFor = (id: string): number | null =>
+    !config ? null : id === "personal" ? config.personalPlanPriceUsd : id === "team" ? config.teamPlanPriceUsd : null;
 
   const upgrade = async (plan: "personal" | "team") => {
     setBusy(plan);
@@ -170,27 +177,60 @@ function WhopPlanCards({
             plan={plan}
             isCurrent={isCurrent}
             action={
-              !isCurrent && plan.id !== "free" ? (
-                <BeamButton
-                  variant={plan.id === "personal" ? "orange" : "white"}
-                  className="w-full"
-                  disabled={busy !== null || !isOwner}
-                  title={isOwner ? undefined : "Only the workspace owner can upgrade"}
-                  onClick={() => void upgrade(plan.id as "personal" | "team")}
-                >
-                  {busy === plan.id ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <CreditCard className="size-4" />
-                  )}
-                  Upgrade
-                </BeamButton>
-              ) : undefined
+              plan.id === "free" ? undefined : isCurrent ? (
+                // Auto-renewal disclosure + a working cancel path (Whop portal).
+                <div className="space-y-2">
+                  <a
+                    href={WHOP_MANAGE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex w-full items-center justify-center gap-2 border border-white/15 px-4 py-2 text-sm text-white transition hover:border-white/30"
+                  >
+                    Manage or cancel subscription <ExternalLink className="size-3.5" />
+                  </a>
+                  <RenewalNote price={priceFor(plan.id)} />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <BeamButton
+                    variant={plan.id === "personal" ? "orange" : "white"}
+                    className="w-full"
+                    disabled={busy !== null || !isOwner}
+                    title={isOwner ? undefined : "Only the workspace owner can upgrade"}
+                    onClick={() => void upgrade(plan.id as "personal" | "team")}
+                  >
+                    {busy === plan.id ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="size-4" />
+                    )}
+                    Upgrade
+                  </BeamButton>
+                  <RenewalNote price={priceFor(plan.id)} />
+                </div>
+              )
             }
           />
         );
       })}
     </div>
+  );
+}
+
+/** Price, renewal period and how to cancel — shown under every paid plan action. */
+function RenewalNote({ price }: { price: number | null }) {
+  return (
+    <p className="text-center text-xs leading-relaxed text-zinc-400">
+      {price !== null && <span className="font-medium text-white">${price}/month · </span>}
+      Renews monthly until cancelled. Cancel any time via{" "}
+      <a href={WHOP_MANAGE_URL} target="_blank" rel="noopener noreferrer" className="text-orange-300 hover:underline">
+        Manage subscription
+      </a>{" "}
+      — access continues to the end of the paid period.{" "}
+      <Link href={LEGAL_LINKS.cancel} target="_blank" className="text-orange-300 hover:underline">
+        Terms
+      </Link>
+    </p>
   );
 }
 

@@ -93,6 +93,8 @@ function InboxesTabLive() {
   const removeInbox = useMutation(api.outreach.removeInbox);
   const toggleWarmup = useAction(api.outreachActions.toggleWarmup);
   const syncNow = useAction(api.outreachActions.syncNow);
+  // Sync runs the platform-wide engine, so it is an admin-only control.
+  const me = useQuery(api.users.me);
   const [syncing, setSyncing] = useState(false);
 
   const [dialog, setDialog] = useState<null | "oauth" | "imap" | "prewarmed">(null);
@@ -226,6 +228,7 @@ function InboxesTabLive() {
           {inboxes.filter((i) => i.status === "warmed").length} warmed
         </p>
         <div className="flex items-center gap-2">
+        {me?.adminRole && (
         <Button
           variant="outline"
           size="sm"
@@ -249,6 +252,7 @@ function InboxesTabLive() {
           {syncing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
           Sync
         </Button>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button data-tour="outreach-add-inboxes">

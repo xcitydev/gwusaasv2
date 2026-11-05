@@ -64,6 +64,12 @@ const CONFIG_META: {
     kind: "number",
   },
   {
+    key: "studioNumberPriceUsd",
+    label: "Studio HD phone number price (USD)",
+    help: "Numbers for ElevenLabs calling, bought on Twilio and charged once in credits at purchase.",
+    kind: "number",
+  },
+  {
     key: "voiceCreditsPerSecond",
     label: "Voice credits per second",
     help: "Receptionist and qualifier call billing rate.",
@@ -73,6 +79,24 @@ const CONFIG_META: {
     key: "voiceNoteCreditsPer1kChars",
     label: "Voice-note credits per 1k characters",
     help: "Instagram DM voice notes, billed on the spoken script length.",
+    kind: "number",
+  },
+  {
+    key: "voiceNoteCreditsPer1kCharsElevenLabs",
+    label: "Voice-note credits per 1k characters (Studio HD voice)",
+    help: "Voice notes spoken in a Studio HD (ElevenLabs) clone — costs us more per character.",
+    kind: "number",
+  },
+  {
+    key: "elevenLabsVoiceSlots",
+    label: "Studio HD voices loaded at once",
+    help: "Match the ElevenLabs plan's voice slots, minus a couple of spares (Creator 30, Pro 160, Scale 660). Customers keep every clone — the least recently used is unloaded and reloads on next use.",
+    kind: "number",
+  },
+  {
+    key: "blandVoiceSlots",
+    label: "Standard (Bland) cloned voices loaded at once",
+    help: "Match the Bland plan's voice-clone limit (Start 1). Voices on live receptionists and running campaigns are never unloaded.",
     kind: "number",
   },
   {

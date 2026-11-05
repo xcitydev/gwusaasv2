@@ -2,17 +2,12 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { MutationCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
-import { requireUser } from "./lib/auth";
+import { getCurrentUser, requireUser } from "./lib/auth";
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return [];
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .unique();
+    const user = await getCurrentUser(ctx);
     if (!user) return [];
     return await ctx.db
       .query("notifications")
@@ -25,12 +20,7 @@ export const list = query({
 export const unreadCount = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return 0;
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .unique();
+    const user = await getCurrentUser(ctx);
     if (!user) return 0;
     const unread = await ctx.db
       .query("notifications")

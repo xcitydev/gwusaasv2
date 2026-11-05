@@ -1,6 +1,6 @@
 import { SignUp } from "@clerk/nextjs";
 import { SetupNotice } from "@/components/setup-notice";
-import { AuthIntro, AuthSwitch, AuthTrust } from "@/components/auth/auth-intro";
+import { AuthIntro, AuthLegalNotice, AuthSwitch, AuthTrust } from "@/components/auth/auth-intro";
 import { authAppearance } from "@/components/auth/appearance";
 import { isConfigured } from "@/lib/runtime";
 
@@ -10,6 +10,7 @@ export default function SignUpPage() {
     <>
       <AuthIntro mode="sign-up" />
       <SignUp appearance={authAppearance} />
+      <AuthLegalNotice />
       <AuthSwitch mode="sign-up" />
       <AuthTrust />
     </>

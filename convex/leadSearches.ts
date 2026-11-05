@@ -2,6 +2,9 @@ import { query, mutation, internalMutation, internalQuery } from "./_generated/s
 import { publicRowError } from "./incidents";
 import { v } from "convex/values";
 import { requireUser, getCurrentUser, getPrimaryWorkspace } from "./lib/auth";
+import { assertPlanDb } from "./lib/plan";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { getConfigValue, ConfigKey } from "./config";
 import { spendCredits } from "./lib/credits";
 import { leadSourceMeta } from "../lib/lead-sources";
@@ -23,6 +26,29 @@ export type SearchResultRow = FoundLead & {
 /** A search that has been "running" longer than this is treated as stuck. */
 const STUCK_AFTER_MS = 20 * 60 * 1000;
 
+const ONE_AT_A_TIME =
+  "You already have a lead search running — wait for it to finish, then search again.";
+
+/** Another non-stuck search is running in this workspace (optionally ignoring one). */
+async function hasRunningSearch(
+  ctx: QueryCtx | MutationCtx,
+  workspaceId: Id<"workspaces">,
+  exceptId?: Id<"leadSearches">,
+): Promise<boolean> {
+  const recent = await ctx.db
+    .query("leadSearches")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .order("desc")
+    .take(10);
+  const now = Date.now();
+  return recent.some(
+    (s) =>
+      s._id !== exceptId &&
+      s.status === "running" &&
+      now - s._creationTime < STUCK_AFTER_MS,
+  );
+}
+
 /** Legacy rows predate rowId; their array position is stable (never merged). */
 const rowIdOf = (row: SearchResultRow, i: number) => row.rowId ?? `i${i}`;
 
@@ -39,16 +65,10 @@ export const prepare = internalQuery({
     if (!workspace) throw new Error("No workspace");
     const costTier = leadSourceMeta(args.source).costTier;
     const costPerLead = Number(await getConfigValue(ctx, costTier as ConfigKey)) || 1;
-    const recent = await ctx.db
-      .query("leadSearches")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-      .order("desc")
-      .take(10);
-    const now = Date.now();
-    const running = recent.some(
-      (s) => s.status === "running" && now - s._creationTime < STUCK_AFTER_MS,
-    );
-    return { workspaceId: workspace._id, credits: workspace.credits, costPerLead, running };
+    // Early, friendly answer only — createSearch/startExtend re-check
+    // atomically, so two racing searches can't both start.
+    const running = await hasRunningSearch(ctx, workspace._id);
+    return { userId: user._id, workspaceId: workspace._id, credits: workspace.credits, costPerLead, running };
   },
 });
 
@@ -65,6 +85,9 @@ export const createSearch = internalMutation({
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
+    // Check-and-create in one transaction: the one-at-a-time rule holds
+    // even when two searches are fired at once.
+    if (await hasRunningSearch(ctx, workspace._id)) throw new Error(ONE_AT_A_TIME);
     const costTier = leadSourceMeta(args.source).costTier;
     const creditCostPerLead = await getConfigValue(ctx, costTier as ConfigKey);
     return await ctx.db.insert("leadSearches", {
@@ -188,6 +211,9 @@ export const startExtend = internalMutation({
   handler: async (ctx, args) => {
     const search = await ctx.db.get(args.id);
     if (!search) throw new Error("Search not found");
+    if (search.status === "running" || (await hasRunningSearch(ctx, search.workspaceId, args.id))) {
+      throw new Error(ONE_AT_A_TIME);
+    }
     await ctx.db.patch(args.id, { status: "running", extending: true, warning: undefined });
   },
 });
@@ -286,6 +312,8 @@ export const importFromSearch = mutation({
   args: { id: v.id("leadSearches"), rowIds: v.array(v.string()) },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
+    // Same wall as the search itself: importing leads is a paid-plan feature.
+    await assertPlanDb(ctx, "personal", "Scrape Leads");
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
     const search = await ctx.db.get(args.id);

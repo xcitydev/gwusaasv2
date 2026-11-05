@@ -25,7 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { friendlyError, type Overview } from "./shared";
 
 function CopyField({ value, label }: { value: string; label: string }) {
@@ -60,7 +59,6 @@ export function NoteTakerSettings({ overview }: { overview: Overview }) {
 
   const [open, setOpen] = useState(false);
   const [botName, setBotName] = useState(settings.botName);
-  const [announce, setAnnounce] = useState(settings.announce);
   const [audience, setAudience] = useState(settings.recapAudience);
   const [extras, setExtras] = useState(settings.recapExtraEmails.join(", "));
   const [retention, setRetention] = useState(String(settings.retentionDays));
@@ -72,7 +70,6 @@ export function NoteTakerSettings({ overview }: { overview: Overview }) {
   const handleOpenChange = (next: boolean) => {
     if (next) {
       setBotName(settings.botName);
-      setAnnounce(settings.announce);
       setAudience(settings.recapAudience);
       setExtras(settings.recapExtraEmails.join(", "));
       setRetention(String(settings.retentionDays));
@@ -86,7 +83,6 @@ export function NoteTakerSettings({ overview }: { overview: Overview }) {
     try {
       await save({
         botName,
-        announce,
         recapAudience: audience,
         recapExtraEmails: extras.split(/[,\s]+/).filter(Boolean),
         retentionDays: Number(retention) || 30,
@@ -148,23 +144,21 @@ export function NoteTakerSettings({ overview }: { overview: Overview }) {
               <Input
                 id="nt-bot-name"
                 value={botName}
-                maxLength={100}
+                maxLength={80}
                 onChange={(e) => setBotName(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                Always shown with &ldquo;Notetaker&rdquo; at the end, so nobody
+                mistakes the bot for a person.
+              </p>
             </div>
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
-              <div>
-                <p className="text-sm font-medium">Announce the recording</p>
-                <p className="text-xs text-muted-foreground">
-                  Posts a chat message on joining so everyone knows notes are
-                  being taken. Recommended — recording-consent rules vary.
-                </p>
-              </div>
-              <Switch
-                checked={announce}
-                onCheckedChange={setAnnounce}
-                aria-label="Announce the recording"
-              />
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-sm font-medium">Recording announcement — always on</p>
+              <p className="text-xs text-muted-foreground">
+                On joining, the bot tells everyone in the meeting chat that it
+                is recording and transcribing on your behalf. Recording-consent
+                laws require this, so it can&apos;t be switched off.
+              </p>
             </div>
           </section>
 
@@ -307,6 +301,17 @@ export function NoteTakerSettings({ overview }: { overview: Overview }) {
             </p>
             {overview.calcomWebhookUrl ? (
               <CopyField value={overview.calcomWebhookUrl} label="Cal.com webhook URL" />
+            ) : null}
+            {overview.calcomWebhookUrl && settings.calcomSecret ? (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">
+                  Paste this into the webhook&apos;s <em>Secret</em> field in
+                  Cal.com. Once a signed booking arrives, unsigned ones are
+                  rejected.
+                  {settings.calcomSecretVerified && " Signing is active."}
+                </p>
+                <CopyField value={settings.calcomSecret} label="Cal.com webhook secret" />
+              </div>
             ) : null}
             <Button
               variant="outline"

@@ -250,7 +250,7 @@ export function Statement() {
                 <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
                 <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
               </span>
-              New · AI Note Taker & Higgsfield Studio
+              New · AI Note Taker & Higgsfield models in Studio
             </Eyebrow>
           </motion.div>
           <h2 className="mt-6 text-balance text-4xl font-semibold leading-[1.04] tracking-tight sm:text-6xl">

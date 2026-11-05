@@ -69,6 +69,10 @@ export default defineSchema({
         at: v.number(),
       }),
     ),
+    // Clickwrap: when (and which version of) the Terms + Privacy Policy this
+    // user accepted. Set by legal.acceptTerms; see lib/legal TERMS_VERSION.
+    termsAcceptedAt: v.optional(v.number()),
+    termsVersion: v.optional(v.string()),
   })
     .index("by_clerk_id", ["clerkId"])
     .index("by_email", ["email"])
@@ -93,6 +97,9 @@ export default defineSchema({
     planNote: v.optional(v.string()),
     // Outreach settings
     forwardRepliesTo: v.optional(v.string()),
+    // Sender postal address printed in every campaign email (CAN-SPAM);
+    // campaigns can't go live without it.
+    postalAddress: v.optional(v.string()),
     /** Cached count of distinct leads enrolled in non-archived campaigns (platform pool). */
     outreachContacts: v.optional(v.number()),
   })
@@ -131,6 +138,8 @@ export default defineSchema({
       v.literal("accepted"),
       v.literal("revoked"),
     ),
+    // Missing on legacy rows: those expire a week after _creationTime.
+    expiresAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_token", ["token"])
@@ -192,7 +201,15 @@ export default defineSchema({
       v.literal("refunded"),
     ),
     meta: v.optional(v.any()),
-  }).index("by_workspace", ["workspaceId"]),
+    // Whop payment behind this purchase — how refunds/disputes find it.
+    whopPaymentId: v.optional(v.string()),
+    // Credits granted by this payment (plan grant or top-up total).
+    creditsGranted: v.optional(v.number()),
+    // Cumulative USD refunded/disputed so far (partial refunds claw back the delta).
+    refundedUsd: v.optional(v.number()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_whop_payment", ["whopPaymentId"]),
 
   referrals: defineTable({
     referrerUserId: v.id("users"),
@@ -231,7 +248,16 @@ export default defineSchema({
     paymentUsd: v.number(),
     percent: v.number(),
     amountUsd: v.number(),
-    status: v.union(v.literal("owed"), v.literal("paid")),
+    // pending → owed once the refund window passes (availableAt); void when
+    // the payment is refunded/disputed or turns out to be a self-referral.
+    status: v.union(
+      v.literal("pending"),
+      v.literal("owed"),
+      v.literal("paid"),
+      v.literal("void"),
+    ),
+    availableAt: v.optional(v.number()),
+    voidReason: v.optional(v.string()),
     paidAt: v.optional(v.number()),
   })
     .index("by_referral", ["referralId"])
@@ -379,9 +405,48 @@ export default defineSchema({
     // name + company + title + industry + location, for keyword matching.
     searchText: v.string(),
     scrapedAt: v.number(),
+    // Where the row came from ("apify:google_maps", "apify:linkedin",
+    // "explorium", …) — `source` is the search type. Older rows lack it.
+    provider: v.optional(v.string()),
+    // phoneLeadKey(phone), so a phone opt-out finds every row with that number.
+    phoneKey: v.optional(v.string()),
   })
     .index("by_source_key", ["source", "dedupeKey"])
+    .index("by_email", ["email"])
+    .index("by_phone_key", ["phoneKey"])
+    .index("by_scraped_at", ["scrapedAt"])
     .searchIndex("search_text", { searchField: "searchText", filterFields: ["source"] }),
+
+  // ── Privacy / anti-spam ─────────────────────────────────────────────────
+  // Addresses that must never be emailed again through the platform.
+  // Unsubscribes and public opt-outs are global (no workspaceId).
+  emailSuppressions: defineTable({
+    email: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
+    reason: v.union(v.literal("unsubscribed"), v.literal("opt_out"), v.literal("manual")),
+    createdAt: v.number(),
+  }).index("by_email", ["email"]),
+
+  // Public /opt-out requests: people asking to be removed from lead data.
+  // Phone-only opt-outs are matched by phoneKey; the IG handle is recorded
+  // for manual follow-up (the library has no IG handle column).
+  dataOptOuts: defineTable({
+    email: v.optional(v.string()),
+    phoneKey: v.optional(v.string()),
+    igHandle: v.optional(v.string()),
+    removedRows: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_email", ["email"])
+    .index("by_phone_key", ["phoneKey"]),
+
+  // Per-day submission counters for the public opt-out form ("global" plus
+  // one per submitted identifier) — crude abuse protection.
+  optOutRateLimits: defineTable({
+    key: v.string(),
+    day: v.string(), // "2026-10-28" (UTC)
+    count: v.number(),
+  }).index("by_key_day", ["key", "day"]),
 
   // Which library leads a given (normalized) search produced.
   leadPoolQueries: defineTable({
@@ -414,6 +479,9 @@ export default defineSchema({
     // Unit rates captured at start (×4.5 rule): billed on actual counts.
     creditRates: v.optional(v.object({ comment: v.number(), profile: v.number() })),
     creditsSpent: v.optional(v.number()),
+    // Worst case spent up front at start; the unused part is refunded on
+    // completion/failure. Absent on jobs from before reservations.
+    creditsReserved: v.optional(v.number()),
     error: v.optional(v.string()),
     warning: v.optional(v.string()),
   }).index("by_workspace", ["workspaceId"]),
@@ -713,6 +781,10 @@ export default defineSchema({
     status: v.union(v.literal("draft"), v.literal("live")),
     blandId: v.optional(v.string()),
     phoneNumberId: v.optional(v.id("phoneNumbers")),
+    // Which call engine answers: Bland (default) or an ElevenLabs agent on
+    // a Twilio number. `elevenAgentId` is the agent synced from this row.
+    engine: v.optional(v.union(v.literal("bland"), v.literal("elevenlabs"))),
+    elevenAgentId: v.optional(v.string()),
     // Auto-scheduling: bookings extracted from calls are created on Cal.com.
     // Users just paste their public booking link — no API key needed.
     autoBook: v.optional(v.boolean()),
@@ -762,6 +834,18 @@ export default defineSchema({
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_location", ["ghlLocationId"]),
+  // One-shot states an admin mints before the GHL agency install, so a
+  // stray code can't overwrite the platform-wide ghlAuth.
+  ghlOauthStates: defineTable({
+    state: v.string(),
+    userId: v.id("users"),
+    expiresAt: v.number(),
+  }).index("by_state", ["state"]),
+  // Voice-note renders we produced — the only blobs /crm/audio will serve.
+  igVoiceNotes: defineTable({
+    workspaceId: v.id("workspaces"),
+    storageId: v.id("_storage"),
+  }).index("by_storage", ["storageId"]),
   igConversations: defineTable({
     workspaceId: v.id("workspaces"),
     ghlConversationId: v.string(),
@@ -783,6 +867,10 @@ export default defineSchema({
     // Autopilot hit something outside its brief and stood down.
     needsHuman: v.optional(v.boolean()),
     needsHumanReason: v.optional(v.string()),
+    // When the next coalesced triage run is due (webhook bursts share one).
+    triageScheduledFor: v.optional(v.number()),
+    // First autopilot message carried the AI-assistant disclosure.
+    aiDisclosedAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId", "lastMessageAt"])
     .index("by_ghl", ["ghlConversationId"])
@@ -820,16 +908,36 @@ export default defineSchema({
     // Clone engine; absent = Bland (rows from before ElevenLabs existed).
     // ElevenLabs clones are TTS-only: previews + IG voice notes, not calls.
     provider: v.optional(v.union(v.literal("bland"), v.literal("elevenlabs"))),
+    // When `userId` attested it's their voice or they hold the speaker's
+    // written permission. Required for new clones; absent on legacy rows.
+    consentAttestedAt: v.optional(v.number()),
+    // ElevenLabs voice pool. The account caps saved voices per plan, so the
+    // recording lives with us and the voice is loaded into ElevenLabs only
+    // while in use: `voiceId` is our stable key ("elv_…"), `remoteVoiceId`
+    // the ElevenLabs id while loaded. The least-recently-used voice is
+    // unloaded when the pool is full and reloads on next use. Rows with no
+    // sample (pre-pool) keep their ElevenLabs id in `voiceId`, pinned.
+    sampleStorageId: v.optional(v.id("_storage")),
+    remoteVoiceId: v.optional(v.string()),
+    lastUsedAt: v.optional(v.number()),
+    // Never unloaded before this time: a preview holds a voice ~1 minute, a
+    // browser test or call holds it for its maximum length.
+    busyUntil: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
-    .index("by_voice", ["voiceId"]),
+    .index("by_voice", ["voiceId"])
+    .index("by_provider", ["provider"]),
 
   phoneNumbers: defineTable({
     workspaceId: v.id("workspaces"),
     number: v.string(),
+    // "bland" (bought through Bland) or "twilio" (bought on our Twilio
+    // account and imported into ElevenLabs Agents).
     provider: v.string(),
     monthlyCostUsd: v.number(),
     status: v.union(v.literal("active"), v.literal("released")),
+    twilioSid: v.optional(v.string()),
+    elevenPhoneNumberId: v.optional(v.string()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_number", ["number"]),
@@ -849,7 +957,31 @@ export default defineSchema({
       v.literal("completed"),
     ),
     leadCount: v.number(),
+    // Who the AI says it's calling for (falls back to the workspace name).
+    businessName: v.optional(v.string()),
+    // Fallback IANA zone for the 9am–8pm calling window when a lead's
+    // area code doesn't say where they are. Absent = America/New_York.
+    timezone: v.optional(v.string()),
+    // TCPA attestation (prior express written consent + DNC scrub), ticked
+    // by `consentAttestedBy` before the campaign may dial.
+    consentAttestedAt: v.optional(v.number()),
+    consentAttestedBy: v.optional(v.id("users")),
+    // Why a running campaign is waiting (calling hours, credits…).
+    statusNote: v.optional(v.string()),
+    // Call engine (Bland default) + the ElevenLabs agent dialing for it.
+    engine: v.optional(v.union(v.literal("bland"), v.literal("elevenlabs"))),
+    elevenAgentId: v.optional(v.string()),
   }).index("by_workspace", ["workspaceId"]),
+
+  // Per-workspace internal do-not-call list. Leads who refuse or ask to be
+  // removed land here; qualifier campaigns never dial these numbers.
+  voiceOptOuts: defineTable({
+    workspaceId: v.id("workspaces"),
+    phone: v.string(), // E.164
+    reason: v.string(),
+    callId: v.optional(v.id("calls")),
+    createdAt: v.number(),
+  }).index("by_workspace_phone", ["workspaceId", "phone"]),
 
   calls: defineTable({
     workspaceId: v.id("workspaces"),
@@ -869,10 +1001,19 @@ export default defineSchema({
     transcript: v.optional(v.string()),
     // AI analysis: summary, caller info, booking details, qualifier outcome.
     result: v.optional(v.any()),
-    // Bland's call id — lets us fetch transcripts for browser test sessions.
+    // The engine's call id — Bland call_id, or the ElevenLabs conversation_id
+    // when `engine` is "elevenlabs". Lets us fetch transcripts and dedupe.
     blandCallId: v.optional(v.string()),
+    engine: v.optional(v.union(v.literal("bland"), v.literal("elevenlabs"))),
+    // ElevenLabs browser tests: the throwaway agent the session talks to.
+    elevenAgentId: v.optional(v.string()),
     // Browser tests are recorded but never billed.
     isTest: v.optional(v.boolean()),
+    // A dispatcher has claimed this pending row (guards against double-dial
+    // when two dispatch runs overlap).
+    dispatchClaimedAt: v.optional(v.number()),
+    // Credits the call cost but the balance couldn't cover (billed what was left).
+    unbilledCredits: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_qualifier_campaign", ["qualifierCampaignId"])
@@ -895,6 +1036,10 @@ export default defineSchema({
     autoJoin: v.optional(v.union(v.literal("all"), v.literal("manual"))),
     // Secret path token for the Cal.com booking webhook.
     calcomToken: v.optional(v.string()),
+    // HMAC secret for X-Cal-Signature-256; enforced once a signed delivery
+    // has been seen (calcomSecretVerified), so older setups keep working.
+    calcomSecret: v.optional(v.string()),
+    calcomSecretVerified: v.optional(v.boolean()),
     // Agenda Coach: live drift / timebox nudges during the call.
     coachEnabled: v.optional(v.boolean()),
     // Post nudges into the meeting chat (Zoom / Meet / Teams).
@@ -934,6 +1079,20 @@ export default defineSchema({
       v.literal("microsoft_outlook"),
     ),
   }).index("by_state", ["state"]),
+
+  // Calendar grants waiting for the signed-in owner to confirm in-app (the
+  // OAuth callback alone can't prove whose browser finished the consent).
+  noteTakerPendingCalendars: defineTable({
+    nonce: v.string(),
+    userId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    platform: v.union(
+      v.literal("google_calendar"),
+      v.literal("microsoft_outlook"),
+    ),
+    refreshTokenEncrypted: v.string(),
+    expiresAt: v.number(),
+  }).index("by_nonce", ["nonce"]),
 
   meetings: defineTable({
     workspaceId: v.id("workspaces"),
@@ -981,6 +1140,9 @@ export default defineSchema({
     // real-time webhook and the public coach card use, and the live verdict.
     agenda: v.optional(v.array(v.object({ title: v.string(), minutes: v.number() }))),
     coachToken: v.optional(v.string()),
+    // Write credential for /notes/realtime (separate from the public card
+    // key). Absent on meetings created before it existed.
+    realtimeToken: v.optional(v.string()),
     coachState: v.optional(v.any()),
     // Action items pushed to Trello / Asana / a webhook after the notes.
     taskRouting: v.optional(v.any()),
@@ -990,6 +1152,7 @@ export default defineSchema({
     .index("by_dedup", ["workspaceId", "dedupKey"])
     .index("by_status", ["status"])
     .index("by_coach_token", ["coachToken"])
+    .index("by_realtime_token", ["realtimeToken"])
     .searchIndex("search_meta", {
       searchField: "searchText",
       filterFields: ["workspaceId"],
@@ -1078,7 +1241,23 @@ export default defineSchema({
     type: v.string(),
   }).index("by_key", ["key"]),
 
+  // Fixed-window rate limiter (convex/rateLimits.ts): one row per key
+  // (e.g. "enhancePrompt:<userId>").
+  rateLimits: defineTable({
+    key: v.string(),
+    windowStart: v.number(),
+    count: v.number(),
+  }).index("by_key", ["key"]),
+
   // Guided product tours — where each user is in each walkthrough.
+  // Who uploaded each storage file, so a storage id alone never grants
+  // access (files.getPublicUrl, forms.submit check ownership).
+  uploads: defineTable({
+    storageId: v.id("_storage"),
+    userId: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_storage", ["storageId"]),
+
   tourProgress: defineTable({
     userId: v.id("users"),
     tourId: v.string(),

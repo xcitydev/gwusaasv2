@@ -46,7 +46,9 @@ export function parseCsv(text: string): { headers: string[]; rows: string[][] } 
 
 export function toCsv(headers: string[], rows: (string | undefined)[][]): string {
   const escape = (value: string | undefined) => {
-    const s = value ?? "";
+    // Neutralize spreadsheet formulas (=HYPERLINK, =cmd…) in scraped/user text.
+    const raw = value ?? "";
+    const s = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return [

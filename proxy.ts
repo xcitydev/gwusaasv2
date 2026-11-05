@@ -10,6 +10,11 @@ const isPublicRoute = createRouteMatcher([
   "/join(.*)",
   // Agenda Coach card: token-gated page the meeting bot shows as its camera.
   "/coach(.*)",
+  // Legal pages + the public lead-data opt-out / email unsubscribe page.
+  "/privacy",
+  "/terms",
+  "/acceptable-use",
+  "/opt-out",
 ]);
 
 const hasClerk = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
@@ -36,8 +41,15 @@ export default hasClerk
         await auth.protect();
       }
     })
-  : // Setup mode: no Clerk keys yet, let everything through so the UI is previewable.
-    () => NextResponse.next();
+  : process.env.NODE_ENV === "production"
+    ? // A production build without Clerk keys is a misconfiguration: fail
+      // closed instead of serving every page and API route unauthenticated.
+      () =>
+        new Response("Service unavailable: authentication is not configured.", {
+          status: 503,
+        })
+    : // Setup mode (dev only): no Clerk keys yet, let everything through so the UI is previewable.
+      () => NextResponse.next();
 
 export const config = {
   matcher: [

@@ -16,7 +16,8 @@ import { getConfigValue } from "./config";
 import { meetingStatusValidator } from "./schema";
 import { flattenTranscript, snippetAround, type Segment } from "./lib/transcript";
 import { ACTIVE_STATUSES } from "../lib/note-taker";
-import { newCoachToken } from "./noteTakerCoach";
+import { newCoachToken, newRealtimeToken } from "./noteTakerCoach";
+import { secureToken } from "./lib/tokens";
 
 /**
  * AI Note Taker — data layer. A `meetings` row follows one bot through its
@@ -30,26 +31,41 @@ export const MIN_BILLABLE_MINUTES = 10;
 export const MAX_MEETING_MINUTES = 240;
 
 const SETTINGS_DEFAULTS = {
-  announce: true,
   recapAudience: "host" as const,
   retentionDays: 30,
   autoJoin: "manual" as const,
 };
 
+/**
+ * The bot's display name always ends in "Notetaker" so it can never pass for
+ * a real participant ("Dana Smith" → "Dana Smith Notetaker").
+ */
+export function botDisplayName(raw: string | undefined, workspaceName: string): string {
+  // "Dana's workspace" → "Dana's Notetaker", "Acme" → "Acme Notetaker".
+  const owner = workspaceName.replace(/['’]s workspace$/i, "’s").trim();
+  const base = (raw?.trim() || owner || "AI")
+    .replace(/\s*(note[\s-]*taker|bot)\s*$/i, "")
+    .trim()
+    .slice(0, 80);
+  return `${base || owner || "AI"} Notetaker`;
+}
+
 function resolveSettings(
   row: Doc<"noteTakerSettings"> | null,
   workspaceName: string,
 ) {
-  // "Dana's workspace" → "Dana's Notetaker", "Acme" → "Acme Notetaker".
-  const owner = workspaceName.replace(/['’]s workspace$/i, "’s").trim();
   return {
-    botName: row?.botName?.trim() || `${owner || "AI"} Notetaker`.slice(0, 100),
-    announce: row?.announce ?? SETTINGS_DEFAULTS.announce,
+    botName: botDisplayName(row?.botName, workspaceName),
+    // The recording disclosure is mandatory (consent laws), not a toggle —
+    // a stored `announce: false` from before is ignored.
+    announce: true as const,
     recapAudience: row?.recapAudience ?? SETTINGS_DEFAULTS.recapAudience,
     recapExtraEmails: row?.recapExtraEmails ?? [],
     retentionDays: row?.retentionDays ?? SETTINGS_DEFAULTS.retentionDays,
     autoJoin: row?.autoJoin ?? SETTINGS_DEFAULTS.autoJoin,
     calcomToken: row?.calcomToken ?? null,
+    calcomSecret: row?.calcomSecret ?? null,
+    calcomSecretVerified: row?.calcomSecretVerified ?? false,
     // Agenda Coach (live nudges) — off until the workspace switches it on.
     coachEnabled: row?.coachEnabled ?? false,
     coachChat: row?.coachChat ?? true,
@@ -152,7 +168,9 @@ export const overview = query({
 export const saveSettings = mutation({
   args: {
     botName: v.string(),
-    announce: v.boolean(),
+    // Ignored: the recording announcement is always on. Optional so older
+    // clients still validate.
+    announce: v.optional(v.boolean()),
     recapAudience: v.union(
       v.literal("host"),
       v.literal("attendees"),
@@ -174,7 +192,6 @@ export const saveSettings = mutation({
     if (emails.length > 10) throw new Error("Up to 10 extra recipients");
     const patch = {
       botName: args.botName.trim().slice(0, 100) || undefined,
-      announce: args.announce,
       recapAudience: args.recapAudience,
       recapExtraEmails: emails,
       retentionDays: Math.min(365, Math.max(1, Math.round(args.retentionDays))),
@@ -186,27 +203,42 @@ export const saveSettings = mutation({
   },
 });
 
-/** Mint (or rotate) the secret path token for the Cal.com webhook. */
+/**
+ * Mint (or rotate) the secret path token for the Cal.com webhook, plus the
+ * signing secret the user pastes into Cal.com's "Secret" field. Signatures
+ * are enforced from the first correctly signed delivery onwards.
+ */
 export const rotateCalcomToken = mutation({
   args: {},
   handler: async (ctx): Promise<string> => {
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
-    const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let token = "";
-    for (let i = 0; i < 32; i++) {
-      token += alphabet[Math.floor(Math.random() * alphabet.length)];
-    }
+    const patch = {
+      calcomToken: secureToken(40),
+      calcomSecret: secureToken(40),
+      calcomSecretVerified: false,
+    };
     const row = await settingsRow(ctx, workspace._id);
-    if (row) await ctx.db.patch(row._id, { calcomToken: token });
+    if (row) await ctx.db.patch(row._id, patch);
     else {
       await ctx.db.insert("noteTakerSettings", {
         workspaceId: workspace._id,
-        calcomToken: token,
+        ...patch,
       });
     }
-    return token;
+    return patch.calcomToken;
+  },
+});
+
+/** First validly signed Cal.com delivery: from now on unsigned ones drop. */
+export const markCalcomSecretVerified = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const row = await settingsRow(ctx, args.workspaceId);
+    if (row && !row.calcomSecretVerified) {
+      await ctx.db.patch(row._id, { calcomSecretVerified: true });
+    }
   },
 });
 
@@ -425,7 +457,10 @@ export const createMeeting = internalMutation({
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
     const rate = await getConfigValue(ctx, "noteTakerCreditsPerMinute");
-    const minimum = rate * MIN_BILLABLE_MINUTES;
+    // Every bot already lined up claims its minimum too — the balance has
+    // to cover all of them, not just this one.
+    const committed = await liveBotCount(ctx, workspace._id);
+    const minimum = rate * MIN_BILLABLE_MINUTES * (committed + 1);
     if (workspace.credits < minimum) {
       throw new Error(
         `INSUFFICIENT_CREDITS: need ${Math.ceil(minimum)}, have ${Math.floor(workspace.credits)}`,
@@ -443,6 +478,7 @@ export const createMeeting = internalMutation({
       status: args.scheduledFor ? "scheduled" : "joining",
       scheduledFor: args.scheduledFor,
       coachToken: newCoachToken(),
+      realtimeToken: newRealtimeToken(),
     });
   },
 });
@@ -499,11 +535,31 @@ export const upsertSystemMeeting = internalMutation({
       scheduledFor: args.scheduledFor,
       attendees: args.attendees,
       coachToken: newCoachToken(),
+      realtimeToken: newRealtimeToken(),
     });
   },
 });
 
 // ── Internal: lifecycle reads/writes ────────────────────────────────────
+
+/** Bots scheduled or in a call for a workspace (optionally minus one). */
+async function liveBotCount(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  exclude?: Id<"meetings">,
+): Promise<number> {
+  const recent = await ctx.db
+    .query("meetings")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .order("desc")
+    .take(200);
+  return recent.filter(
+    (m) =>
+      m._id !== exclude &&
+      !m.finalizedAt &&
+      (m.status === "scheduled" || (ACTIVE_STATUSES as string[]).includes(m.status)),
+  ).length;
+}
 
 /** Everything needed to configure and dispatch a bot for a meeting. */
 export const getDispatchInfo = internalQuery({
@@ -520,15 +576,33 @@ export const getDispatchInfo = internalQuery({
     const rate = await getConfigValue(ctx, "noteTakerCreditsPerMinute");
     const affordableMinutes =
       rate > 0 ? Math.floor(workspace.credits / rate) : MAX_MEETING_MINUTES;
+    const others = await liveBotCount(ctx, meeting.workspaceId, meeting._id);
+    const host = await ctx.db.get(meeting.userId);
     return {
       meeting,
       settings,
+      // Named in the recording announcement ("…on behalf of Dana Smith").
+      hostName: host?.name?.trim() || host?.email || workspace.name,
       credits: workspace.credits,
-      canAfford: workspace.credits >= rate * MIN_BILLABLE_MINUTES,
+      // This bot's minimum on top of every other bot already lined up
+      // (calendar auto-join can stack many against one balance).
+      canAfford: workspace.credits >= rate * MIN_BILLABLE_MINUTES * (others + 1),
       maxRecordingSec:
         Math.min(MAX_MEETING_MINUTES, Math.max(MIN_BILLABLE_MINUTES, affordableMinutes)) *
         60,
     };
+  },
+});
+
+/** Live balance check while a bot records (pollMeeting stops it at zero). */
+export const getRecordingBudget = internalQuery({
+  args: { meetingId: v.id("meetings") },
+  handler: async (ctx, args) => {
+    const meeting = await ctx.db.get(args.meetingId);
+    if (!meeting) return null;
+    const workspace = await ctx.db.get(meeting.workspaceId);
+    const rate = await getConfigValue(ctx, "noteTakerCreditsPerMinute");
+    return { credits: workspace?.credits ?? 0, rate };
   },
 });
 
@@ -845,11 +919,7 @@ export const createOauthState = internalMutation({
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
-    const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let state = "";
-    for (let i = 0; i < 40; i++) {
-      state += alphabet[Math.floor(Math.random() * alphabet.length)];
-    }
+    const state = secureToken(43);
     await ctx.db.insert("noteTakerOauthStates", {
       state,
       userId: user._id,
@@ -872,6 +942,57 @@ export const consumeOauthState = internalMutation({
     await ctx.db.delete(row._id);
     if (Date.now() - row._creationTime > 15 * 60_000) return null;
     return { userId: row.userId, workspaceId: row.workspaceId, platform: row.platform };
+  },
+});
+
+/** How long a finished consent waits for its owner to confirm in-app. */
+const PENDING_CALENDAR_TTL_MS = 15 * 60_000;
+
+/**
+ * Callback side: park the grant under a fresh nonce. Only the browser that
+ * finished the consent learns the nonce (it rides the redirect), and only
+ * the user who started the flow can claim it — so a consent link forwarded
+ * to someone else can't attach THEIR calendar to the sender's account.
+ */
+export const createPendingCalendar = internalMutation({
+  args: {
+    userId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    platform: calendarPlatformValidator,
+    refreshTokenEncrypted: v.string(),
+  },
+  handler: async (ctx, args): Promise<string> => {
+    const nonce = secureToken(43);
+    await ctx.db.insert("noteTakerPendingCalendars", {
+      ...args,
+      nonce,
+      expiresAt: Date.now() + PENDING_CALENDAR_TTL_MS,
+    });
+    return nonce;
+  },
+});
+
+/** Confirm side: one shot, signed-in owner only, inside the TTL. */
+export const claimPendingCalendar = internalMutation({
+  args: { nonce: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const row = await ctx.db
+      .query("noteTakerPendingCalendars")
+      .withIndex("by_nonce", (q) => q.eq("nonce", args.nonce))
+      .first();
+    if (!row) return { ok: false as const, reason: "expired" as const };
+    // Whatever happens next, a nonce is good for one attempt.
+    await ctx.db.delete(row._id);
+    if (row.expiresAt < Date.now()) return { ok: false as const, reason: "expired" as const };
+    if (row.userId !== user._id) return { ok: false as const, reason: "wrong_user" as const };
+    return {
+      ok: true as const,
+      userId: row.userId,
+      workspaceId: row.workspaceId,
+      platform: row.platform,
+      refreshTokenEncrypted: row.refreshTokenEncrypted,
+    };
   },
 });
 
@@ -982,6 +1103,11 @@ export const getWorkspaceByCalcomToken = internalQuery({
     if (!row) return null;
     const workspace = await ctx.db.get(row.workspaceId);
     if (!workspace) return null;
-    return { workspaceId: workspace._id, ownerId: workspace.ownerId };
+    return {
+      workspaceId: workspace._id,
+      ownerId: workspace.ownerId,
+      calcomSecret: row.calcomSecret ?? null,
+      calcomSecretVerified: row.calcomSecretVerified ?? false,
+    };
   },
 });

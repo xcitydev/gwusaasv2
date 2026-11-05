@@ -416,16 +416,75 @@ export const asanaProjects = action({
   },
 });
 
+/**
+ * SSRF guard for user-supplied webhook URLs: https only, no credentials, no
+ * loopback / private / link-local / metadata hosts (literal IPs and the
+ * obvious internal names). Fetches also refuse redirects, so a public host
+ * can't bounce us inward. DNS rebinding to a private IP isn't caught here —
+ * the Convex runtime has no resolver hook — but the response body is never
+ * returned to the caller, only the status code.
+ */
+function webhookUrlProblem(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return "The webhook must be an https:// URL";
+  }
+  if (url.protocol !== "https:") return "The webhook must be an https:// URL";
+  if (url.username || url.password) return "Put credentials in the secret field, not the URL";
+  if (url.port && url.port !== "443") return "The webhook must use the standard https port";
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  const internalName =
+    !host.includes(".") ||
+    host === "localhost" ||
+    /\.(localhost|local|internal|intranet|lan|home|corp|localdomain|home\.arpa)$/.test(host) ||
+    host === "metadata.google.internal" ||
+    host.endsWith(".nip.io") ||
+    host.endsWith(".sslip.io");
+  if (internalName || isPrivateAddress(host)) {
+    return "That webhook address points at a private network — use a public https URL";
+  }
+  return null;
+}
+
+function isPrivateAddress(host: string): boolean {
+  // IPv4 (also catches decimal/hex shorthands the URL parser normalised).
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return (
+      a === 0 || a === 10 || a === 127 || a >= 224 ||
+      (a === 100 && b >= 64 && b <= 127) || // CGNAT
+      (a === 169 && b === 254) || // link-local + cloud metadata
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 192 && b === 0) ||
+      (a === 198 && (b === 18 || b === 19))
+    );
+  }
+  if (host.includes(":")) {
+    // Any literal IPv6: allow only global unicast that isn't a v4 mapping.
+    if (host === "::" || host === "::1") return true;
+    if (/^(fc|fd|fe8|fe9|fea|feb)/.test(host)) return true; // ULA / link-local
+    if (host.startsWith("::ffff:") || host.startsWith("64:ff9b:")) return true;
+    return false;
+  }
+  return false;
+}
+
 export const connectWebhook = action({
   args: { url: v.string(), secret: v.optional(v.string()) },
   handler: async (ctx, args): Promise<void> => {
     const caller = await ctx.runQuery(internal.integrations.callerContext, {});
     if (!caller) throw new Error("Not signed in");
     const url = args.url.trim();
-    if (!/^https:\/\/\S+$/.test(url)) throw new Error("The webhook must be an https:// URL");
+    const blocked = webhookUrlProblem(url);
+    if (blocked) throw new Error(blocked);
     const secret: WebhookSecret = { secret: args.secret?.trim() || null };
     const res = await fetch(url, {
       method: "POST",
+      redirect: "manual",
       headers: {
         "Content-Type": "application/json",
         ...(secret.secret ? { "X-GWU-Secret": secret.secret } : {}),
@@ -536,10 +595,14 @@ async function routeToWebhook(
 ): Promise<TaskRoutingResult> {
   const config = (row.config ?? {}) as { url?: string };
   if (!config.url) return { provider: "webhook", ok: false, created: 0, error: "No URL saved", links: [] };
+  // Re-checked on every send: rows saved before the SSRF guard existed.
+  const blocked = webhookUrlProblem(config.url);
+  if (blocked) return { provider: "webhook", ok: false, created: 0, error: blocked, links: [] };
   const secret = JSON.parse(await decryptString(row.secret)) as WebhookSecret;
   const notes = meeting.notes as MeetingNotes | undefined;
   const res = await fetch(config.url, {
     method: "POST",
+    redirect: "manual",
     headers: {
       "Content-Type": "application/json",
       ...(secret.secret ? { "X-GWU-Secret": secret.secret } : {}),

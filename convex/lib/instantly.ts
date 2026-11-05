@@ -188,6 +188,10 @@ export async function createCampaign(args: {
       ],
       email_list: args.emailList,
       daily_limit: args.dailyLimit,
+      // List-Unsubscribe header (one-click unsubscribe in Gmail/Yahoo). The
+      // visible footer with link + postal address is appended to every step
+      // body by outreach.getCampaignForPublish (complianceFooter below).
+      insert_unsubscribe_header: true,
     },
   });
   return result.id;
@@ -273,6 +277,10 @@ export async function updateCampaign(
       ],
       email_list: args.emailList,
       daily_limit: args.dailyLimit,
+      // List-Unsubscribe header (one-click unsubscribe in Gmail/Yahoo). The
+      // visible footer with link + postal address is appended to every step
+      // body by outreach.getCampaignForPublish (complianceFooter below).
+      insert_unsubscribe_header: true,
     },
   });
 }
@@ -372,4 +380,41 @@ export async function replyToEmail(args: {
       body: { text: args.bodyText },
     },
   });
+}
+
+// ── Compliance footer ───────────────────────────────────────────────────
+
+/**
+ * CAN-SPAM footer appended to every campaign email: who is sending, their
+ * postal address, and a working way to opt out. Instantly's v2 API has no
+ * documented body unsubscribe variable, so the link goes to our public
+ * /opt-out page (which suppresses the address platform-wide). Bodies are
+ * HTML-ish text — Instantly wants <br/> for line breaks.
+ */
+export function complianceFooter(args: {
+  postalAddress: string;
+  optOutUrl: string;
+}): string {
+  const address = args.postalAddress
+    .replace(/[<>]/g, "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join(", ");
+  return (
+    "<br/><br/>--<br/>" +
+    `${address}<br/>` +
+    `Don't want these emails? <a href="${args.optOutUrl}">Unsubscribe</a> or reply "unsubscribe".`
+  );
+}
+
+// ── Block list ──────────────────────────────────────────────────────────
+
+/**
+ * Add an address to the workspace-wide Instantly block list so no campaign
+ * on the shared account can email it again (unsubscribes + public opt-outs).
+ * Docs: POST /block-lists-entries { bl_value } — not yet live-verified.
+ */
+export async function addToBlocklist(email: string): Promise<void> {
+  await call("/block-lists-entries", { method: "POST", body: { bl_value: email } });
 }

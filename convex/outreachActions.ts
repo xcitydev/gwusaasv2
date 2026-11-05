@@ -574,10 +574,15 @@ export const autoArchive = internalAction({
   },
 });
 
-/** Manual "sync now" from the UI. */
+/**
+ * Manual "sync now" from the UI. It syncs the whole shared engine account,
+ * so it is admin-only — everyone else gets the cron's regular sync.
+ */
 export const syncNow = action({
   args: {},
   handler: async (ctx): Promise<{ configured: boolean }> => {
+    const isAdmin = await ctx.runQuery(internal.voice.callerIsAdmin, {});
+    if (!isAdmin) throw new Error("Admin only");
     if (!instantlyConfigured()) return { configured: false };
     await ctx.runAction(internal.outreachActions.syncEngine, {});
     return { configured: true };

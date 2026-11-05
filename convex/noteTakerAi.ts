@@ -328,6 +328,13 @@ export const askMeeting = action({
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error("NOT_CONFIGURED: Ask AI needs ANTHROPIC_API_KEY.");
     }
+    // Unmetered and on the big model with a whole transcript in context —
+    // cap it per user so one account can't run up the bill.
+    await ctx.runMutation(internal.rateLimits.hit, {
+      key: `noteTakerAsk:${data.userId}`,
+      limit: 30,
+      windowMs: 60 * 60_000,
+    });
     const save = async (role: "user" | "assistant", content: string) =>
       await ctx.runMutation(internal.noteTaker.insertChat, {
         meetingId: args.meetingId,

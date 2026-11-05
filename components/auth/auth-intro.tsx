@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { KeyRound, Lock } from "lucide-react";
+import { LEGAL_LINKS, TERMS_VERSION } from "@/lib/legal";
+import { SIGNUP_TERMS_KEY } from "./terms-gate";
 import { cn } from "@/lib/utils";
 import { usePendingInvite } from "./use-pending-invite";
 
@@ -90,6 +93,34 @@ export function AuthSwitch({ mode }: { mode: Mode }) {
       >
         {mode === "sign-up" ? "Sign in" : "Create a free account"}
       </Link>
+    </p>
+  );
+}
+
+/**
+ * Sign-up clickwrap: visible agreement next to the "create account" form.
+ * Flags this browser so TermsGate records acceptance server-side the moment
+ * the new account reaches the app.
+ */
+export function AuthLegalNotice() {
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(SIGNUP_TERMS_KEY, TERMS_VERSION);
+    } catch {
+      // Storage unavailable — TermsGate will ask explicitly instead.
+    }
+  }, []);
+  return (
+    <p className="text-center text-xs leading-relaxed text-muted-foreground">
+      By creating an account you agree to the{" "}
+      <Link href={LEGAL_LINKS.terms} target="_blank" className="font-medium text-primary underline-offset-4 hover:underline">
+        Terms of Service
+      </Link>{" "}
+      and{" "}
+      <Link href={LEGAL_LINKS.privacy} target="_blank" className="font-medium text-primary underline-offset-4 hover:underline">
+        Privacy Policy
+      </Link>
+      , and confirm you are 18 or older. Paid plans renew automatically until cancelled.
     </p>
   );
 }

@@ -49,10 +49,60 @@ async function call<T>(path: string, init?: { method?: string; body?: unknown })
   return (await res.json()) as T;
 }
 
+/** "(305) 456-9336" / "+234 803…" → E.164, or null when unparseable. */
+export function toE164(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("+")) {
+    const digits = trimmed.slice(1).replace(/\D/g, "");
+    return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+  }
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`; // bare US number
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return null;
+}
+
+/**
+ * Disclosures live in the adapter so no caller (or user prompt) can drop
+ * them: every recorded call opens by saying it's an AI and that it's
+ * recorded (state AI-disclosure laws + all-party recording consent).
+ */
+const AI_WORDS = /\b(ai|a\.i\.|artificial|virtual assistant|automated)\b/i;
+
+/** Outbound opening line: AI + who it's calling for + recording notice. */
+export function outboundDisclosure(opts: {
+  businessName: string;
+  callerName?: string;
+  leadName?: string;
+}): string {
+  const who = opts.callerName?.trim()
+    ? `this is ${opts.callerName.trim()}, an AI assistant`
+    : "this is an AI assistant";
+  const lead = opts.leadName?.trim();
+  return (
+    `Hi, ${who} calling on behalf of ${opts.businessName.trim() || "our team"}. ` +
+    `This call is recorded. ${lead ? `Am I speaking with ${lead}?` : "Is now a good time?"}`
+  );
+}
+
+/**
+ * Inbound greeting: the user's line is kept when it already mentions both
+ * recording and AI; otherwise the notice is prepended.
+ */
+export function inboundGreeting(greeting: string | undefined, businessName: string): string {
+  const line = greeting?.trim() ?? "";
+  if (/record/i.test(line) && AI_WORDS.test(line)) return line;
+  const notice = `Hi, you've reached ${businessName.trim() || "our"}${businessName.trim() ? "'s" : ""} AI assistant — this call may be recorded.`;
+  return line ? `${notice} ${line}` : `${notice} How can I help you today?`;
+}
+
 /** Outbound qualification call to one lead. */
 export async function sendCall(args: {
   phoneNumber: string;
   task: string;
+  /** Required: drives the non-removable AI + recording opening line. */
+  disclosure: { businessName: string; callerName?: string; leadName?: string };
   voice?: string;
   webhookUrl?: string;
   metadata?: Record<string, string>;
@@ -65,6 +115,7 @@ export async function sendCall(args: {
     body: {
       phone_number: args.phoneNumber,
       task: args.task,
+      first_sentence: outboundDisclosure(args.disclosure),
       voice: args.voice ?? "maya",
       record: true,
       webhook: args.webhookUrl,
@@ -146,6 +197,31 @@ export async function cloneVoice(args: {
     throw new Error(`Bland clone returned no voice id: ${text.slice(0, 200)}`);
   }
   return id;
+}
+
+/**
+ * Bland says this voice id doesn't exist (deleted, or never was). Bland's
+ * exact wording isn't documented, so match on status + "voice" wording.
+ */
+export function isBlandVoiceMissingError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const m = error.message;
+  if (!/^Bland( TTS| clone)? \d+/.test(m)) return false;
+  return (
+    /^Bland( TTS)? 404/.test(m) ||
+    /voice.{0,40}(not found|does not exist|doesn't exist|invalid|must be a voice)/i.test(m)
+  );
+}
+
+/** Bland refused a clone because the plan's clone slots are used up. */
+export function isBlandCloneLimitError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    // Bland reports this as a 500 ("You have reached the maximum number of
+    // voices for your plan"), so match the wording, not the status.
+    /^Bland clone \d+/.test(error.message) &&
+    /maximum number of voices|voice limit|limit reached|upgrade your plan|quota/i.test(error.message)
+  );
 }
 
 /** Permanently delete a voice you own (frees a clone slot). */
@@ -425,6 +501,8 @@ export async function authorizeWebAgent(agentId: string): Promise<string> {
 export async function configureInbound(args: {
   phoneNumber: string;
   prompt: string;
+  /** Business the AI answers for — named in the forced AI/recording notice. */
+  businessName: string;
   voice?: string;
   firstSentence?: string;
   webhookUrl?: string;
@@ -433,9 +511,10 @@ export async function configureInbound(args: {
   await call(`/inbound/${encodeURIComponent(args.phoneNumber)}`, {
     method: "POST",
     body: {
-      prompt: args.prompt,
+      prompt:
+        `${args.prompt}\n\nAlways be honest that you are an AI assistant if asked.`,
       voice: args.voice ?? "maya",
-      first_sentence: args.firstSentence,
+      first_sentence: inboundGreeting(args.firstSentence, args.businessName),
       webhook: args.webhookUrl,
       record: true,
       ...(args.backgroundTrack && { background_track: args.backgroundTrack }),

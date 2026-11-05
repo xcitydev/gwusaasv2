@@ -51,6 +51,7 @@ type CopilotContext = {
     lastDirection?: "inbound" | "outbound";
     needsHuman?: boolean;
     stage?: string;
+    aiDisclosedAt?: number;
   };
   account: {
     autopilot: boolean;
@@ -267,10 +268,23 @@ async function runAutopilot(ctx: ActionCtx, data: CopilotContext): Promise<void>
     conversationId: data.conversation._id,
   })) as CopilotContext | null;
   if (!fresh || !shouldAutopilot(fresh)) return;
+  // The first AI-written DM in a thread says so (FTC / platform rules on
+  // undisclosed bots); sendSystemReply records that it was made.
+  const disclose = !fresh.conversation.aiDisclosedAt;
   await ctx.runAction(internal.igDmsActions.sendSystemReply, {
     conversationId: data.conversation._id,
-    text: reply,
+    text: disclose ? `${reply}\n\n${aiDisclosure(fresh)}` : reply,
+    markAiDisclosed: disclose,
   });
+}
+
+/** "— sent by @handle's AI assistant" (or the business name). */
+function aiDisclosure(data: CopilotContext): string {
+  const handle = data.voiceProfile?.igHandle ?? data.account.igUsername;
+  const name = handle
+    ? `@${handle.replace(/^@/, "")}`
+    : data.workspaceName.replace(/['’]s workspace$/i, "").trim() || "this account";
+  return `— sent by ${name}'s AI assistant`;
 }
 
 /** Copilot: draft the next reply for the setter to edit or send. */
@@ -282,6 +296,14 @@ export const suggestDmReply = action({
     })) as CopilotContext | null;
     if (!data) throw new Error("Conversation not found");
     if (data.messages.length === 0) throw new Error("Nothing to reply to yet");
+    // Per-user cap on drafts (each is a big-model call over the thread).
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not signed in");
+    await ctx.runMutation(internal.rateLimits.hit, {
+      key: `igSuggest:${identity.subject}`,
+      limit: 60,
+      windowMs: 60 * 60_000,
+    });
 
     if (!process.env.ANTHROPIC_API_KEY) {
       const name = data.conversation.contactName?.split(" ")[0];
@@ -317,5 +339,67 @@ export const suggestDmReply = action({
     const text = response.content.find((b) => b.type === "text");
     if (!text || text.type !== "text") throw new Error("No suggestion generated");
     return text.text.trim();
+  },
+});
+
+// ── GHL webhook signature (Node crypto: Ed25519 + RSA-SHA256) ────────────
+
+/**
+ * GHL's published webhook keys (marketplace docs, "Webhook Integration
+ * Guide" → Security). X-GHL-Signature is Ed25519 and preferred; the legacy
+ * X-WH-Signature (RSA-SHA256) is being deprecated. Either can be overridden
+ * by env if GHL rotates them.
+ */
+const GHL_ED25519_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAi2HR1srL4o18O8BRa7gVJY7G7bupbN3H9AwJrHCDiOg=
+-----END PUBLIC KEY-----`;
+
+const GHL_RSA_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAokvo/r9tVgcfZ5DysOSC
+Frm602qYV0MaAiNnX9O8KxMbiyRKWeL9JpCpVpt4XHIcBOK4u3cLSqJGOLaPuXw6
+dO0t6Q/ZVdAV5Phz+ZtzPL16iCGeK9po6D6JHBpbi989mmzMryUnQJezlYJ3DVfB
+csedpinheNnyYeFXolrJvcsjDtfAeRx5ByHQmTnSdFUzuAnC9/GepgLT9SM4nCpv
+uxmZMxrJt5Rw+VUaQ9B8JSvbMPpez4peKaJPZHBbU3OdeCVx5klVXXZQGNHOs8gF
+3kvoV5rTnXV0IknLBXlcKKAQLZcY/Q9rG6Ifi9c+5vqlvHPCUJFT5XUGG5RKgOKU
+J062fRtN+rLYZUV+BjafxQauvC8wSWeYja63VSUruvmNj8xkx2zE/Juc+yjLjTXp
+IocmaiFeAO6fUtNjDeFVkhf5LNb59vECyrHD2SQIrhgXpO4Q3dVNA5rw576PwTzN
+h/AMfHKIjE4xQA1SZuYJmNnmVZLIZBlQAF9Ntd03rfadZ+yDiOXCCs9FkHibELhC
+HULgCsnuDJHcrGNd5/Ddm5hxGQ0ASitgHeMZ0kcIOwKDOzOU53lDza6/Y09T7sYJ
+PQe7z0cvj7aE4B+Ax1ZoZGPzpJlZtGXCsu9aTEGEnKzmsFqwcSsnw3JB31IGKAyk
+T1hhTiaCeIY/OwwwNUY2yvcCAwEAAQ==
+-----END PUBLIC KEY-----`;
+
+/** PEM from env may arrive with literal "\n" escapes. */
+function envPem(name: string): string | undefined {
+  const raw = process.env[name]?.trim();
+  return raw ? raw.replace(/\n/g, "\n") : undefined;
+}
+
+/** Called by /crm/webhook before anything in the body is trusted. */
+export const verifyGhlWebhook = internalAction({
+  args: {
+    rawBody: v.string(),
+    ghlSignature: v.optional(v.string()),
+    whSignature: v.optional(v.string()),
+  },
+  handler: async (_ctx, args): Promise<boolean> => {
+    const crypto = await import("node:crypto");
+    const body = Buffer.from(args.rawBody, "utf8");
+    try {
+      if (args.ghlSignature && args.ghlSignature !== "N/A") {
+        const key = envPem("GHL_WEBHOOK_PUBLIC_KEY") ?? GHL_ED25519_PUBLIC_KEY;
+        return crypto.verify(null, body, key, Buffer.from(args.ghlSignature, "base64"));
+      }
+      if (args.whSignature && args.whSignature !== "N/A") {
+        const verifier = crypto.createVerify("sha256");
+        verifier.update(body);
+        verifier.end();
+        const key = envPem("GHL_WEBHOOK_RSA_PUBLIC_KEY") ?? GHL_RSA_PUBLIC_KEY;
+        return verifier.verify(key, args.whSignature, "base64");
+      }
+    } catch (error) {
+      console.error("GHL-WEBHOOK: signature check errored", error);
+    }
+    return false;
   },
 });

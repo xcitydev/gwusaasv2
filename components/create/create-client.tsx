@@ -245,7 +245,7 @@ function ImageStudioLive() {
 
   const model = findImageModel(modelId)!;
   const credits = pricing
-    ? costInCredits({ kind: "image", modelId, markup: pricing.markup, creditPriceUsd: pricing.creditPriceUsd })
+    ? costInCredits({ kind: "image", modelId, resolution, markup: pricing.markup, creditPriceUsd: pricing.creditPriceUsd })
     : 0;
 
   const run = async () => {
@@ -366,7 +366,7 @@ function VideoStudioLive() {
   const [busy, setBusy] = useState(false);
 
   const credits = pricing
-    ? costInCredits({ kind: "video", modelId, durationSec: duration, markup: pricing.markup, creditPriceUsd: pricing.creditPriceUsd })
+    ? costInCredits({ kind: "video", modelId, durationSec: duration, resolution, markup: pricing.markup, creditPriceUsd: pricing.creditPriceUsd })
     : 0;
 
   const run = async () => {

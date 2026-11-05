@@ -15,6 +15,20 @@ import {
   refreshContactCount,
 } from "./outreachLimits";
 import { isPlaceholderEmail } from "../lib/lead-keys";
+import { LEGAL, LEGAL_LINKS } from "../lib/legal";
+import { complianceFooter } from "./lib/instantly";
+import { isSuppressed, suppressEmail } from "./optOuts";
+
+/**
+ * Public unsubscribe page printed in every campaign footer. APP_URL is the
+ * deployed site origin (also used by the note taker); lib/legal's siteUrl is
+ * the fallback once the owner fills it in.
+ */
+export function optOutUrl(): string | null {
+  const fallback = LEGAL.siteUrl.startsWith("[") ? "" : LEGAL.siteUrl;
+  const origin = (process.env.APP_URL ?? fallback).replace(/\/$/, "");
+  return origin ? `${origin}${LEGAL_LINKS.optOut}` : null;
+}
 
 async function requireWorkspace(ctx: Parameters<typeof requireUser>[0]) {
   const user = await requireUser(ctx);
@@ -259,12 +273,29 @@ export const setForwardRepliesTo = mutation({
   },
 });
 
+/** CAN-SPAM: the sender's physical address, printed in every campaign email. */
+export const setPostalAddress = mutation({
+  args: { address: v.string() },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspace(ctx);
+    const address = args.address.trim();
+    if (address.length > 300) throw new Error("Keep the address under 300 characters");
+    if (address && address.length < 10) {
+      throw new Error("Enter a full postal address (street or PO box, city, state/region, ZIP)");
+    }
+    await ctx.db.patch(workspace._id, { postalAddress: address || undefined });
+  },
+});
+
 export const outreachSettings = query({
   args: {},
   handler: async (ctx) => {
     const workspace = await currentWorkspace(ctx);
     if (!workspace) return null;
-    return { forwardRepliesTo: workspace.forwardRepliesTo ?? "" };
+    return {
+      forwardRepliesTo: workspace.forwardRepliesTo ?? "",
+      postalAddress: workspace.postalAddress ?? "",
+    };
   },
 });
 
@@ -449,6 +480,7 @@ export const createCampaign = mutation({
       const lead = await ctx.db.get(leadId);
       if (!lead || lead.workspaceId !== workspace._id) continue;
       if (isPlaceholderEmail(lead.email)) continue; // phone-only: nothing to email
+      if (await isSuppressed(ctx, lead.email)) continue; // unsubscribed / opted out
       await ctx.db.insert("campaignLeads", {
         campaignId,
         leadId,
@@ -531,6 +563,7 @@ export const addCampaignLeadsLocal = internalMutation({
       const lead = await ctx.db.get(leadId);
       if (!lead || lead.workspaceId !== workspace._id) continue;
       if (isPlaceholderEmail(lead.email)) continue; // phone-only: nothing to email
+      if (await isSuppressed(ctx, lead.email)) continue; // unsubscribed / opted out
       const link = await ctx.db
         .query("campaignLeads")
         .withIndex("by_campaign_lead", (q) =>
@@ -585,7 +618,8 @@ export const getCampaignForPublish = internalQuery({
     const leads = [];
     for (const link of links) {
       const lead = await ctx.db.get(link.leadId);
-      if (lead) {
+      // Suppressed after enrolment (unsubscribe reply, public opt-out): never pushed.
+      if (lead && !(await isSuppressed(ctx, lead.email))) {
         const [firstName, ...restName] = (lead.name ?? "").split(" ");
         leads.push({
           email: lead.email,
@@ -603,6 +637,16 @@ export const getCampaignForPublish = internalQuery({
       }
     }
     const inboxes = await Promise.all(campaign.inboxIds.map((id) => ctx.db.get(id)));
+    // CAN-SPAM footer on every step/variant. activationCheck refuses to go
+    // live without a postal address; this guard also covers edits of live ones.
+    const unsubscribeUrl = optOutUrl();
+    if (!workspace.postalAddress) {
+      throw new Error("Add your business postal address in Outreach → Settings before sending");
+    }
+    if (!unsubscribeUrl) {
+      throw new Error("NOT_CONFIGURED: APP_URL is not set, so emails have no unsubscribe link");
+    }
+    const footer = complianceFooter({ postalAddress: workspace.postalAddress, optOutUrl: unsubscribeUrl });
     return {
       name: campaign.name,
       status: campaign.status,
@@ -614,7 +658,11 @@ export const getCampaignForPublish = internalQuery({
       emailList: inboxes.flatMap((i) => (i ? [i.email] : [])),
       steps: steps
         .sort((a, b) => a.order - b.order)
-        .map((s) => ({ waitDays: s.waitDays, subject: s.subject, variants: s.variants })),
+        .map((s) => ({
+          waitDays: s.waitDays,
+          subject: s.subject,
+          variants: s.variants.map((body) => (body.trim() ? `${body}${footer}` : body)),
+        })),
       leads,
     };
   },
@@ -826,6 +874,12 @@ export const upsertReply = internalMutation({
       .unique();
     if (!campaign) return false;
 
+    const category = categorize(args.subject, args.body);
+    // An unsubscribe reply suppresses the address platform-wide (and on the
+    // engine's block list) so no workspace can email it again.
+    if (category === "unsubscribed") {
+      await suppressEmail(ctx, args.leadEmail, "unsubscribed", campaign.workspaceId);
+    }
     await ctx.db.insert("replies", {
       workspaceId: campaign.workspaceId,
       campaignId: campaign._id,
@@ -833,7 +887,7 @@ export const upsertReply = internalMutation({
       fromName: args.fromName,
       subject: args.subject,
       body: args.body,
-      category: categorize(args.subject, args.body),
+      category,
       read: false,
       receivedAt: args.receivedAt,
       instantlyId: args.instantlyId,

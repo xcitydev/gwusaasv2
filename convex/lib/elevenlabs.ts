@@ -26,17 +26,40 @@ function apiKey(): string {
 async function failure(res: Response, what: string): Promise<Error> {
   const text = await res.text();
   let detail = text.slice(0, 300);
+  let code = "";
   try {
     const parsed = JSON.parse(text) as {
       detail?: { message?: string; status?: string } | string;
     };
     if (typeof parsed.detail === "string") detail = parsed.detail;
-    else if (parsed.detail?.message) detail = parsed.detail.message;
+    else {
+      if (parsed.detail?.message) detail = parsed.detail.message;
+      if (parsed.detail?.status) code = parsed.detail.status;
+    }
   } catch {
     // Keep the raw body.
   }
   console.error(`ElevenLabs ${res.status} on ${what}: ${text.slice(0, 500)}`);
-  return new Error(`ElevenLabs ${res.status}: ${detail}`);
+  return new Error(`ElevenLabs ${res.status}${code ? ` [${code}]` : ""}: ${detail}`);
+}
+
+/** The voice id isn't (or is no longer) in the account. */
+export function isVoiceMissingError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /^ElevenLabs (404|400 \[voice_not_found\])/.test(error.message)
+  );
+}
+
+/** The account is out of custom-voice slots. */
+export function isVoiceLimitError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /^ElevenLabs \d+/.test(error.message) &&
+    /voice_limit_reached|maximum amount of custom voices|voice slots?/i.test(
+      error.message,
+    )
+  );
 }
 
 /**
@@ -93,6 +116,39 @@ export async function cloneVoice(args: {
   const parsed = (await res.json()) as { voice_id?: string };
   if (!parsed.voice_id) throw new Error("ElevenLabs returned no voice id");
   return parsed.voice_id;
+}
+
+/**
+ * ElevenLabs' own stock ("premade") voices — usable by agents on any plan
+ * and never counted against voice slots. Our pooled clones are excluded.
+ */
+export async function listStockVoices(): Promise<
+  { id: string; name: string; description: string | null }[]
+> {
+  const res = await fetch(`${BASE}/voices`, { headers: { "xi-api-key": apiKey() } });
+  if (!res.ok) throw await failure(res, "voices");
+  const parsed = (await res.json()) as {
+    voices?: {
+      voice_id: string;
+      name: string;
+      category?: string;
+      description?: string | null;
+      labels?: Record<string, string>;
+    }[];
+  };
+  return (parsed.voices ?? [])
+    .filter((v) => v.category === "premade")
+    .map((v) => ({
+      id: v.voice_id,
+      // "Roger - Laid-Back, Casual, Resonant" → name + description.
+      name: v.name.split(" - ")[0].trim(),
+      description:
+        v.name.split(" - ").slice(1).join(" - ").trim() ||
+        v.description ||
+        [v.labels?.accent, v.labels?.gender].filter(Boolean).join(" · ") ||
+        null,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function deleteVoice(voiceId: string): Promise<void> {

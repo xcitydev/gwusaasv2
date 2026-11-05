@@ -1,72 +1,10 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
-import { grantCredits } from "./lib/credits";
-import { getConfigValue } from "./config";
-import { planValidator } from "./schema";
+import { getCurrentUser, getPrimaryWorkspace } from "./lib/auth";
 
-/**
- * Called by the client after Clerk Billing reports the active plan
- * (auth().has({plan})). Idempotent: plan credits are granted once per plan
- * via planCreditsGrantedFor, and the referral qualifies on first paid plan.
- *
- * TODO(hardening): verify against the Clerk backend API / webhook instead of
- * trusting the client-reported plan.
- */
-export const syncPlan = mutation({
-  args: { plan: planValidator },
-  handler: async (ctx, args) => {
-    // Whop live = Whop webhooks are the only writer of plan state. A Clerk
-    // free plan reported by the browser must never downgrade a paid
-    // workspace, so the whole Clerk Billing sync becomes a no-op.
-    if (process.env.WHOP_API_KEY) return { changed: false };
-    const user = await requireUser(ctx);
-    const workspace = await getPrimaryWorkspace(ctx, user._id);
-    if (!workspace) throw new Error("No workspace");
-    // Team members work inside the owner's workspace — their personal Clerk
-    // plan must never rewrite it (a member reporting "free" would otherwise
-    // downgrade the whole team).
-    if (workspace.ownerId !== user._id) return { changed: false };
-    if (workspace.plan === args.plan) return { changed: false };
-
-    await ctx.db.patch(workspace._id, { plan: args.plan });
-    if (args.plan === "free") return { changed: true };
-
-    const [personalCredits, teamCredits, personalPrice, teamPrice] =
-      await Promise.all([
-        getConfigValue(ctx, "personalPlanCredits"),
-        getConfigValue(ctx, "teamPlanCredits"),
-        getConfigValue(ctx, "personalPlanPriceUsd"),
-        getConfigValue(ctx, "teamPlanPriceUsd"),
-      ]);
-    const credits = args.plan === "team" ? teamCredits : personalCredits;
-    const priceUsd = args.plan === "team" ? teamPrice : personalPrice;
-
-    if (workspace.planCreditsGrantedFor !== args.plan) {
-      await grantCredits(ctx, {
-        workspaceId: workspace._id,
-        amount: credits,
-        feature: "plan_grant",
-        description: `${args.plan} plan credits`,
-        userId: user._id,
-      });
-      await ctx.db.patch(workspace._id, { planCreditsGrantedFor: args.plan });
-      await ctx.db.insert("purchases", {
-        workspaceId: workspace._id,
-        userId: user._id,
-        kind: "subscription",
-        amountUsd: priceUsd,
-        status: "paid",
-        meta: { plan: args.plan },
-      });
-    }
-
-    // Referral commissions (15% of every payment, for life) are recorded only
-    // from real Whop invoices in whop.handlePaymentSucceeded. A plan sync
-    // carries no invoice, so there is nothing to pay out here.
-    return { changed: true };
-  },
-});
+// Plan state has exactly one writer: signature-verified Whop webhooks
+// (convex/whop.ts). The old client-reported Clerk Billing sync (syncPlan)
+// was removed — a browser could claim any plan and re-collect plan credits.
 
 const LEDGER_PAGE_SIZE = 10;
 // Numbered pagination needs a total; cap the count so one huge ledger can't

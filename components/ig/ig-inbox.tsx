@@ -664,7 +664,10 @@ function Composer({
   } | null>(null);
 
   const chars = draft.trim().length;
-  const rate = config?.voiceNoteCreditsPer1kChars ?? 5;
+  // Studio HD (ElevenLabs) clones have pooled "elv_" ids and their own rate.
+  const rate = voiceId.startsWith("elv_")
+    ? (config?.voiceNoteCreditsPer1kCharsElevenLabs ?? 36)
+    : (config?.voiceNoteCreditsPer1kChars ?? 5);
   const estimate = chars ? Math.max(1, Math.ceil((chars / 1000) * rate)) : 0;
   const tooLong = chars > VOICE_NOTE_MAX_CHARS;
   const previewCurrent =

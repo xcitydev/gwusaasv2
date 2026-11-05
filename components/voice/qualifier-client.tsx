@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import type { BlandWebClient } from "bland-client-js-sdk";
+import { startStudioCall, type StudioCall } from "@/components/voice/studio-browser-call";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
@@ -26,10 +27,34 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { errorText } from "@/lib/public-errors";
 import { phoneLeadKey } from "@/lib/lead-keys";
+import { promptTopUpIfInsufficient } from "@/lib/top-up-prompt";
+
+/**
+ * Fallback zone for the 9am–8pm calling window — used only when a lead's
+ * state or area code doesn't say where they are.
+ */
+const CALLING_TIMEZONES: { value: string; label: string }[] = [
+  { value: "America/New_York", label: "US Eastern" },
+  { value: "America/Chicago", label: "US Central" },
+  { value: "America/Denver", label: "US Mountain" },
+  { value: "America/Phoenix", label: "Arizona" },
+  { value: "America/Los_Angeles", label: "US Pacific" },
+  { value: "America/Anchorage", label: "Alaska" },
+  { value: "Pacific/Honolulu", label: "Hawaii" },
+  { value: "Europe/London", label: "UK" },
+  { value: "Africa/Lagos", label: "West Africa (Lagos)" },
+];
 
 type QualifierCall = FunctionReturnType<typeof api.voice.listCalls>[number];
 
@@ -199,15 +224,47 @@ function QualifierLive() {
   const create = useMutation(api.voice.createQualifierCampaign);
   const startCampaign = useAction(api.voiceActions.startQualifierCampaign);
   const [startingId, setStartingId] = useState<string | null>(null);
+  // Start requires the TCPA attestation every time — opened per campaign.
+  const [startTarget, setStartTarget] = useState<{
+    id: Id<"qualifierCampaigns">;
+    name: string;
+  } | null>(null);
+  const [startConsent, setStartConsent] = useState(false);
+  const [startTimezone, setStartTimezone] = useState("America/New_York");
 
-  const doStart = async (campaignId: Id<"qualifierCampaigns">) => {
+  const openStart = (campaign: {
+    _id: Id<"qualifierCampaigns">;
+    name: string;
+    timezone?: string;
+  }) => {
+    setStartTarget({ id: campaign._id, name: campaign.name });
+    setStartConsent(false);
+    setStartTimezone(campaign.timezone ?? "America/New_York");
+  };
+
+  const doStart = async () => {
+    if (!startTarget || !startConsent) return;
+    const campaignId = startTarget.id;
     setStartingId(campaignId);
     try {
-      const { dispatched } = await startCampaign({ campaignId });
+      const { dispatched, deferred, optedOut } = await startCampaign({
+        campaignId,
+        consentAttested: true,
+        timezone: startTimezone,
+      });
+      setStartTarget(null);
+      const extra = [
+        deferred > 0 &&
+          `${deferred} will be called once it's 9am–8pm their local time`,
+        optedOut > 0 && `${optedOut} skipped (do-not-call list)`,
+      ].filter(Boolean);
       toast.success(
-        `Calling ${dispatched} lead${dispatched === 1 ? "" : "s"} now — results land here as calls finish.`,
+        `Calling ${dispatched} lead${dispatched === 1 ? "" : "s"} now${
+          extra.length ? ` — ${extra.join("; ")}` : ""
+        }. Results land here as calls finish.`,
       );
     } catch (e) {
+      if (promptTopUpIfInsufficient(e, "Starting this campaign")) return;
       const msg = e instanceof Error ? e.message : "";
       toast.error(
         msg.includes("NOT_CONFIGURED")
@@ -222,6 +279,8 @@ function QualifierLive() {
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [callerName, setCallerName] = useState("");
+  const [businessName, setBusinessName] = useState("");
+  const [engine, setEngine] = useState<"bland" | "elevenlabs">("bland");
   const [voice, setVoice] = useState("maya");
   const [backgroundTrack, setBackgroundTrack] = useState<string | undefined>(undefined);
   const [prompt, setPrompt] = useState("");
@@ -279,6 +338,7 @@ function QualifierLive() {
     id: Id<"qualifierCampaigns">;
     name: string;
     prompt: string;
+    engine: "bland" | "elevenlabs";
   } | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
 
@@ -290,6 +350,66 @@ function QualifierLive() {
   const testSessionRef = useRef<{ callRecordId: Id<"calls">; blandCallId: string } | null>(null);
   const transcriptRef = useRef<{ processId: string; type: string; text: string }[]>([]);
   const testStartRef = useRef(0);
+  const startStudioTest = useAction(api.voiceActions.startElevenQualifierBrowserTest);
+  const endStudioTest = useAction(api.voiceActions.endElevenBrowserTest);
+  const studioCallRef = useRef<StudioCall | null>(null);
+  const studioRecordRef = useRef<Id<"calls"> | null>(null);
+
+  const stopStudioTest = () => {
+    const call = studioCallRef.current;
+    const callRecordId = studioRecordRef.current;
+    studioCallRef.current = null;
+    studioRecordRef.current = null;
+    setTestState("idle");
+    if (!call || !callRecordId) return;
+    void call
+      .stop()
+      .then((conversationId) =>
+        endStudioTest({ callRecordId, conversationId: conversationId ?? undefined }),
+      )
+      .catch(() => {});
+    toast.success("Rehearsal ended — transcript and verdict appear in the call list shortly.");
+  };
+
+  const studioBrowserTest = async () => {
+    if (testState === "live") {
+      stopStudioTest();
+      return;
+    }
+    if (!openCampaign) return;
+    setTestState("connecting");
+    try {
+      const { conversationToken, callRecordId } = await startStudioTest({
+        campaignId: openCampaign.id,
+      });
+      studioRecordRef.current = callRecordId;
+      studioCallRef.current = await startStudioCall({
+        conversationToken,
+        onEnded: () => stopStudioTest(),
+      });
+      setTestState("live");
+      toast.success("You're live — you're the lead. Answer the call!");
+    } catch (e) {
+      setTestState("idle");
+      const recordId = studioRecordRef.current;
+      studioRecordRef.current = null;
+      if (recordId) void endStudioTest({ callRecordId: recordId }).catch(() => {});
+      const msg = e instanceof Error ? e.message : "";
+      if (/permission|notallowed/i.test(msg)) {
+        toast.error("Microphone access was blocked — allow it and try again.");
+      } else {
+        toast.error(errorText(e, "Couldn't start the rehearsal."));
+      }
+    }
+  };
+
+  // Hang up a Studio HD rehearsal if the page unmounts mid-call.
+  useEffect(() => {
+    return () => {
+      void studioCallRef.current?.stop();
+      studioCallRef.current = null;
+    };
+  }, []);
 
   const captureTranscripts = (payload: unknown) => {
     if (!payload || typeof payload !== "object") return;
@@ -306,6 +426,10 @@ function QualifierLive() {
   };
 
   const stopTest = () => {
+    if (studioCallRef.current) {
+      stopStudioTest();
+      return;
+    }
     testClientRef.current?.stopConversation();
     testClientRef.current = null;
     setTestState("idle");
@@ -333,6 +457,10 @@ function QualifierLive() {
   };
 
   const browserTest = async () => {
+    if (openCampaign?.engine === "elevenlabs" || studioCallRef.current) {
+      await studioBrowserTest();
+      return;
+    }
     if (testState === "live") {
       stopTest();
       return;
@@ -380,8 +508,10 @@ function QualifierLive() {
         name,
         prompt,
         callerName: callerName.trim() || undefined,
+        businessName: businessName.trim() || undefined,
         voice,
-        backgroundTrack,
+        backgroundTrack: engine === "bland" ? backgroundTrack : undefined,
+        engine,
         leadIds: [...selectedLeads] as Id<"leads">[],
       });
       toast.success("Campaign created — press Start calling when you're ready. Calls bill per-second in credits.");
@@ -432,11 +562,21 @@ function QualifierLive() {
                 role="button"
                 tabIndex={0}
                 onClick={() =>
-                  setOpenCampaign({ id: campaign._id, name: campaign.name, prompt: campaign.prompt })
+                  setOpenCampaign({
+                    id: campaign._id,
+                    name: campaign.name,
+                    prompt: campaign.prompt,
+                    engine: campaign.engine ?? "bland",
+                  })
                 }
                 onKeyDown={(e) => {
                   if (e.key === "Enter")
-                    setOpenCampaign({ id: campaign._id, name: campaign.name, prompt: campaign.prompt });
+                    setOpenCampaign({
+                      id: campaign._id,
+                      name: campaign.name,
+                      prompt: campaign.prompt,
+                      engine: campaign.engine ?? "bland",
+                    });
                 }}
                 className="flex w-full cursor-pointer items-center justify-between gap-3 px-5 py-3.5 text-left transition-colors hover:bg-accent"
               >
@@ -446,6 +586,9 @@ function QualifierLive() {
                     {campaign.leadCount} lead{campaign.leadCount === 1 ? "" : "s"} ·{" "}
                     {new Date(campaign._creationTime).toLocaleDateString()}
                   </p>
+                  {campaign.statusNote && (
+                    <p className="mt-0.5 text-xs text-amber-400">{campaign.statusNote}</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2.5">
                   {campaign.status === "draft" && (
@@ -454,7 +597,7 @@ function QualifierLive() {
                       disabled={startingId !== null}
                       onClick={(e) => {
                         e.stopPropagation();
-                        doStart(campaign._id);
+                        openStart(campaign);
                       }}
                     >
                       {startingId === campaign._id ? (
@@ -499,23 +642,71 @@ function QualifierLive() {
                   onChange={(e) => setCallerName(e.target.value)}
                 />
                 <p className="mt-1.5 text-xs text-muted-foreground">
-                  How the AI introduces itself: &ldquo;Hi, this is Maya, calling
-                  on behalf of…&rdquo;
+                  How the AI introduces itself: &ldquo;Hi, this is Maya, an AI
+                  assistant calling on behalf of…&rdquo;
                 </p>
               </div>
+            </div>
+            <div>
+              <Label className="mb-1.5">Calling on behalf of</Label>
+              <Input
+                placeholder="Acme Marketing"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                maxLength={80}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Every call opens by saying it&rsquo;s an AI assistant calling for
+                this business and that the call is recorded. Leads who say no
+                are never called again.
+              </p>
+            </div>
+            <div>
+              <Label className="mb-1.5">Call engine</Label>
+              <Select
+                value={engine}
+                onValueChange={(value) => {
+                  const next = value as "bland" | "elevenlabs";
+                  if (next === engine) return;
+                  setEngine(next);
+                  // Voices don't carry across engines.
+                  setVoice(next === "bland" ? "maya" : "");
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bland">Standard</SelectItem>
+                  <SelectItem value="elevenlabs">Studio HD</SelectItem>
+                </SelectContent>
+              </Select>
+              {engine === "elevenlabs" && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Studio HD dials from your own Studio HD number — buy one on
+                  the Receptionist page before you start calling.
+                </p>
+              )}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label className="mb-1.5">Voice</Label>
-                <VoicePicker value={voice} onChange={setVoice} />
-              </div>
-              <div>
-                <Label className="mb-1.5">Background sound</Label>
-                <BackgroundPicker
-                  value={backgroundTrack}
-                  onChange={setBackgroundTrack}
+                <VoicePicker
+                  key={engine}
+                  value={voice}
+                  onChange={setVoice}
+                  engine={engine}
                 />
               </div>
+              {engine === "bland" && (
+                <div>
+                  <Label className="mb-1.5">Background sound</Label>
+                  <BackgroundPicker
+                    value={backgroundTrack}
+                    onChange={setBackgroundTrack}
+                  />
+                </div>
+              )}
             </div>
             <div>
               <Label className="mb-1.5">Qualification prompt *</Label>
@@ -608,6 +799,74 @@ function QualifierLive() {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button onClick={doCreate} disabled={creating}>
               {creating && <Loader2 className="size-4 animate-spin" />} Create campaign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={startTarget !== null}
+        onOpenChange={(o) => {
+          if (!o && startingId === null) setStartTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Start calling</DialogTitle>
+            <DialogDescription>
+              {startTarget?.name} — leads are only called between 9am and 8pm
+              their local time. Anyone outside that window is called
+              automatically once it opens.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="mb-1.5">Default timezone</Label>
+              <Select value={startTimezone} onValueChange={setStartTimezone}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CALLING_TIMEZONES.map((tz) => (
+                    <SelectItem key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Used when a lead&rsquo;s state or area code doesn&rsquo;t tell us
+                where they are.
+              </p>
+            </div>
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-white/10 p-3 text-xs leading-relaxed text-muted-foreground">
+              <Checkbox
+                className="mt-0.5"
+                checked={startConsent}
+                onCheckedChange={(checked) => setStartConsent(checked === true)}
+              />
+              <span>
+                I have prior express written consent from every contact to
+                receive AI/artificial-voice calls, and I&rsquo;ve scrubbed this
+                list against the National Do-Not-Call Registry.
+              </span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={startingId !== null}
+              onClick={() => setStartTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button onClick={doStart} disabled={!startConsent || startingId !== null}>
+              {startingId !== null ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <PhoneOutgoing className="size-4" />
+              )}
+              Start calling
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, getPrimaryWorkspace, requireUser } from "./lib/auth";
+import { secureToken } from "./lib/tokens";
 import {
   recallConfigured,
   sendChatMessage,
@@ -50,14 +51,18 @@ export function emptyCoachState(): CoachState {
   };
 }
 
-/** Secret path/query token: the realtime webhook and the coach card use it. */
+/** Public coach-card key (/coach/<token>) — read-only, shown to the call. */
 export function newCoachToken(): string {
-  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let token = "";
-  for (let i = 0; i < 32; i++) {
-    token += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return token;
+  return secureToken(32);
+}
+
+/**
+ * Write credential for the /notes/realtime webhook. Kept apart from the
+ * coach token because that one is visible to everyone on the call (it's the
+ * bot camera's URL) and must not let them inject transcript.
+ */
+export function newRealtimeToken(): string {
+  return secureToken(40);
 }
 
 async function callerMeeting(ctx: QueryCtx, meetingId: Id<"meetings">) {
@@ -130,10 +135,19 @@ export const ingestRealtime = internalMutation({
     ctx,
     args,
   ): Promise<{ meetingId: Id<"meetings">; scheduleTick: boolean } | null> => {
-    const meeting = await ctx.db
+    let meeting = await ctx.db
       .query("meetings")
-      .withIndex("by_coach_token", (q) => q.eq("coachToken", args.token))
+      .withIndex("by_realtime_token", (q) => q.eq("realtimeToken", args.token))
       .unique();
+    if (!meeting) {
+      // Back-compat: bots dispatched before realtimeToken existed were
+      // configured with the coach token. Only honoured for those rows.
+      const legacy = await ctx.db
+        .query("meetings")
+        .withIndex("by_coach_token", (q) => q.eq("coachToken", args.token))
+        .unique();
+      if (legacy && !legacy.realtimeToken) meeting = legacy;
+    }
     if (!meeting) return null;
     if (args.botId && meeting.recallBotId && args.botId !== meeting.recallBotId) return null;
     if (!args.text.trim()) return { meetingId: meeting._id, scheduleTick: false };
