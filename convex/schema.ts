@@ -518,9 +518,14 @@ export default defineSchema({
     warmupSentLastDay: v.optional(v.number()),
     // IMAP/SMTP credentials are stored encrypted.
     credentials: v.optional(v.any()),
+    // True only when this app created the engine account (not an existing
+    // mailbox an admin linked), so removing the inbox may delete it there.
+    engineCreatedByUs: v.optional(v.boolean()),
   })
     .index("by_workspace", ["workspaceId"])
-    .index("by_workspace_email", ["workspaceId", "email"]),
+    .index("by_workspace_email", ["workspaceId", "email"])
+    // The engine account is shared: an address may belong to one workspace only.
+    .index("by_email", ["email"]),
 
   emailDomains: defineTable({
     workspaceId: v.id("workspaces"),

@@ -117,9 +117,13 @@ function InboxesTabLive() {
     }
     setBusy(true);
     try {
-      await connectInboxes({
+      const result = await connectInboxes({
         inboxes: [{ email: oauthEmail, provider: oauthProvider, dailyLimit: 30 }],
       });
+      if (result.engineErrors.length > 0) {
+        toast.error(result.engineErrors[0], { duration: 10000 });
+        return;
+      }
       toast.success(`${oauthEmail} connected — warmup starts automatically.`);
       setDialog(null);
       setOauthEmail("");

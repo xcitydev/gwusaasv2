@@ -20,6 +20,7 @@ import {
   activateCampaign,
   pauseCampaign,
   deleteCampaign,
+  deleteAccount,
   getCampaignAnalytics,
   listReplyEmails,
   replyToEmail,
@@ -28,6 +29,27 @@ import {
 /** Instantly's duplicate-account wording varies — match all known forms. */
 function isAlreadyRegistered(message: string): boolean {
   return /already (exist|been added)|duplicate/i.test(message);
+}
+
+const ALREADY_REGISTERED =
+  "this address is already registered on the platform. Contact support to link it.";
+
+/**
+ * The engine says the address already exists. Link it only for admin-owned
+ * workspaces; anyone else gets an error instead of a working sender.
+ */
+async function claimOrRefuse(
+  ctx: { runQuery: any; runMutation: any },
+  id: Id<"inboxes">,
+): Promise<boolean> {
+  const admin: boolean = await ctx.runQuery(internal.outreach.inboxOwnerIsAdmin, { id });
+  await ctx.runMutation(
+    internal.outreach.updateInboxHealth,
+    admin
+      ? { id, engineConnected: true, clearEngineError: true }
+      : { id, engineConnected: false, status: "error", lastEngineError: ALREADY_REGISTERED },
+  );
+  return admin;
 }
 
 /**
@@ -94,7 +116,9 @@ export const connectInboxes = action({
 
     // Best-effort engine registration — local state is the source of truth,
     // the sync cron reconciles health/status afterwards.
-    const engineErrors: string[] = [];
+    const engineErrors: string[] = result.taken.map(
+      (email) => `${email}: this address is already connected to another account`,
+    );
     if (instantlyConfigured()) {
       for (const inbox of args.inboxes) {
         if (inbox.provider !== "imap_smtp" || !inbox.imap || !inbox.smtp) continue;
@@ -113,6 +137,7 @@ export const connectInboxes = action({
             await ctx.runMutation(internal.outreach.updateInboxHealth, {
               id: row.id,
               engineConnected: true,
+              engineCreatedByUs: true,
               status: "warming",
               clearEngineError: true,
             });
@@ -120,12 +145,11 @@ export const connectInboxes = action({
         } catch (error) {
           const message = error instanceof Error ? error.message : "engine error";
           if (isAlreadyRegistered(message)) {
-            if (row) {
-              await ctx.runMutation(internal.outreach.updateInboxHealth, {
-                id: row.id,
-                engineConnected: true,
-                clearEngineError: true,
-              });
+            // Someone else's mailbox (or one only an admin set up) already
+            // lives on the shared engine: claiming it with unproven
+            // credentials would let this workspace send as that mailbox.
+            if (row && !(await claimOrRefuse(ctx, row.id))) {
+              engineErrors.push(`${inbox.email}: ${ALREADY_REGISTERED}`);
             }
           } else {
             // The engine's own reason (bad IMAP password…) is useful once its
@@ -213,6 +237,19 @@ export const setCampaignStatus = action({
     if (!campaign) throw new Error("Campaign not found");
 
     let instantlyId = campaign.instantlyId ?? undefined;
+    let activated = false;
+    // A campaign published under an earlier engine account (API key change)
+    // no longer exists there: publish it afresh instead of failing on a 404.
+    if (args.status === "active" && instantlyId) {
+      try {
+        await activateCampaign(instantlyId);
+        activated = true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (!/404|not found/i.test(message)) throw error;
+        instantlyId = undefined;
+      }
+    }
     if (args.status === "active" && !instantlyId) {
       // First activation: create in Instantly with our snake_case merge tags
       // translated to Instantly's camelCase ones, then add leads.
@@ -232,8 +269,8 @@ export const setCampaignStatus = action({
       await addLeadsToCampaign(instantlyId, campaign.leads);
     }
     if (instantlyId) {
-      if (args.status === "active") await activateCampaign(instantlyId);
-      else await pauseCampaign(instantlyId);
+      if (args.status !== "active") await pauseCampaign(instantlyId);
+      else if (!activated) await activateCampaign(instantlyId);
     }
     await ctx.runMutation(internal.outreach.setCampaignStatusLocal, {
       id: args.id,
@@ -399,6 +436,7 @@ export const syncEngine = internalAction({
         await ctx.runMutation(internal.outreach.updateInboxHealth, {
           id: inbox._id,
           engineConnected: true,
+          engineCreatedByUs: true,
           status: "warming",
           clearEngineError: true,
         });
@@ -407,12 +445,9 @@ export const syncEngine = internalAction({
         const message = error instanceof Error ? error.message : "engine error";
         // Only an explicit duplicate means the account is already registered.
         if (isAlreadyRegistered(message)) {
-          await ctx.runMutation(internal.outreach.updateInboxHealth, {
-            id: inbox._id,
-            engineConnected: true,
-            clearEngineError: true,
-          });
-          engineEmails.push({ _id: inbox._id, email: inbox.email });
+          if (await claimOrRefuse(ctx, inbox._id)) {
+            engineEmails.push({ _id: inbox._id, email: inbox.email });
+          }
         } else {
           console.error(`Engine registration failed for ${inbox.email}:`, error);
           await ctx.runMutation(internal.outreach.updateInboxHealth, {
@@ -436,6 +471,17 @@ export const syncEngine = internalAction({
           const account = accounts.find(
             (a) => a.email === inbox.email.toLowerCase(),
           );
+          // Gone from the engine (e.g. the engine API key now points at a
+          // different account): mark it disconnected so step 0 re-registers
+          // it from the stored credentials on the next run.
+          if (!account) {
+            await ctx.runMutation(internal.outreach.updateInboxHealth, {
+              id: inbox._id,
+              engineConnected: false,
+              status: "connecting",
+            });
+            continue;
+          }
           const stats = analytics.find((a) => a.email === inbox.email);
           // stat_warmup_score is what Instantly's own dashboard shows (0 until
           // enough data); prefer it so our Health column always matches theirs.
@@ -546,6 +592,22 @@ export const archiveCampaign = action({
       }
     }
     await ctx.runMutation(internal.outreachLimits.markArchived, { id: args.id });
+  },
+});
+
+/** Unregister a removed inbox from the shared engine (already gone is fine). */
+export const deleteEngineAccount = internalAction({
+  args: { email: v.string() },
+  handler: async (_ctx, args): Promise<void> => {
+    if (!instantlyConfigured()) return;
+    try {
+      await deleteAccount(args.email);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!/404|not found/i.test(message)) {
+        console.error(`Engine account delete failed for ${args.email}:`, error);
+      }
+    }
   },
 });
 

@@ -5,7 +5,8 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { v } from "convex/values";
-import { Doc } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { assertPlanDb } from "./lib/plan";
 import {
@@ -35,6 +36,20 @@ async function requireWorkspace(ctx: Parameters<typeof requireUser>[0]) {
   const workspace = await getPrimaryWorkspace(ctx, user._id);
   if (!workspace) throw new Error("No workspace");
   return { user, workspace };
+}
+
+/** A campaign may only send from inboxes its own workspace connected. */
+async function assertOwnInboxes(
+  ctx: { db: { get: (id: Id<"inboxes">) => Promise<Doc<"inboxes"> | null> } },
+  workspaceId: Id<"workspaces">,
+  inboxIds: Id<"inboxes">[],
+) {
+  for (const id of inboxIds) {
+    const inbox = await ctx.db.get(id);
+    if (!inbox || inbox.workspaceId !== workspaceId) {
+      throw new Error("One of the selected inboxes isn't yours. Pick your inboxes again.");
+    }
+  }
 }
 
 async function currentWorkspace(ctx: Parameters<typeof getCurrentUser>[0]) {
@@ -85,18 +100,24 @@ export const addInboxes = internalMutation({
     let added = 0;
     let skipped = 0;
     const inserted: { id: Doc<"inboxes">["_id"]; email: string }[] = [];
+    // Addresses another workspace already holds. Every workspace sends through
+    // one shared engine account, so letting a second workspace list the same
+    // address would let it send from (and as) someone else's mailbox.
+    const taken: string[] = [];
+    const ownerOf = async (email: string) =>
+      (
+        await ctx.db
+          .query("inboxes")
+          .withIndex("by_email", (q) => q.eq("email", email))
+          .collect()
+      ).map((row) => row.workspaceId);
     // Plan inbox cap, counting only addresses that would actually be new.
     let candidates = 0;
     for (const inbox of args.inboxes) {
       const email = inbox.email.trim().toLowerCase();
       if (!email.includes("@")) continue;
-      const existing = await ctx.db
-        .query("inboxes")
-        .withIndex("by_workspace_email", (q) =>
-          q.eq("workspaceId", workspace._id).eq("email", email),
-        )
-        .unique();
-      if (!existing) candidates++;
+      const owners = await ownerOf(email);
+      if (owners.length === 0) candidates++;
     }
     await assertInboxRoom(ctx, workspace, candidates);
     for (const inbox of args.inboxes) {
@@ -105,13 +126,13 @@ export const addInboxes = internalMutation({
         skipped++;
         continue;
       }
-      const existing = await ctx.db
-        .query("inboxes")
-        .withIndex("by_workspace_email", (q) =>
-          q.eq("workspaceId", workspace._id).eq("email", email),
-        )
-        .unique();
-      if (existing) {
+      const owners = await ownerOf(email);
+      if (owners.some((id) => id !== workspace._id)) {
+        taken.push(email);
+        skipped++;
+        continue;
+      }
+      if (owners.length > 0) {
         skipped++;
         continue;
       }
@@ -132,7 +153,7 @@ export const addInboxes = internalMutation({
       inserted.push({ id, email });
       added++;
     }
-    return { added, skipped, inserted };
+    return { added, skipped, inserted, taken };
   },
 });
 
@@ -181,6 +202,7 @@ export const updateInboxHealth = internalMutation({
       ),
     ),
     engineConnected: v.optional(v.boolean()),
+    engineCreatedByUs: v.optional(v.boolean()),
     lastEngineError: v.optional(v.string()),
     clearEngineError: v.optional(v.boolean()),
     engineWarmupActive: v.optional(v.boolean()),
@@ -203,6 +225,29 @@ export const removeInbox = mutation({
     const inbox = await ctx.db.get(args.id);
     if (!inbox || inbox.workspaceId !== workspace._id) throw new Error("Not found");
     await ctx.db.delete(args.id);
+    // We registered it on the shared engine, so we unregister it too: it stops
+    // sending, and the address can be connected again cleanly later.
+    if (inbox.engineConnected && inbox.engineCreatedByUs) {
+      await ctx.scheduler.runAfter(0, internal.outreachActions.deleteEngineAccount, {
+        email: inbox.email,
+      });
+    }
+  },
+});
+
+/**
+ * May this inbox be linked to an engine account it did not create itself
+ * ("already registered")? Only for platform admins: the shared account also
+ * holds mailboxes no customer ever proved they own.
+ */
+export const inboxOwnerIsAdmin = internalQuery({
+  args: { id: v.id("inboxes") },
+  handler: async (ctx, args) => {
+    const inbox = await ctx.db.get(args.id);
+    if (!inbox) return false;
+    const workspace = await ctx.db.get(inbox.workspaceId);
+    const owner = workspace ? await ctx.db.get(workspace.ownerId) : null;
+    return Boolean(owner?.adminRole);
   },
 });
 
@@ -371,7 +416,7 @@ export const getCampaign = query({
       leadCount: links.length,
       leads,
       inboxes: inboxes
-        .filter((i): i is Doc<"inboxes"> => i !== null)
+        .filter((i): i is Doc<"inboxes"> => i !== null && i.workspaceId === workspace._id)
         .map((i) => ({ _id: i._id, email: i.email, status: i.status })),
     };
   },
@@ -401,6 +446,7 @@ export const updateCampaignLocal = internalMutation({
     if (args.inboxIds.length === 0) throw new Error("Pick at least one inbox");
     if (args.dailyCap < 1) throw new Error("Daily cap must be at least 1");
     await assertDailyCap(ctx, workspace, args.dailyCap);
+    await assertOwnInboxes(ctx, workspace._id, args.inboxIds);
 
     await ctx.db.patch(args.id, {
       name: args.name.trim(),
@@ -453,6 +499,7 @@ export const createCampaign = mutation({
     if (args.leadIds.length === 0) throw new Error("Add at least one lead");
     if (args.dailyCap < 1) throw new Error("Daily cap must be at least 1");
     await assertDailyCap(ctx, workspace, args.dailyCap);
+    await assertOwnInboxes(ctx, workspace._id, args.inboxIds);
     // Plan + platform contact caps, checked before anything is written.
     await assertContactRoom(ctx, workspace, args.leadIds);
 
@@ -636,7 +683,17 @@ export const getCampaignForPublish = internalQuery({
         });
       }
     }
-    const inboxes = await Promise.all(campaign.inboxIds.map((id) => ctx.db.get(id)));
+    // Only this workspace's inboxes that we actually registered on the engine.
+    // An address merely typed in (no proven credentials) never becomes a
+    // sender, even if a mailbox with that address exists on the engine.
+    const inboxes = (
+      await Promise.all(campaign.inboxIds.map((id) => ctx.db.get(id)))
+    ).filter((i) => i && i.workspaceId === workspace._id && i.engineConnected);
+    if (inboxes.length === 0) {
+      throw new Error(
+        "None of this campaign's inboxes are connected for sending yet. Connect an inbox with its IMAP/SMTP details first.",
+      );
+    }
     // CAN-SPAM footer on every step/variant. activationCheck refuses to go
     // live without a postal address; this guard also covers edits of live ones.
     const unsubscribeUrl = optOutUrl();

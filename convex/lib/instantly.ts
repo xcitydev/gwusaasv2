@@ -133,10 +133,22 @@ export type AccountState = {
 
 /** Authoritative per-account state straight from Instantly. */
 export async function listAccounts(): Promise<AccountState[]> {
-  const result = await call<{ items?: Record<string, unknown>[] }>(
-    "/accounts?limit=100",
-  );
-  return (result.items ?? []).map((item) => ({
+  // Paginate: the sync treats an address missing from this list as gone from
+  // the engine, so a truncated list would wrongly disconnect inboxes.
+  const items: Record<string, unknown>[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 50; page++) {
+    const result = await call<{
+      items?: Record<string, unknown>[];
+      next_starting_after?: string | null;
+    }>(
+      `/accounts?limit=100${cursor ? `&starting_after=${encodeURIComponent(cursor)}` : ""}`,
+    );
+    items.push(...(result.items ?? []));
+    cursor = result.next_starting_after ?? undefined;
+    if (!cursor || (result.items ?? []).length === 0) break;
+  }
+  return items.map((item) => ({
     email: String(item.email ?? "").toLowerCase(),
     warmupActive: item.warmup_status === 1,
     warmupScore:
