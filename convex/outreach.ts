@@ -1022,3 +1022,105 @@ export const analytics = query({
     };
   },
 });
+
+// ── Sign in with Google / Microsoft ─────────────────────────────────────
+
+/** Remember which workspace started an engine sign-in session. */
+export const recordOAuthSession = internalMutation({
+  args: {
+    sessionId: v.string(),
+    provider: v.union(v.literal("google"), v.literal("outlook")),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspace(ctx);
+    // Sign-ins abandoned mid-way (dialog closed) are cleared on the next start.
+    const stale = await ctx.db
+      .query("inboxOAuthSessions")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+      .collect();
+    for (const row of stale) {
+      if (row.expiresAt < Date.now()) await ctx.db.delete(row._id);
+    }
+    await ctx.db.insert("inboxOAuthSessions", { workspaceId: workspace._id, ...args });
+  },
+});
+
+/** Plan room for one more inbox, checked before the sign-in even starts. */
+export const assertRoomForOneInbox = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const { workspace } = await requireWorkspace(ctx);
+    await assertInboxRoom(ctx, workspace, 1);
+  },
+});
+
+/** The caller's own pending session, or null (never another workspace's). */
+export const ownOAuthSession = internalQuery({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspace(ctx);
+    const row = await ctx.db
+      .query("inboxOAuthSessions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    return row && row.workspaceId === workspace._id ? row : null;
+  },
+});
+
+/**
+ * The provider confirmed the mailbox: it is proven, created by us on the
+ * engine, and belongs to the workspace that started the session.
+ */
+export const completeOAuthInbox = internalMutation({
+  args: { sessionId: v.string(), email: v.string() },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspace(ctx);
+    const session = await ctx.db
+      .query("inboxOAuthSessions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!session || session.workspaceId !== workspace._id) throw new Error("Not found");
+    await ctx.db.delete(session._id);
+    const email = args.email.trim().toLowerCase();
+    const rows = await ctx.db
+      .query("inboxes")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect();
+    if (rows.some((r) => r.workspaceId !== workspace._id)) {
+      return { ok: false as const, email, reason: "taken" as const };
+    }
+    const fields = {
+      provider: session.provider,
+      engineConnected: true,
+      engineCreatedByUs: true,
+      status: "warming" as const,
+      warmupEnabled: true,
+      lastEngineError: undefined,
+    };
+    const own = rows.find((r) => r.workspaceId === workspace._id);
+    if (own) {
+      await ctx.db.patch(own._id, fields);
+    } else {
+      await ctx.db.insert("inboxes", {
+        workspaceId: workspace._id,
+        email,
+        dailyLimit: 30,
+        ...fields,
+      });
+    }
+    return { ok: true as const, email };
+  },
+});
+
+export const dropOAuthSession = internalMutation({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspace(ctx);
+    const row = await ctx.db
+      .query("inboxOAuthSessions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (row && row.workspaceId === workspace._id) await ctx.db.delete(row._id);
+  },
+});

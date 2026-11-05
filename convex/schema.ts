@@ -527,6 +527,18 @@ export default defineSchema({
     // The engine account is shared: an address may belong to one workspace only.
     .index("by_email", ["email"]),
 
+  // Pending "Sign in with Google/Microsoft" inbox connections. The engine's
+  // OAuth session is bound to our shared account, so this row is what ties
+  // a session to the workspace that started it.
+  inboxOAuthSessions: defineTable({
+    workspaceId: v.id("workspaces"),
+    sessionId: v.string(),
+    provider: v.union(v.literal("google"), v.literal("outlook")),
+    expiresAt: v.number(),
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_workspace", ["workspaceId"]),
+
   emailDomains: defineTable({
     workspaceId: v.id("workspaces"),
     domain: v.string(),

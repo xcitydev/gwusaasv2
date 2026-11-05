@@ -1,4 +1,4 @@
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import { action, publicFailure } from "./lib/functions";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -24,6 +24,8 @@ import {
   getCampaignAnalytics,
   listReplyEmails,
   replyToEmail,
+  initOAuth,
+  getOAuthStatus,
 } from "./lib/instantly";
 
 /** Instantly's duplicate-account wording varies — match all known forms. */
@@ -39,7 +41,7 @@ const ALREADY_REGISTERED =
  * workspaces; anyone else gets an error instead of a working sender.
  */
 async function claimOrRefuse(
-  ctx: { runQuery: any; runMutation: any },
+  ctx: Pick<ActionCtx, "runQuery" | "runMutation">,
   id: Id<"inboxes">,
 ): Promise<boolean> {
   const admin: boolean = await ctx.runQuery(internal.outreach.inboxOwnerIsAdmin, { id });
@@ -653,3 +655,124 @@ export const syncNow = action({
 
 export type ConnectResult = { added: number; skipped: number; engineErrors: string[] };
 export type SetStatusArgs = { id: Id<"campaigns">; status: "active" | "paused" | "completed" };
+
+// ── Sign in with Google / Microsoft ─────────────────────────────────────
+
+/**
+ * Start connecting a Google Workspace or Microsoft mailbox. The user signs
+ * in with the provider at authUrl; nothing about the mailbox is typed in, so
+ * the connected address is always one the user proved they control.
+ */
+export const startMailboxSignIn = action({
+  args: { provider: v.union(v.literal("google"), v.literal("outlook")) },
+  handler: async (ctx, args): Promise<{ sessionId: string; authUrl: string }> => {
+    await assertPlanAction(ctx, "personal", "Outreach");
+    if (!instantlyConfigured()) {
+      throw new Error("NOT_CONFIGURED: the sending engine is not connected");
+    }
+    await ctx.runMutation(internal.outreach.assertRoomForOneInbox, {});
+    const session = await initOAuth(args.provider === "google" ? "google" : "microsoft");
+    await ctx.runMutation(internal.outreach.recordOAuthSession, {
+      sessionId: session.sessionId,
+      provider: args.provider,
+      expiresAt: session.expiresAt,
+    });
+    return { sessionId: session.sessionId, authUrl: session.authUrl };
+  },
+});
+
+export type MailboxSignInResult =
+  | { status: "pending" }
+  | { status: "connected"; email: string }
+  | { status: "failed"; message: string };
+
+/** Poll a sign-in started by this workspace (the client polls every few seconds). */
+export const checkMailboxSignIn = action({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args): Promise<MailboxSignInResult> => {
+    const own = await ctx.runQuery(internal.outreach.ownOAuthSession, {
+      sessionId: args.sessionId,
+    });
+    if (!own) return { status: "failed", message: "This sign-in has ended. Start again." };
+
+    const result = await getOAuthStatus(args.sessionId);
+    if (result.status === "pending") {
+      if (Date.now() < own.expiresAt) return { status: "pending" };
+      await ctx.runMutation(internal.outreach.dropOAuthSession, { sessionId: args.sessionId });
+      return { status: "failed", message: "The sign-in timed out. Start again." };
+    }
+    if (result.status === "expired") {
+      await ctx.runMutation(internal.outreach.dropOAuthSession, { sessionId: args.sessionId });
+      return { status: "failed", message: "The sign-in timed out. Start again." };
+    }
+    if (result.status === "error") {
+      await ctx.runMutation(internal.outreach.dropOAuthSession, { sessionId: args.sessionId });
+      if (result.error === "account_exists") {
+        return {
+          status: "failed",
+          message: "That mailbox is already connected on the platform. Contact support to link it.",
+        };
+      }
+      if (/gsuite|workspace/i.test(`${result.error} ${result.description}`)) {
+        return {
+          status: "failed",
+          message:
+            "Google sign-in only works for Google Workspace addresses. For a personal @gmail.com address, connect it with an app password instead.",
+        };
+      }
+      const { message } = await publicFailure(ctx, result.description || result.error, {
+        source: "mailbox sign-in",
+        area: "email",
+      });
+      return { status: "failed", message };
+    }
+
+    const done = await ctx.runMutation(internal.outreach.completeOAuthInbox, {
+      sessionId: args.sessionId,
+      email: result.email,
+    });
+    if (!done.ok) {
+      return {
+        status: "failed",
+        message: `${done.email} is already connected to another account.`,
+      };
+    }
+    try {
+      await enableWarmup([done.email]);
+    } catch (error) {
+      // The sync cron mirrors warmup state; this only speeds it up.
+      console.error("Warmup enable after sign-in failed:", error);
+    }
+    return { status: "connected", email: done.email };
+  },
+});
+
+/**
+ * Which way to connect an address: Google, Microsoft, or plain IMAP. Looks
+ * the domain's mail servers up (only the domain leaves the backend).
+ */
+export const detectMailProvider = action({
+  args: { email: v.string() },
+  handler: async (
+    _ctx,
+    args,
+  ): Promise<{ kind: "gmail" | "google" | "outlook" | "imap" }> => {
+    const domain = args.email.trim().toLowerCase().split("@")[1] ?? "";
+    if (/^(gmail|googlemail)\.com$/.test(domain)) return { kind: "gmail" };
+    if (/^(outlook|hotmail|live|msn)\.[a-z.]+$/.test(domain)) return { kind: "outlook" };
+    if (!domain.includes(".")) return { kind: "imap" };
+    try {
+      const res = await fetch(
+        `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=MX`,
+        { headers: { accept: "application/dns-json" } },
+      );
+      const json = (await res.json()) as { Answer?: { data?: string }[] };
+      const mx = (json.Answer ?? []).map((a) => String(a.data ?? "").toLowerCase()).join(" ");
+      if (/google(mail)?\.com|googlemail/.test(mx)) return { kind: "google" };
+      if (/outlook\.com|office365|microsoft/.test(mx)) return { kind: "outlook" };
+    } catch (error) {
+      console.error("MX lookup failed:", error);
+    }
+    return { kind: "imap" };
+  },
+});
