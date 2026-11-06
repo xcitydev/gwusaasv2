@@ -116,6 +116,10 @@ export const save = mutation({
     const admin = await requireAdmin(ctx);
     const { id, ...fields } = args;
     if (!fields.name.trim()) throw new Error("Give the template a name");
+    // The URL is loaded as a stylesheet on every user's page: Google Fonts only.
+    if (fields.fontsUrl && !fields.fontsUrl.startsWith("https://fonts.googleapis.com/")) {
+      throw new Error("Fonts URL must start with https://fonts.googleapis.com/");
+    }
     if (!findImageModel(fields.bgModelId)) {
       throw new Error("Unknown background model");
     }

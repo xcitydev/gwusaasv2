@@ -1,33 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { useRouter } from "next/navigation";
+import { ConnectCalendarCard } from "./connect-calendar-card";
+import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { hasConvex } from "@/lib/runtime";
 import {
-  ListChecks,
   Loader2,
   NotebookPen,
   Search,
   Square,
-  Trash2,
   TriangleAlert,
-  Users,
   X,
 } from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,12 +26,18 @@ import { Compass } from "lucide-react";
 import { TourLauncher } from "@/components/tour/tour";
 import { NOTE_TAKER_TOUR } from "@/components/tour/tours";
 import { AgendaCoach } from "./agenda-coach";
-import { formatClock, formatDuration } from "@/lib/note-taker";
+import { AskPanel } from "./ask-panel";
+import { IncompleteTab } from "./incomplete-tab";
+import { UploadDialog } from "./upload-dialog";
+import { CircleAlert, Gauge, Sparkles } from "lucide-react";
+import { CoachingTab } from "./coaching-tab";
 import { MeetingDetail } from "./meeting-detail";
+import { MeetingBrowser, SearchResults } from "./meeting-list";
 import { NoteTakerSettings } from "./note-taker-settings";
 import { RecordDialog } from "./record-dialog";
 import { UpcomingEvents } from "./upcoming-events";
 import {
+  MinutesMeter,
   StatusBadge,
   friendlyError,
   platformLabel,
@@ -51,8 +45,6 @@ import {
   type MeetingRow,
   type Overview,
 } from "./shared";
-
-const PAGE_SIZE = 20;
 
 type OpenMeeting = { id: Id<"meetings">; atSec: number | null };
 
@@ -65,8 +57,22 @@ function useDebounced(value: string, delayMs: number): string {
   return debounced;
 }
 
+type NoteTakerProps = {
+  /** ?meeting=<id> — open this meeting (deep links from Ask / emails). */
+  initialMeeting: string | null;
+  /** ?t=<sec> — and jump to this moment. */
+  initialAt: number | null;
+  /** ?tab=meetings|ask|coaching|incomplete|coach */
+  initialTab: string | null;
+  /** ?connect=1 — from onboarding: point at the calendar card. */
+  highlightConnect: boolean;
+};
+
+const TABS = ["meetings", "ask", "coaching", "incomplete", "coach"] as const;
+type TabKey = (typeof TABS)[number];
+
 /** Setup mode (no Convex provider): meeting capture needs Convex. */
-export function NoteTakerClient() {
+export function NoteTakerClient(props: NoteTakerProps) {
   if (!hasConvex) {
     return (
       <Card className="border-white/10">
@@ -80,12 +86,41 @@ export function NoteTakerClient() {
       </Card>
     );
   }
-  return <NoteTakerLive />;
+  return <NoteTakerLive {...props} />;
 }
 
-function NoteTakerLive() {
+function NoteTakerLive({
+  initialMeeting,
+  initialAt,
+  initialTab,
+  highlightConnect,
+}: NoteTakerProps) {
+  const router = useRouter();
   const overview = useQuery(api.noteTaker.overview);
-  const [open, setOpen] = useState<OpenMeeting | null>(null);
+  const incomplete = useQuery(api.noteTaker.listIncomplete);
+  const linked = useQuery(
+    api.noteTaker.resolveMeetingId,
+    initialMeeting ? { id: initialMeeting } : "skip",
+  );
+  const [open, setOpenState] = useState<OpenMeeting | null>(null);
+  const [tab, setTab] = useState<TabKey>(
+    TABS.includes(initialTab as TabKey) ? (initialTab as TabKey) : "meetings",
+  );
+
+  // A deep link (?meeting=…&t=…) opens that meeting — also when the URL
+  // changes while this page is already mounted (citation click in the Ask bar).
+  const linkKey = `${linked ?? ""}:${initialAt ?? ""}`;
+  const [seenLink, setSeenLink] = useState("");
+  if (linked && linkKey !== seenLink) {
+    setSeenLink(linkKey);
+    setOpenState({ id: linked, atSec: initialAt });
+  }
+
+  const setOpen = (next: OpenMeeting | null) => {
+    setOpenState(next);
+    // Drop the deep link so Back really goes back to the list.
+    if (!next && initialMeeting) router.replace("/note-taker", { scroll: false });
+  };
 
   if (open) {
     return (
@@ -107,6 +142,10 @@ function NoteTakerLive() {
             <>
               <TourLauncher tour={NOTE_TAKER_TOUR} />
               <NoteTakerSettings overview={overview} />
+              <UploadDialog
+                overview={overview}
+                onUploaded={(id) => setOpen({ id, atSec: null })}
+              />
               <RecordDialog
                 overview={overview}
                 onSent={(id) => setOpen({ id, atSec: null })}
@@ -118,17 +157,44 @@ function NoteTakerLive() {
       {overview === undefined ? (
         <ListSkeleton rows={4} />
       ) : overview === null ? null : (
-        <Tabs defaultValue="meetings">
+        <Tabs value={tab} onValueChange={(value) => setTab(value as TabKey)}>
           <TabsList className="mb-4">
             <TabsTrigger value="meetings" className="gap-1.5">
               <NotebookPen className="size-4" /> Meetings
+            </TabsTrigger>
+            <TabsTrigger value="ask" className="gap-1.5">
+              <Sparkles className="size-4" /> Ask
+            </TabsTrigger>
+            <TabsTrigger value="coaching" className="gap-1.5">
+              <Gauge className="size-4" /> Coaching
+            </TabsTrigger>
+            <TabsTrigger value="incomplete" className="gap-1.5">
+              <CircleAlert className="size-4" /> Incomplete
+              {incomplete && incomplete.recentCount > 0 && (
+                <span className="rounded-full bg-destructive/20 px-1.5 text-[10px] font-semibold text-destructive">
+                  {incomplete.recentCount}
+                </span>
+              )}
             </TabsTrigger>
             <TabsTrigger value="coach" className="gap-1.5" data-tour="notetaker-tab-coach">
               <Compass className="size-4" /> Agenda Coach
             </TabsTrigger>
           </TabsList>
+          <TabsContent value="ask">
+            <AskPanel />
+          </TabsContent>
+          <TabsContent value="coaching">
+            <CoachingTab onOpen={(id, atSec) => setOpen({ id, atSec })} />
+          </TabsContent>
+          <TabsContent value="incomplete">
+            <IncompleteTab onOpen={(id) => setOpen({ id, atSec: null })} />
+          </TabsContent>
           <TabsContent value="meetings">
-            <Home overview={overview} onOpen={setOpen} />
+            <Home
+              overview={overview}
+              onOpen={setOpen}
+              highlightConnect={highlightConnect}
+            />
           </TabsContent>
           <TabsContent value="coach">
             <AgendaCoach overview={overview} />
@@ -142,10 +208,13 @@ function NoteTakerLive() {
 function Home({
   overview,
   onOpen,
+  highlightConnect,
 }: {
   overview: Overview;
   onOpen: (open: OpenMeeting) => void;
+  highlightConnect: boolean;
 }) {
+  const calendarConnected = overview.calendars.some((c) => c.status === "connected");
   const [search, setSearch] = useState("");
   const term = useDebounced(search.trim(), 300);
   const searching = term.length >= 2;
@@ -174,11 +243,18 @@ function Home({
           until you top up.
         </Banner>
       )}
+      {overview.configured && overview.credits >= overview.minCredits && (
+        <MinutesMeter overview={overview} compact />
+      )}
 
       <LiveStrip onOpen={(id) => onOpen({ id, atSec: null })} />
 
-      {overview.calendars.some((c) => c.status === "connected") && (
+      {calendarConnected ? (
         <UpcomingEvents autoJoin={overview.settings.autoJoin} />
+      ) : (
+        overview.configured && (
+          <ConnectCalendarCard overview={overview} highlight={highlightConnect} />
+        )
       )}
 
       <div className="relative">
@@ -204,9 +280,9 @@ function Home({
       </div>
 
       {searching ? (
-        <SearchResults term={term} onOpen={onOpen} />
+        <SearchResults term={term} onOpen={(id, atSec) => onOpen({ id, atSec })} />
       ) : (
-        <MeetingList
+        <MeetingBrowser
           configured={overview.configured}
           onOpen={(id) => onOpen({ id, atSec: null })}
         />
@@ -285,203 +361,6 @@ function LiveStrip({ onOpen }: { onOpen: (id: Id<"meetings">) => void }) {
             )}
           </div>
         ))}
-      </CardContent>
-    </Card>
-  );
-}
-
-function MeetingRowButton({
-  meeting,
-  snippet,
-  atSec,
-  onOpen,
-}: {
-  meeting: MeetingRow;
-  snippet?: string | null;
-  atSec?: number | null;
-  onOpen: () => void;
-}) {
-  const remove = useMutation(api.noteTaker.deleteMeeting);
-  const people = meeting.attendees?.length ?? 0;
-  return (
-    <div className="flex items-center gap-2 pr-3 transition-colors hover:bg-accent">
-      <button
-        onClick={onOpen}
-        className="flex min-w-0 flex-1 flex-col gap-1 px-4 py-3 text-left"
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="min-w-0 truncate text-sm font-medium">{meeting.title}</p>
-          {meeting.status !== "done" && <StatusBadge status={meeting.status} />}
-          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-            {whenLabel(meeting.startedAt ?? meeting.scheduledFor ?? meeting._creationTime)}
-          </span>
-        </div>
-        {snippet ? (
-          <p className="line-clamp-2 text-xs text-foreground/80">
-            {atSec !== null && atSec !== undefined && (
-              <span className="mr-1.5 rounded bg-primary/15 px-1 py-0.5 font-mono text-[10px] text-primary">
-                {formatClock(atSec)}
-              </span>
-            )}
-            {snippet}
-          </p>
-        ) : meeting.summary ? (
-          <p className="line-clamp-2 text-xs text-muted-foreground">
-            {meeting.summary}
-          </p>
-        ) : meeting.statusDetail ? (
-          <p className="text-xs text-muted-foreground">{meeting.statusDetail}</p>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-          <span>{platformLabel(meeting.platform)}</span>
-          {meeting.durationSec ? <span>{formatDuration(meeting.durationSec)}</span> : null}
-          {people > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Users className="size-3" /> {people}
-            </span>
-          )}
-          {meeting.actionItemCount > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <ListChecks className="size-3" /> {meeting.actionItemCount} action
-              {meeting.actionItemCount === 1 ? " item" : " items"}
-            </span>
-          )}
-        </div>
-      </button>
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0 text-muted-foreground hover:text-destructive"
-            aria-label={`Delete “${meeting.title}”`}
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete “{meeting.title}”?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The notes, transcript, chat and the stored recording are removed
-              for good. Credits already spent aren&apos;t refunded.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                try {
-                  await remove({ meetingId: meeting._id });
-                  toast.success("Meeting deleted.");
-                } catch (e) {
-                  toast.error(friendlyError(e, "Couldn't delete the meeting."));
-                }
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
-
-function MeetingList({
-  configured,
-  onOpen,
-}: {
-  configured: boolean;
-  onOpen: (id: Id<"meetings">) => void;
-}) {
-  const { results, status, loadMore } = usePaginatedQuery(
-    api.noteTaker.listMeetings,
-    {},
-    { initialNumItems: PAGE_SIZE },
-  );
-  if (status === "LoadingFirstPage") return <ListSkeleton rows={4} />;
-  if (results.length === 0) {
-    return (
-      <Card className="border-primary/20 bg-gradient-to-b from-primary/5 to-transparent">
-        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/25 to-primary/5 text-primary">
-            <NotebookPen className="size-6" />
-          </span>
-          <p className="font-medium">Never take meeting notes again</p>
-          <p className="max-w-md text-sm text-muted-foreground">
-            {configured
-              ? "Press “Record a meeting”, paste the invite link, and the note taker joins. Minutes after the call you get the summary, decisions, action items and a searchable transcript."
-              : "Once the note taker is switched on, paste any meeting link and it joins, records and writes the notes for you."}
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-  return (
-    <Card>
-      <CardContent className="divide-y divide-border p-0">
-        {results.map((meeting) => (
-          <MeetingRowButton
-            key={meeting._id}
-            meeting={meeting}
-            onOpen={() => onOpen(meeting._id)}
-          />
-        ))}
-        {status === "CanLoadMore" && (
-          <div className="p-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full"
-              onClick={() => loadMore(PAGE_SIZE)}
-            >
-              Load {PAGE_SIZE} more
-            </Button>
-          </div>
-        )}
-        {status === "LoadingMore" && (
-          <div className="flex justify-center p-2">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SearchResults({
-  term,
-  onOpen,
-}: {
-  term: string;
-  onOpen: (open: OpenMeeting) => void;
-}) {
-  const results = useQuery(api.noteTaker.searchMeetings, { q: term });
-  if (results === undefined) return <ListSkeleton rows={3} />;
-  return (
-    <Card>
-      <CardContent className="p-0">
-        <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
-          {results.length} meeting{results.length === 1 ? "" : "s"} matching “{term}”
-        </p>
-        {results.length === 0 ? (
-          <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-            Nothing in any title, note or transcript matches.
-          </p>
-        ) : (
-          <div className="divide-y divide-border">
-            {results.map(({ meeting, snippet, atSec }) => (
-              <MeetingRowButton
-                key={meeting._id}
-                meeting={meeting}
-                snippet={snippet}
-                atSec={atSec}
-                onOpen={() => onOpen({ id: meeting._id, atSec })}
-              />
-            ))}
-          </div>
-        )}
       </CardContent>
     </Card>
   );

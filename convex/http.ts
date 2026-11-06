@@ -57,6 +57,11 @@ http.route({
         membership?: { id?: string } | null;
         metadata?: Record<string, unknown> | null;
         usd_total?: number;
+        /** Cumulative amount refunded on a payment (partial refunds). */
+        refunded_amount?: number;
+        /** Dispute events: the disputed payment. */
+        payment?: { id?: string; metadata?: Record<string, unknown> | null } | null;
+        payment_id?: string;
       } | null;
     };
     const data = event.data ?? {};
@@ -84,24 +89,47 @@ http.route({
     }
 
     // Refunds: Whop's refund event, or any payment event whose payment has
-    // been voided/refunded. Credit packs are clawed back; plans only logged.
+    // been voided/refunded (fully or partly). The credits that payment
+    // granted are clawed back pro rata and its referral commission voided.
     const refundLike =
       event.type === "payment.refunded" ||
       (Boolean(event.type?.startsWith("payment.")) &&
         event.type !== "payment.succeeded" &&
-        (data.status === "void" || data.substatus === "refunded"));
+        (data.status === "void" ||
+          data.substatus === "refunded" ||
+          data.substatus === "partially_refunded"));
     if (refundLike && data.id) {
       const result = await ctx.runMutation(internal.whop.handlePaymentRefunded, {
         eventId: event.id ?? `${event.type}:${data.id}`,
         paymentId: data.id,
         metadata: data.metadata ?? undefined,
         usdTotal: typeof data.usd_total === "number" ? data.usd_total : undefined,
+        // A void has no refunded amount: treated as the full payment.
+        refundedUsd:
+          data.status !== "void" && typeof data.refunded_amount === "number"
+            ? data.refunded_amount
+            : undefined,
+        kind: "refund",
       });
       console.log("WHOP-WEBHOOK:", event.type, data.id, result.handled);
       return new Response("ok", { status: 200 });
     }
 
-    // Disputes and anything else: acknowledge, keep a trace.
+    // Chargebacks: claw back like a full refund, once per disputed payment
+    // (a later won dispute is re-granted by hand from the admin incident).
+    const disputedPaymentId = data.payment?.id ?? data.payment_id;
+    if (event.type?.startsWith("dispute.") && disputedPaymentId) {
+      const result = await ctx.runMutation(internal.whop.handlePaymentRefunded, {
+        eventId: event.id ?? `${event.type}:${data.id ?? disputedPaymentId}`,
+        paymentId: disputedPaymentId,
+        metadata: data.payment?.metadata ?? data.metadata ?? undefined,
+        kind: "dispute",
+      });
+      console.log("WHOP-WEBHOOK:", event.type, disputedPaymentId, result.handled);
+      return new Response("ok", { status: 200 });
+    }
+
+    // Anything else: acknowledge, keep a trace.
     console.log("WHOP-WEBHOOK: ignored", event.type ?? "unknown", event.id ?? "");
     return new Response("ignored", { status: 200 });
   }),
@@ -124,6 +152,7 @@ http.route({
     // Bland does not sign webhooks, so the registered URL carries a shared
     // secret. When one is configured, anything without it is dropped.
     const secret = process.env.BLAND_WEBHOOK_SECRET;
+    if (!secret) warnUnsignedOnce("BLAND_WEBHOOK_SECRET", "/bland-webhook");
     if (secret && !safeEqual(url.searchParams.get("key") ?? "", secret)) {
       return new Response("unauthorized", { status: 401 });
     }
@@ -158,6 +187,88 @@ http.route({
   }),
 });
 
+/**
+ * ElevenLabs Agents post-call webhook (workspace setting in ElevenLabs →
+ * Agents → Settings → Webhooks, pointed at <CONVEX_SITE_URL>/elevenlabs-webhook).
+ * Signed with ELEVENLABS_WEBHOOK_SECRET (HMAC); unsigned requests are refused
+ * once the secret is set. Like Bland's, the body is only a poke: the
+ * conversation is re-read from ElevenLabs before any record or credit moves.
+ */
+http.route({
+  path: "/elevenlabs-webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const raw = await request.text();
+    const secret = process.env.ELEVENLABS_WEBHOOK_SECRET;
+    if (!secret) warnUnsignedOnce("ELEVENLABS_WEBHOOK_SECRET", "/elevenlabs-webhook");
+    if (secret) {
+      const { verifyWebhookSignature } = await import("./lib/elevenAgents");
+      const ok = await verifyWebhookSignature(
+        raw,
+        request.headers.get("elevenlabs-signature"),
+        secret,
+      );
+      if (!ok) return new Response("unauthorized", { status: 401 });
+    }
+    let payload: { type?: unknown; data?: { conversation_id?: unknown } };
+    try {
+      payload = JSON.parse(raw) as typeof payload;
+    } catch {
+      return new Response("bad json", { status: 400 });
+    }
+    const conversationId =
+      typeof payload.data?.conversation_id === "string"
+        ? payload.data.conversation_id.trim()
+        : "";
+    // Audio payloads carry nothing we use; transcription + failures do.
+    if (conversationId && payload.type !== "post_call_audio") {
+      await ctx.scheduler.runAfter(0, internal.voiceActions.reconcileElevenConversation, {
+        conversationId,
+      });
+    }
+    return new Response("ok", { status: 200 });
+  }),
+});
+
+/**
+ * Loud, once-per-isolate warning that a webhook secret is unset and the
+ * route is accepting unauthenticated pokes (kept working on purpose until
+ * the secret is configured — the payloads are re-verified upstream).
+ */
+const warnedUnsigned = new Set<string>();
+function warnUnsignedOnce(envName: string, route: string): void {
+  if (warnedUnsigned.has(envName)) return;
+  warnedUnsigned.add(envName);
+  console.warn(
+    `SECURITY: ${envName} is not set — ${route} accepts unauthenticated requests. Set it on the deployment to enforce.`,
+  );
+}
+
+/** Text that may come from a query string, safe inside HTML. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Minimal dark status page for OAuth landings. Inputs are escaped. */
+function statusPage(title: string, detail: string, status = 200): Response {
+  return new Response(
+    `<html><body style='font-family:system-ui;background:#0a0a0a;color:#eee;display:grid;place-items:center;height:100vh'><div style='text-align:center;max-width:420px'><h2>${escapeHtml(title)}</h2><p style='color:#999'>${escapeHtml(detail)}</p></div></body></html>`,
+    {
+      status,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+        "X-Content-Type-Options": "nosniff",
+      },
+    },
+  );
+}
+
 /** Constant-time string comparison for shared secrets. */
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -173,36 +284,65 @@ http.route({
   path: "/crm/oauth/callback",
   method: "GET",
   handler: httpAction(async (ctx, request) => {
-    const code = new URL(request.url).searchParams.get("code");
-    if (!code) return new Response("Missing code", { status: 400 });
+    const params = new URL(request.url).searchParams;
+    const code = params.get("code");
+    // The state is minted by an admin's agencyInstallUrl call; without it
+    // anyone could push a code here and replace the platform-wide tokens.
+    const state = params.get("state");
+    if (!code) return statusPage("Install failed", "Missing code.", 400);
+    if (!state) {
+      return statusPage(
+        "Install failed",
+        "Missing state — start the install from the admin panel link.",
+        400,
+      );
+    }
     try {
       const app = await ctx.runAction(
         internal.igDmsActions.completeAgencyInstall,
-        { code },
+        { code, state },
       );
-      return new Response(
-        `<html><body style='font-family:system-ui;background:#0a0a0a;color:#eee;display:grid;place-items:center;height:100vh'><div style='text-align:center'><h2>✓ ${app} connected</h2><p>You can close this tab.</p></div></body></html>`,
-        { status: 200, headers: { "Content-Type": "text/html" } },
-      );
+      return statusPage(`✓ ${app} connected`, "You can close this tab.");
     } catch (error) {
       const msg = error instanceof Error ? error.message : "install failed";
-      return new Response(`GHL install failed: ${msg}`, { status: 500 });
+      return statusPage("Install failed", msg, 400);
     }
   }),
 });
 
 /**
  * GHL marketplace webhook. We only act on inbound Instagram messages for
- * locations we own; everything else is acknowledged and dropped.
- * TODO: verify x-wh-signature once live payloads confirm the header shape.
+ * locations we own; everything else is acknowledged and dropped. Every
+ * delivery must carry a valid GHL signature (X-GHL-Signature Ed25519, or
+ * the legacy X-WH-Signature RSA) over the raw body — checked in Node
+ * (igAi.verifyGhlWebhook) before anything in the body is trusted.
  */
 http.route({
   path: "/crm/webhook",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     const raw = await request.text();
-    // Diagnostic (keep until IG payload shape is confirmed live).
-    console.log("GHL-WEBHOOK:", raw.slice(0, 800));
+    if (process.env.GHL_WEBHOOK_SKIP_VERIFY === "1") {
+      warnUnsignedOnce("GHL_WEBHOOK_SKIP_VERIFY=1 (signature check off)", "/crm/webhook");
+    } else {
+      const valid = await ctx.runAction(internal.igAi.verifyGhlWebhook, {
+        rawBody: raw,
+        ghlSignature: request.headers.get("x-ghl-signature") ?? undefined,
+        whSignature: request.headers.get("x-wh-signature") ?? undefined,
+      });
+      if (!valid) {
+        // No body in the log: it carries DM text and contact ids.
+        console.error(
+          "GHL-WEBHOOK: rejected, invalid signature",
+          JSON.stringify({
+            hasGhlSignature: Boolean(request.headers.get("x-ghl-signature")),
+            hasWhSignature: Boolean(request.headers.get("x-wh-signature")),
+            bodyBytes: raw.length,
+          }),
+        );
+        return new Response("invalid signature", { status: 401 });
+      }
+    }
     let payload: {
       type?: string;
       locationId?: string;
@@ -237,19 +377,13 @@ http.route({
         body: payload.body,
         sentAt: payload.dateAdded ? Date.parse(payload.dateAdded) : Date.now(),
       });
-      if (stored) {
+      if (stored?.needsName) {
         // Name lookup is best-effort and must not block the webhook.
-        const conversation = await ctx.runQuery(
-          internal.igDms.getByGhlConversation,
-          { ghlConversationId: payload.conversationId },
+        await ctx.scheduler.runAfter(
+          0,
+          internal.igDmsActions.resolveContactName,
+          { conversationId: stored.conversationId },
         );
-        if (conversation && !conversation.contactName) {
-          await ctx.scheduler.runAfter(
-            0,
-            internal.igDmsActions.resolveContactName,
-            { conversationId: conversation._id },
-          );
-        }
       }
     }
     return new Response("ok", { status: 200 });
@@ -259,7 +393,8 @@ http.route({
 /**
  * Voice-note audio for GHL/Meta to fetch. Served under a ".wav"/".mp3" path so
  * attachment-type detection works — Convex's raw storage URLs carry no
- * extension. Ids are unguessable, same exposure as the storage URL itself.
+ * extension. Only blobs registered as voice-note renders (igVoiceNotes) are
+ * served; every other storage id 404s, so this can't read arbitrary files.
  */
 http.route({
   pathPrefix: "/crm/audio/",
@@ -268,6 +403,8 @@ http.route({
     const name = new URL(request.url).pathname.split("/").pop() ?? "";
     const storageId = name.replace(/\.(wav|mp3)$/, "");
     if (!storageId) return new Response("Not found", { status: 404 });
+    const registered = await ctx.runQuery(internal.igDms.isVoiceNote, { storageId });
+    if (!registered) return new Response("Not found", { status: 404 });
     let blob: Blob | null = null;
     try {
       blob = await ctx.storage.get(storageId as Id<"_storage">);
@@ -301,6 +438,7 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const raw = await request.text();
     const secret = process.env.RECALL_WEBHOOK_SECRET;
+    if (!secret) warnUnsignedOnce("RECALL_WEBHOOK_SECRET", "/notes/recall-webhook");
     if (secret) {
       const { verifyRecallSignature } = await import("./lib/recall");
       const h = request.headers;
@@ -344,7 +482,12 @@ http.route({
   }),
 });
 
-/** Calendar OAuth landing (Google / Microsoft) → hand the grant to Recall. */
+/**
+ * Calendar OAuth landing (Google / Microsoft). The grant is parked, not
+ * attached: the browser is sent on to the app's confirm page with a
+ * one-shot nonce, and the calendar only connects if the signed-in user
+ * there is the one who started the flow (stops consent-link phishing).
+ */
 for (const provider of ["google", "microsoft"] as const) {
   http.route({
     path: `/notes/oauth/${provider}/callback`,
@@ -353,26 +496,36 @@ for (const provider of ["google", "microsoft"] as const) {
       const params = new URL(request.url).searchParams;
       const code = params.get("code");
       const state = params.get("state");
-      const page = (title: string, detail: string) =>
-        new Response(
-          `<html><body style='font-family:system-ui;background:#0a0a0a;color:#eee;display:grid;place-items:center;height:100vh'><div style='text-align:center;max-width:420px'><h2>${title}</h2><p style='color:#999'>${detail}</p></div></body></html>`,
-          { status: 200, headers: { "Content-Type": "text/html" } },
-        );
       if (!code || !state) {
-        return page(
+        return statusPage(
           "Calendar not connected",
-          params.get("error_description") ?? params.get("error") ?? "Missing code.",
+          (params.get("error_description") ?? params.get("error") ?? "Missing code.").slice(0, 300),
+        );
+      }
+      const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+      if (!appUrl) {
+        console.error("Calendar connect: APP_URL is not set, can't confirm in-app");
+        return statusPage(
+          "Calendar not connected",
+          "Calendar connect isn't fully set up on the platform yet.",
         );
       }
       try {
-        await ctx.runAction(internal.noteTakerActions.completeCalendarConnect, {
+        const nonce = await ctx.runAction(internal.noteTakerActions.completeCalendarConnect, {
           provider,
           code,
           state,
         });
-        return page("✓ Calendar connected", "You can close this tab.");
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: `${appUrl}/note-taker/connect?nonce=${encodeURIComponent(nonce)}`,
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+          },
+        });
       } catch (error) {
-        return page(
+        return statusPage(
           "Calendar not connected",
           error instanceof Error ? error.message : "Something went wrong.",
         );
@@ -391,16 +544,21 @@ http.route({
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     const token = new URL(request.url).pathname.split("/").pop() ?? "";
+    if (!token) return new Response("not found", { status: 404 });
+    // Raw text kept for the X-Cal-Signature-256 HMAC (checked in
+    // onCalcomBooking against the workspace's signing secret).
+    const rawBody = await request.text();
     let body: unknown;
     try {
-      body = await request.json();
+      body = JSON.parse(rawBody);
     } catch {
       return new Response("bad json", { status: 400 });
     }
-    if (!token) return new Response("not found", { status: 404 });
     await ctx.scheduler.runAfter(0, internal.noteTakerActions.onCalcomBooking, {
       token,
       body,
+      rawBody,
+      signature: request.headers.get("x-cal-signature-256") ?? undefined,
     });
     return new Response("ok", { status: 200 });
   }),

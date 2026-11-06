@@ -5,7 +5,8 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { v } from "convex/values";
-import { Doc } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { assertPlanDb } from "./lib/plan";
 import {
@@ -15,12 +16,40 @@ import {
   refreshContactCount,
 } from "./outreachLimits";
 import { isPlaceholderEmail } from "../lib/lead-keys";
+import { LEGAL, LEGAL_LINKS } from "../lib/legal";
+import { complianceFooter } from "./lib/instantly";
+import { isSuppressed, suppressEmail } from "./optOuts";
+
+/**
+ * Public unsubscribe page printed in every campaign footer. APP_URL is the
+ * deployed site origin (also used by the note taker); lib/legal's siteUrl is
+ * the fallback once the owner fills it in.
+ */
+export function optOutUrl(): string | null {
+  const fallback = LEGAL.siteUrl.startsWith("[") ? "" : LEGAL.siteUrl;
+  const origin = (process.env.APP_URL ?? fallback).replace(/\/$/, "");
+  return origin ? `${origin}${LEGAL_LINKS.optOut}` : null;
+}
 
 async function requireWorkspace(ctx: Parameters<typeof requireUser>[0]) {
   const user = await requireUser(ctx);
   const workspace = await getPrimaryWorkspace(ctx, user._id);
   if (!workspace) throw new Error("No workspace");
   return { user, workspace };
+}
+
+/** A campaign may only send from inboxes its own workspace connected. */
+async function assertOwnInboxes(
+  ctx: { db: { get: (id: Id<"inboxes">) => Promise<Doc<"inboxes"> | null> } },
+  workspaceId: Id<"workspaces">,
+  inboxIds: Id<"inboxes">[],
+) {
+  for (const id of inboxIds) {
+    const inbox = await ctx.db.get(id);
+    if (!inbox || inbox.workspaceId !== workspaceId) {
+      throw new Error("One of the selected inboxes isn't yours. Pick your inboxes again.");
+    }
+  }
 }
 
 async function currentWorkspace(ctx: Parameters<typeof getCurrentUser>[0]) {
@@ -71,18 +100,24 @@ export const addInboxes = internalMutation({
     let added = 0;
     let skipped = 0;
     const inserted: { id: Doc<"inboxes">["_id"]; email: string }[] = [];
+    // Addresses another workspace already holds. Every workspace sends through
+    // one shared engine account, so letting a second workspace list the same
+    // address would let it send from (and as) someone else's mailbox.
+    const taken: string[] = [];
+    const ownerOf = async (email: string) =>
+      (
+        await ctx.db
+          .query("inboxes")
+          .withIndex("by_email", (q) => q.eq("email", email))
+          .collect()
+      ).map((row) => row.workspaceId);
     // Plan inbox cap, counting only addresses that would actually be new.
     let candidates = 0;
     for (const inbox of args.inboxes) {
       const email = inbox.email.trim().toLowerCase();
       if (!email.includes("@")) continue;
-      const existing = await ctx.db
-        .query("inboxes")
-        .withIndex("by_workspace_email", (q) =>
-          q.eq("workspaceId", workspace._id).eq("email", email),
-        )
-        .unique();
-      if (!existing) candidates++;
+      const owners = await ownerOf(email);
+      if (owners.length === 0) candidates++;
     }
     await assertInboxRoom(ctx, workspace, candidates);
     for (const inbox of args.inboxes) {
@@ -91,13 +126,13 @@ export const addInboxes = internalMutation({
         skipped++;
         continue;
       }
-      const existing = await ctx.db
-        .query("inboxes")
-        .withIndex("by_workspace_email", (q) =>
-          q.eq("workspaceId", workspace._id).eq("email", email),
-        )
-        .unique();
-      if (existing) {
+      const owners = await ownerOf(email);
+      if (owners.some((id) => id !== workspace._id)) {
+        taken.push(email);
+        skipped++;
+        continue;
+      }
+      if (owners.length > 0) {
         skipped++;
         continue;
       }
@@ -118,7 +153,7 @@ export const addInboxes = internalMutation({
       inserted.push({ id, email });
       added++;
     }
-    return { added, skipped, inserted };
+    return { added, skipped, inserted, taken };
   },
 });
 
@@ -167,6 +202,7 @@ export const updateInboxHealth = internalMutation({
       ),
     ),
     engineConnected: v.optional(v.boolean()),
+    engineCreatedByUs: v.optional(v.boolean()),
     lastEngineError: v.optional(v.string()),
     clearEngineError: v.optional(v.boolean()),
     engineWarmupActive: v.optional(v.boolean()),
@@ -189,6 +225,29 @@ export const removeInbox = mutation({
     const inbox = await ctx.db.get(args.id);
     if (!inbox || inbox.workspaceId !== workspace._id) throw new Error("Not found");
     await ctx.db.delete(args.id);
+    // We registered it on the shared engine, so we unregister it too: it stops
+    // sending, and the address can be connected again cleanly later.
+    if (inbox.engineConnected && inbox.engineCreatedByUs) {
+      await ctx.scheduler.runAfter(0, internal.outreachActions.deleteEngineAccount, {
+        email: inbox.email,
+      });
+    }
+  },
+});
+
+/**
+ * May this inbox be linked to an engine account it did not create itself
+ * ("already registered")? Only for platform admins: the shared account also
+ * holds mailboxes no customer ever proved they own.
+ */
+export const inboxOwnerIsAdmin = internalQuery({
+  args: { id: v.id("inboxes") },
+  handler: async (ctx, args) => {
+    const inbox = await ctx.db.get(args.id);
+    if (!inbox) return false;
+    const workspace = await ctx.db.get(inbox.workspaceId);
+    const owner = workspace ? await ctx.db.get(workspace.ownerId) : null;
+    return Boolean(owner?.adminRole);
   },
 });
 
@@ -259,12 +318,29 @@ export const setForwardRepliesTo = mutation({
   },
 });
 
+/** CAN-SPAM: the sender's physical address, printed in every campaign email. */
+export const setPostalAddress = mutation({
+  args: { address: v.string() },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspace(ctx);
+    const address = args.address.trim();
+    if (address.length > 300) throw new Error("Keep the address under 300 characters");
+    if (address && address.length < 10) {
+      throw new Error("Enter a full postal address (street or PO box, city, state/region, ZIP)");
+    }
+    await ctx.db.patch(workspace._id, { postalAddress: address || undefined });
+  },
+});
+
 export const outreachSettings = query({
   args: {},
   handler: async (ctx) => {
     const workspace = await currentWorkspace(ctx);
     if (!workspace) return null;
-    return { forwardRepliesTo: workspace.forwardRepliesTo ?? "" };
+    return {
+      forwardRepliesTo: workspace.forwardRepliesTo ?? "",
+      postalAddress: workspace.postalAddress ?? "",
+    };
   },
 });
 
@@ -340,7 +416,7 @@ export const getCampaign = query({
       leadCount: links.length,
       leads,
       inboxes: inboxes
-        .filter((i): i is Doc<"inboxes"> => i !== null)
+        .filter((i): i is Doc<"inboxes"> => i !== null && i.workspaceId === workspace._id)
         .map((i) => ({ _id: i._id, email: i.email, status: i.status })),
     };
   },
@@ -370,6 +446,7 @@ export const updateCampaignLocal = internalMutation({
     if (args.inboxIds.length === 0) throw new Error("Pick at least one inbox");
     if (args.dailyCap < 1) throw new Error("Daily cap must be at least 1");
     await assertDailyCap(ctx, workspace, args.dailyCap);
+    await assertOwnInboxes(ctx, workspace._id, args.inboxIds);
 
     await ctx.db.patch(args.id, {
       name: args.name.trim(),
@@ -422,6 +499,7 @@ export const createCampaign = mutation({
     if (args.leadIds.length === 0) throw new Error("Add at least one lead");
     if (args.dailyCap < 1) throw new Error("Daily cap must be at least 1");
     await assertDailyCap(ctx, workspace, args.dailyCap);
+    await assertOwnInboxes(ctx, workspace._id, args.inboxIds);
     // Plan + platform contact caps, checked before anything is written.
     await assertContactRoom(ctx, workspace, args.leadIds);
 
@@ -449,6 +527,7 @@ export const createCampaign = mutation({
       const lead = await ctx.db.get(leadId);
       if (!lead || lead.workspaceId !== workspace._id) continue;
       if (isPlaceholderEmail(lead.email)) continue; // phone-only: nothing to email
+      if (await isSuppressed(ctx, lead.email)) continue; // unsubscribed / opted out
       await ctx.db.insert("campaignLeads", {
         campaignId,
         leadId,
@@ -531,6 +610,7 @@ export const addCampaignLeadsLocal = internalMutation({
       const lead = await ctx.db.get(leadId);
       if (!lead || lead.workspaceId !== workspace._id) continue;
       if (isPlaceholderEmail(lead.email)) continue; // phone-only: nothing to email
+      if (await isSuppressed(ctx, lead.email)) continue; // unsubscribed / opted out
       const link = await ctx.db
         .query("campaignLeads")
         .withIndex("by_campaign_lead", (q) =>
@@ -585,7 +665,8 @@ export const getCampaignForPublish = internalQuery({
     const leads = [];
     for (const link of links) {
       const lead = await ctx.db.get(link.leadId);
-      if (lead) {
+      // Suppressed after enrolment (unsubscribe reply, public opt-out): never pushed.
+      if (lead && !(await isSuppressed(ctx, lead.email))) {
         const [firstName, ...restName] = (lead.name ?? "").split(" ");
         leads.push({
           email: lead.email,
@@ -602,7 +683,27 @@ export const getCampaignForPublish = internalQuery({
         });
       }
     }
-    const inboxes = await Promise.all(campaign.inboxIds.map((id) => ctx.db.get(id)));
+    // Only this workspace's inboxes that we actually registered on the engine.
+    // An address merely typed in (no proven credentials) never becomes a
+    // sender, even if a mailbox with that address exists on the engine.
+    const inboxes = (
+      await Promise.all(campaign.inboxIds.map((id) => ctx.db.get(id)))
+    ).filter((i) => i && i.workspaceId === workspace._id && i.engineConnected);
+    if (inboxes.length === 0) {
+      throw new Error(
+        "None of this campaign's inboxes are connected for sending yet. Connect an inbox with its IMAP/SMTP details first.",
+      );
+    }
+    // CAN-SPAM footer on every step/variant. activationCheck refuses to go
+    // live without a postal address; this guard also covers edits of live ones.
+    const unsubscribeUrl = optOutUrl();
+    if (!workspace.postalAddress) {
+      throw new Error("Add your business postal address in Outreach → Settings before sending");
+    }
+    if (!unsubscribeUrl) {
+      throw new Error("NOT_CONFIGURED: APP_URL is not set, so emails have no unsubscribe link");
+    }
+    const footer = complianceFooter({ postalAddress: workspace.postalAddress, optOutUrl: unsubscribeUrl });
     return {
       name: campaign.name,
       status: campaign.status,
@@ -614,7 +715,11 @@ export const getCampaignForPublish = internalQuery({
       emailList: inboxes.flatMap((i) => (i ? [i.email] : [])),
       steps: steps
         .sort((a, b) => a.order - b.order)
-        .map((s) => ({ waitDays: s.waitDays, subject: s.subject, variants: s.variants })),
+        .map((s) => ({
+          waitDays: s.waitDays,
+          subject: s.subject,
+          variants: s.variants.map((body) => (body.trim() ? `${body}${footer}` : body)),
+        })),
       leads,
     };
   },
@@ -826,6 +931,12 @@ export const upsertReply = internalMutation({
       .unique();
     if (!campaign) return false;
 
+    const category = categorize(args.subject, args.body);
+    // An unsubscribe reply suppresses the address platform-wide (and on the
+    // engine's block list) so no workspace can email it again.
+    if (category === "unsubscribed") {
+      await suppressEmail(ctx, args.leadEmail, "unsubscribed", campaign.workspaceId);
+    }
     await ctx.db.insert("replies", {
       workspaceId: campaign.workspaceId,
       campaignId: campaign._id,
@@ -833,7 +944,7 @@ export const upsertReply = internalMutation({
       fromName: args.fromName,
       subject: args.subject,
       body: args.body,
-      category: categorize(args.subject, args.body),
+      category,
       read: false,
       receivedAt: args.receivedAt,
       instantlyId: args.instantlyId,
@@ -909,5 +1020,107 @@ export const analytics = query({
         stats: c.stats ?? { sent: 0, opened: 0, replied: 0, positive: 0 },
       })),
     };
+  },
+});
+
+// ── Sign in with Google / Microsoft ─────────────────────────────────────
+
+/** Remember which workspace started an engine sign-in session. */
+export const recordOAuthSession = internalMutation({
+  args: {
+    sessionId: v.string(),
+    provider: v.union(v.literal("google"), v.literal("outlook")),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspace(ctx);
+    // Sign-ins abandoned mid-way (dialog closed) are cleared on the next start.
+    const stale = await ctx.db
+      .query("inboxOAuthSessions")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+      .collect();
+    for (const row of stale) {
+      if (row.expiresAt < Date.now()) await ctx.db.delete(row._id);
+    }
+    await ctx.db.insert("inboxOAuthSessions", { workspaceId: workspace._id, ...args });
+  },
+});
+
+/** Plan room for one more inbox, checked before the sign-in even starts. */
+export const assertRoomForOneInbox = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const { workspace } = await requireWorkspace(ctx);
+    await assertInboxRoom(ctx, workspace, 1);
+  },
+});
+
+/** The caller's own pending session, or null (never another workspace's). */
+export const ownOAuthSession = internalQuery({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspace(ctx);
+    const row = await ctx.db
+      .query("inboxOAuthSessions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    return row && row.workspaceId === workspace._id ? row : null;
+  },
+});
+
+/**
+ * The provider confirmed the mailbox: it is proven, created by us on the
+ * engine, and belongs to the workspace that started the session.
+ */
+export const completeOAuthInbox = internalMutation({
+  args: { sessionId: v.string(), email: v.string() },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspace(ctx);
+    const session = await ctx.db
+      .query("inboxOAuthSessions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (!session || session.workspaceId !== workspace._id) throw new Error("Not found");
+    await ctx.db.delete(session._id);
+    const email = args.email.trim().toLowerCase();
+    const rows = await ctx.db
+      .query("inboxes")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect();
+    if (rows.some((r) => r.workspaceId !== workspace._id)) {
+      return { ok: false as const, email, reason: "taken" as const };
+    }
+    const fields = {
+      provider: session.provider,
+      engineConnected: true,
+      engineCreatedByUs: true,
+      status: "warming" as const,
+      warmupEnabled: true,
+      lastEngineError: undefined,
+    };
+    const own = rows.find((r) => r.workspaceId === workspace._id);
+    if (own) {
+      await ctx.db.patch(own._id, fields);
+    } else {
+      await ctx.db.insert("inboxes", {
+        workspaceId: workspace._id,
+        email,
+        dailyLimit: 30,
+        ...fields,
+      });
+    }
+    return { ok: true as const, email };
+  },
+});
+
+export const dropOAuthSession = internalMutation({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args) => {
+    const { workspace } = await requireWorkspace(ctx);
+    const row = await ctx.db
+      .query("inboxOAuthSessions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .unique();
+    if (row && row.workspaceId === workspace._id) await ctx.db.delete(row._id);
   },
 });

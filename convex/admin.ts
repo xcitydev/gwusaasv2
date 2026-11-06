@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, type QueryCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
@@ -111,7 +111,9 @@ export const adjustCredits = mutation({
         workspaceId: args.workspaceId,
         amount: args.amount,
         feature: "admin_adjustment",
-        description: args.reason || `Granted by ${admin.email}`,
+        // Shown to the user in Credit history — never the admin's identity
+        // (the ledger row's userId still records who did it).
+        description: args.reason.trim() || "Bonus credits",
         userId: admin._id,
       });
     } else {
@@ -119,7 +121,7 @@ export const adjustCredits = mutation({
         workspaceId: args.workspaceId,
         amount: -args.amount,
         feature: "admin_adjustment",
-        description: args.reason || `Removed by ${admin.email}`,
+        description: args.reason.trim() || "Credit adjustment",
         userId: admin._id,
       });
     }
@@ -253,20 +255,28 @@ export const bootstrapSuper = mutation({
   args: {},
   handler: async (ctx) => {
     const user = await requireUser(ctx);
-    const users = await ctx.db.query("users").collect();
-    if (users.some((u) => u.adminRole)) {
+    if (await anyAdminExists(ctx)) {
       throw new Error("An admin already exists");
     }
     await ctx.db.patch(user._id, { adminRole: "super" });
   },
 });
 
+/** One indexed read per role instead of a full users scan (public query). */
+async function anyAdminExists(ctx: QueryCtx): Promise<boolean> {
+  for (const role of ["super", "dev", "regular"] as const) {
+    const admin = await ctx.db
+      .query("users")
+      .withIndex("by_admin_role", (q) => q.eq("adminRole", role))
+      .first();
+    if (admin) return true;
+  }
+  return false;
+}
+
 export const hasAnyAdmin = query({
   args: {},
-  handler: async (ctx) => {
-    const users = await ctx.db.query("users").collect();
-    return users.some((u) => u.adminRole);
-  },
+  handler: async (ctx) => await anyAdminExists(ctx),
 });
 
 // ── Revenue (superadmin) ────────────────────────────────────────────────

@@ -86,6 +86,16 @@ function hostOf(url: string): string {
   }
 }
 
+/** Scraped bio links are untrusted: only http(s) may become a clickable href. */
+function safeHref(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Leads → IG Commenters: paste a post or reel link, get every commenter's
  * username, bio, follower count and link in bio, plus what they said.
@@ -343,11 +353,11 @@ function Live() {
                             {r.profileMissing ? "—" : compact(r.followersCount)}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {r.externalUrl ? (
+                            {r.externalUrl && safeHref(r.externalUrl) ? (
                               <a
-                                href={r.externalUrl}
+                                href={safeHref(r.externalUrl)!}
                                 target="_blank"
-                                rel="noreferrer"
+                                rel="noopener noreferrer"
                                 className="underline-offset-4 hover:text-primary hover:underline"
                               >
                                 {hostOf(r.externalUrl)}

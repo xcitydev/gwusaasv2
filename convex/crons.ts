@@ -48,4 +48,13 @@ crons.interval(
   {},
 );
 
+// Privacy retention: shared lead-library rows older than 12 months are
+// deleted (batched; the mutation reschedules itself while there's more).
+crons.interval(
+  "purge expired lead library rows",
+  { hours: 24 },
+  internal.leadPool.purgeExpired,
+  {},
+);
+
 export default crons;

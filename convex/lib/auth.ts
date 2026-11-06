@@ -3,7 +3,12 @@ import { Doc } from "../_generated/dataModel";
 
 type Ctx = QueryCtx | MutationCtx;
 
-export async function getCurrentUser(ctx: Ctx): Promise<Doc<"users"> | null> {
+/**
+ * The caller's users row regardless of lock status. Only for code that must
+ * see a locked account (users.me reporting the lock); everything else uses
+ * getCurrentUser / requireUser, which treat locked accounts as signed out.
+ */
+export async function getUserRecord(ctx: Ctx): Promise<Doc<"users"> | null> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return null;
   return await ctx.db
@@ -12,8 +17,15 @@ export async function getCurrentUser(ctx: Ctx): Promise<Doc<"users"> | null> {
     .unique();
 }
 
+/** The signed-in user, or null when signed out OR locked by an admin. */
+export async function getCurrentUser(ctx: Ctx): Promise<Doc<"users"> | null> {
+  const user = await getUserRecord(ctx);
+  if (!user || user.status === "locked") return null;
+  return user;
+}
+
 export async function requireUser(ctx: Ctx): Promise<Doc<"users">> {
-  const user = await getCurrentUser(ctx);
+  const user = await getUserRecord(ctx);
   if (!user) throw new Error("Not authenticated");
   if (user.status === "locked") throw new Error("Account locked");
   return user;
@@ -58,7 +70,7 @@ export async function getAdminOrNull(
   minimum: AdminRole = "regular",
 ): Promise<Doc<"users"> | null> {
   const user = await getCurrentUser(ctx);
-  if (!user || user.status === "locked") return null;
+  if (!user) return null;
   if (!user.adminRole || ADMIN_RANK[user.adminRole] < ADMIN_RANK[minimum]) {
     return null;
   }

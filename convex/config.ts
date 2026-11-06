@@ -15,10 +15,19 @@ export const CONFIG_DEFAULTS = {
   creditPriceUsd: 0.01,
   // Phone number: Bland charges us $15/mo → ×4.5 = $67.50 = 6,750 credits.
   phoneNumberPriceUsd: 67.5,
+  // Studio HD (ElevenLabs) number: Twilio US local ≈ $1.15/mo → ×4.5 ≈ $5.25.
+  studioNumberPriceUsd: 5.25,
   personalPlanCredits: 10000,
   teamPlanCredits: 30000,
   // Create with AI / Studio / carousels: provider cost × this, in credits.
   generationMarkup: 4.5,
+  // Audio tab (ElevenLabs) provider costs, billed × generationMarkup. Based
+  // on ElevenLabs credits at ~$0.30 per 1,000 (Creator-plan overage): TTS =
+  // 1 credit/character, voice changer ≈ 1,000 credits/min, dubbing ≈
+  // 3,000 credits/min. Re-check against the plan the account is on.
+  audioUsdPer1kChars: 0.3,
+  voiceChangeUsdPerMinute: 0.3,
+  dubbingUsdPerMinute: 0.9,
   referralPercent: 15,
   // Outreach caps per plan. Instantly is ONE platform account, so the sum
   // across customers must fit the plan below. Contacts = distinct leads in
@@ -42,9 +51,22 @@ export const CONFIG_DEFAULTS = {
   voiceCreditsPerSecond: 0.675,
   // IG voice notes: Bland TTS ~$0.015/1k chars → ×4.5 = 6.75 cr/1k.
   voiceNoteCreditsPer1kChars: 6.75,
+  // Same, in an ElevenLabs clone: multilingual v2 is $0.08/1k chars on
+  // every plan → ×4.5 = $0.36 = 36 cr/1k.
+  voiceNoteCreditsPer1kCharsElevenLabs: 36,
+  // ElevenLabs voices kept loaded at once (shared platform account). Creator
+  // plan = 30 slots; 28 leaves room for voices made by hand in the account.
+  elevenLabsVoiceSlots: 28,
+  // Bland clones loaded at once (shared platform account). Start plan = 1.
+  // Voices on live receptionists / running campaigns are never unloaded, so
+  // with 1 slot a single live receptionist clone holds it.
+  blandVoiceSlots: 1,
   // AI Note Taker: Recall bot + transcription ≈ $0.65/h → ×4.5 = $2.93/h
   // ≈ 4.9 credits/min, rounded to 5.
   noteTakerCreditsPerMinute: 5,
+  // Pre-meeting brief: one Sonnet pass over leads / outreach / past
+  // meetings ≈ 0.4¢ → ×4.5 ≈ 2 credits.
+  noteTakerBriefCredits: 2,
   // Credits per imported lead, by source tier (×4.5 on scrape+verify cost):
   // Maps ≈ 2¢ → 9 · LinkedIn/B2B ≈ 1.4¢ verified → 7 · niche ≈ 2¢ → 9.
   leadCreditCostMaps: 9,

@@ -357,7 +357,7 @@ export function LeadsVisual() {
         <span className="ml-auto shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary">142 found</span>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {["Google Maps", "LinkedIn", "B2B data", "Emails verified"].map((s) => (
+        {["Google Maps", "LinkedIn", "B2B data", "Work emails"].map((s) => (
           <span key={s} className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] text-muted-foreground">
             {s}
           </span>
@@ -522,7 +522,7 @@ const FEATURES: Feature[] = [
   {
     icon: Users,
     title: "Find your customers",
-    blurb: "Say who you want — “med spas in Miami” — and AI searches Google Maps, LinkedIn and B2B databases. Deduped, with verified emails.",
+    blurb: "Say who you want — “med spas in Miami” — and AI searches Google Maps, LinkedIn and B2B databases. Deduped, with work emails where available.",
     visual: <LeadsVisual />,
   },
   {
@@ -559,7 +559,7 @@ const FEATURES: Feature[] = [
   {
     icon: Sparkles,
     title: "Create with AI + Studio",
-    blurb: "Images, video, motion control and Higgsfield's Studio models — priced per generation, no separate subscriptions.",
+    blurb: "Images, video, motion control and Higgsfield models in Studio — priced per generation, no separate subscriptions.",
     wide: true,
     visual: <StudioVisual />,
   },
@@ -992,9 +992,9 @@ function PricingCard({ plan }: { plan: (typeof PLANS)[number] }) {
 const FAQS = [
   ["What are credits?", "One balance pays for everything — call minutes, image and video generations, voice notes, meeting recording. Plans include a monthly allowance, you can top up any time, and every price is shown before you confirm."],
   ["Does the receptionist really use my voice?", "Yes. Record fifteen seconds of yourself talking. From then on inbound calls, qualifier calls and Instagram voice notes speak in your clone."],
-  ["Can I connect my own Instagram?", "Yes — a Professional account (Business or Creator) linked to a Facebook Page, connected with a single Meta authorization click. Every DM lands in your inbox with AI triage."],
-  ["Which meeting apps does the Note Taker join?", "Zoom, Google Meet and Microsoft Teams. It joins as a named participant, announces itself, and the notes arrive minutes after the call ends."],
-  ["Do I need my own AI subscriptions?", "No. Kling, Seedance, Higgsfield, Veo, FLUX and the rest are already connected and billed per generation from your credits."],
+  ["Can I connect my own Instagram?", "Yes — a Professional account (Business or Creator) linked to a Facebook Page. You connect it in-app by authorizing access in Meta's own pop-up — about a minute, and you never share your password. Every DM lands in your inbox with AI triage."],
+  ["Which meeting apps does the Note Taker join?", "Zoom, Google Meet and Microsoft Teams. It joins as a named participant, announces in the meeting chat that it's recording, and the notes arrive minutes after the call ends."],
+  ["Do I need my own AI subscriptions?", "No. Models like Kling, Seedance, Higgsfield, Veo and FLUX are available in Studio and billed per generation from your credits."],
   ["Can my team use it?", "The Team plan adds members who share leads, inboxes, campaigns and credits, lets you assign conversations to setters, and unlocks agency features."],
 ];
 

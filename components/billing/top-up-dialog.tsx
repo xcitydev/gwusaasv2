@@ -19,6 +19,8 @@ import { CREDIT_PACKS, MIN_TOPUP_CREDITS, MAX_TOPUP_CREDITS, quoteTopup } from "
 import { closeTopUp, getTopUpRequest, subscribeTopUp } from "@/lib/top-up-prompt";
 import { cn } from "@/lib/utils";
 import { errorText } from "@/lib/public-errors";
+import Link from "next/link";
+import { LEGAL_LINKS } from "@/lib/legal";
 
 const n = (v: number) => v.toLocaleString("en-US");
 
@@ -84,7 +86,18 @@ export function TopUpDialogHost() {
                 {" "}Add at least {n(Math.max(shortfall, MIN_TOPUP_CREDITS))} to continue.
               </>
             ) : (
-              <>1 credit = ${price.toFixed(2)}. Bigger packs include bonus credits. Credits never expire.</>
+              <>
+                1 credit = ${price.toFixed(2)}. Bigger packs include bonus credits. Credits never expire and are
+                non-refundable except as required by law —{" "}
+                <Link
+                  href={LEGAL_LINKS.credits}
+                  target="_blank"
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  credit terms
+                </Link>
+                .
+              </>
             )}
           </DialogDescription>
         </DialogHeader>

@@ -1,4 +1,5 @@
 import type { RecallTranscriptEntry } from "./transcript";
+import type { EventFacts } from "../../lib/note-taker";
 
 /**
  * Recall.ai adapter — the meeting-bot pipe for the AI Note Taker. One API
@@ -420,6 +421,66 @@ export async function removeEventBot(eventId: string): Promise<void> {
     `/api/v2/calendar-events/${encodeURIComponent(eventId)}/bot/`,
     { method: "DELETE" },
   );
+}
+
+/**
+ * Organizer / recurrence / invitee emails out of the raw event, for the
+ * auto-join rules. Google: organizer.self, creator.self, recurringEventId.
+ * Microsoft: isOrganizer, seriesMasterId, type. `calendarEmail` is the
+ * connected account, used when the payload has no `self` flag.
+ */
+export function eventFacts(
+  event: RecallCalendarEvent,
+  calendarEmail?: string | null,
+): EventFacts {
+  const raw = (event.raw ?? {}) as Record<string, unknown>;
+  const own = calendarEmail?.trim().toLowerCase() || null;
+
+  let isOrganizer: boolean | null = null;
+  if (typeof raw.isOrganizer === "boolean") {
+    isOrganizer = raw.isOrganizer;
+  } else {
+    const organizer = raw.organizer as
+      | { self?: boolean; email?: string; emailAddress?: { address?: string } }
+      | undefined;
+    const creator = raw.creator as { self?: boolean } | undefined;
+    if (organizer?.self === true || (creator?.self === true && !organizer?.email)) {
+      isOrganizer = true;
+    } else {
+      const organizerEmail = (
+        organizer?.email ??
+        organizer?.emailAddress?.address ??
+        ""
+      ).toLowerCase();
+      if (organizerEmail && own) isOrganizer = organizerEmail === own;
+      else if (organizer?.self === false) isOrganizer = false;
+    }
+  }
+
+  const isRecurring =
+    typeof raw.recurringEventId === "string" ||
+    Array.isArray(raw.recurrence) ||
+    typeof raw.seriesMasterId === "string" ||
+    raw.type === "occurrence" ||
+    raw.type === "exception" ||
+    raw.type === "seriesMaster";
+
+  const attendeeEmails: string[] = [];
+  const list = Array.isArray(raw.attendees) ? raw.attendees : [];
+  for (const item of list as Record<string, unknown>[]) {
+    // Rooms and equipment aren't guests.
+    if (item.resource === true || item.type === "resource") continue;
+    const ms = item.emailAddress as { address?: string } | undefined;
+    const email = (
+      (typeof item.email === "string" && item.email) ||
+      ms?.address ||
+      ""
+    ).toLowerCase();
+    if (email && !email.endsWith("resource.calendar.google.com")) {
+      attendeeEmails.push(email);
+    }
+  }
+  return { isOrganizer, isRecurring, attendeeEmails };
 }
 
 /** Title + invitees out of the provider's raw event (Google / Microsoft). */

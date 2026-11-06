@@ -69,6 +69,10 @@ export default defineSchema({
         at: v.number(),
       }),
     ),
+    // Clickwrap: when (and which version of) the Terms + Privacy Policy this
+    // user accepted. Set by legal.acceptTerms; see lib/legal TERMS_VERSION.
+    termsAcceptedAt: v.optional(v.number()),
+    termsVersion: v.optional(v.string()),
   })
     .index("by_clerk_id", ["clerkId"])
     .index("by_email", ["email"])
@@ -93,6 +97,9 @@ export default defineSchema({
     planNote: v.optional(v.string()),
     // Outreach settings
     forwardRepliesTo: v.optional(v.string()),
+    // Sender postal address printed in every campaign email (CAN-SPAM);
+    // campaigns can't go live without it.
+    postalAddress: v.optional(v.string()),
     /** Cached count of distinct leads enrolled in non-archived campaigns (platform pool). */
     outreachContacts: v.optional(v.number()),
   })
@@ -131,6 +138,8 @@ export default defineSchema({
       v.literal("accepted"),
       v.literal("revoked"),
     ),
+    // Missing on legacy rows: those expire a week after _creationTime.
+    expiresAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_token", ["token"])
@@ -192,7 +201,15 @@ export default defineSchema({
       v.literal("refunded"),
     ),
     meta: v.optional(v.any()),
-  }).index("by_workspace", ["workspaceId"]),
+    // Whop payment behind this purchase — how refunds/disputes find it.
+    whopPaymentId: v.optional(v.string()),
+    // Credits granted by this payment (plan grant or top-up total).
+    creditsGranted: v.optional(v.number()),
+    // Cumulative USD refunded/disputed so far (partial refunds claw back the delta).
+    refundedUsd: v.optional(v.number()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_whop_payment", ["whopPaymentId"]),
 
   referrals: defineTable({
     referrerUserId: v.id("users"),
@@ -231,7 +248,16 @@ export default defineSchema({
     paymentUsd: v.number(),
     percent: v.number(),
     amountUsd: v.number(),
-    status: v.union(v.literal("owed"), v.literal("paid")),
+    // pending → owed once the refund window passes (availableAt); void when
+    // the payment is refunded/disputed or turns out to be a self-referral.
+    status: v.union(
+      v.literal("pending"),
+      v.literal("owed"),
+      v.literal("paid"),
+      v.literal("void"),
+    ),
+    availableAt: v.optional(v.number()),
+    voidReason: v.optional(v.string()),
     paidAt: v.optional(v.number()),
   })
     .index("by_referral", ["referralId"])
@@ -379,9 +405,48 @@ export default defineSchema({
     // name + company + title + industry + location, for keyword matching.
     searchText: v.string(),
     scrapedAt: v.number(),
+    // Where the row came from ("apify:google_maps", "apify:linkedin",
+    // "explorium", …) — `source` is the search type. Older rows lack it.
+    provider: v.optional(v.string()),
+    // phoneLeadKey(phone), so a phone opt-out finds every row with that number.
+    phoneKey: v.optional(v.string()),
   })
     .index("by_source_key", ["source", "dedupeKey"])
+    .index("by_email", ["email"])
+    .index("by_phone_key", ["phoneKey"])
+    .index("by_scraped_at", ["scrapedAt"])
     .searchIndex("search_text", { searchField: "searchText", filterFields: ["source"] }),
+
+  // ── Privacy / anti-spam ─────────────────────────────────────────────────
+  // Addresses that must never be emailed again through the platform.
+  // Unsubscribes and public opt-outs are global (no workspaceId).
+  emailSuppressions: defineTable({
+    email: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
+    reason: v.union(v.literal("unsubscribed"), v.literal("opt_out"), v.literal("manual")),
+    createdAt: v.number(),
+  }).index("by_email", ["email"]),
+
+  // Public /opt-out requests: people asking to be removed from lead data.
+  // Phone-only opt-outs are matched by phoneKey; the IG handle is recorded
+  // for manual follow-up (the library has no IG handle column).
+  dataOptOuts: defineTable({
+    email: v.optional(v.string()),
+    phoneKey: v.optional(v.string()),
+    igHandle: v.optional(v.string()),
+    removedRows: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_email", ["email"])
+    .index("by_phone_key", ["phoneKey"]),
+
+  // Per-day submission counters for the public opt-out form ("global" plus
+  // one per submitted identifier) — crude abuse protection.
+  optOutRateLimits: defineTable({
+    key: v.string(),
+    day: v.string(), // "2026-10-28" (UTC)
+    count: v.number(),
+  }).index("by_key_day", ["key", "day"]),
 
   // Which library leads a given (normalized) search produced.
   leadPoolQueries: defineTable({
@@ -414,6 +479,9 @@ export default defineSchema({
     // Unit rates captured at start (×4.5 rule): billed on actual counts.
     creditRates: v.optional(v.object({ comment: v.number(), profile: v.number() })),
     creditsSpent: v.optional(v.number()),
+    // Worst case spent up front at start; the unused part is refunded on
+    // completion/failure. Absent on jobs from before reservations.
+    creditsReserved: v.optional(v.number()),
     error: v.optional(v.string()),
     warning: v.optional(v.string()),
   }).index("by_workspace", ["workspaceId"]),
@@ -450,9 +518,26 @@ export default defineSchema({
     warmupSentLastDay: v.optional(v.number()),
     // IMAP/SMTP credentials are stored encrypted.
     credentials: v.optional(v.any()),
+    // True only when this app created the engine account (not an existing
+    // mailbox an admin linked), so removing the inbox may delete it there.
+    engineCreatedByUs: v.optional(v.boolean()),
   })
     .index("by_workspace", ["workspaceId"])
-    .index("by_workspace_email", ["workspaceId", "email"]),
+    .index("by_workspace_email", ["workspaceId", "email"])
+    // The engine account is shared: an address may belong to one workspace only.
+    .index("by_email", ["email"]),
+
+  // Pending "Sign in with Google/Microsoft" inbox connections. The engine's
+  // OAuth session is bound to our shared account, so this row is what ties
+  // a session to the workspace that started it.
+  inboxOAuthSessions: defineTable({
+    workspaceId: v.id("workspaces"),
+    sessionId: v.string(),
+    provider: v.union(v.literal("google"), v.literal("outlook")),
+    expiresAt: v.number(),
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_workspace", ["workspaceId"]),
 
   emailDomains: defineTable({
     workspaceId: v.id("workspaces"),
@@ -549,7 +634,9 @@ export default defineSchema({
     .index("by_workspace_category", ["workspaceId", "category"])
     .index("by_campaign", ["campaignId"])
     .index("by_instantly_id", ["instantlyId"])
-    .index("by_in_reply_to", ["inReplyTo"]),
+    .index("by_in_reply_to", ["inReplyTo"])
+    // Pre-meeting brief: a meeting invitee's reply history.
+    .index("by_workspace_lead_email", ["workspaceId", "leadEmail", "receivedAt"]),
 
   // ── Create with AI + AI tools (phase 5) ────────────────────────────────
   generations: defineTable({
@@ -560,6 +647,7 @@ export default defineSchema({
       v.literal("video"),
       v.literal("edit"),
       v.literal("motion"),
+      v.literal("audio"),
     ),
     model: v.string(),
     prompt: v.string(),
@@ -575,12 +663,46 @@ export default defineSchema({
     storageId: v.optional(v.id("_storage")),
     error: v.optional(v.string()),
     // Which engine ran it; absent = fal (rows from before Studio existed).
-    provider: v.optional(v.union(v.literal("fal"), v.literal("higgsfield"))),
+    provider: v.optional(v.union(v.literal("fal"), v.literal("higgsfield"), v.literal("elevenlabs"))),
     // Upstream job id — how a webhook finds its row.
     providerRequestId: v.optional(v.string()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_provider_request", ["providerRequestId"]),
+
+  // Saved characters (AI Influencer sheets or the user's own photos), reused
+  // as references across Studio.
+  characters: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    name: v.string(),
+    imageUrl: v.string(),
+    source: v.union(v.literal("influencer"), v.literal("upload"), v.literal("generation")),
+    generationId: v.optional(v.id("generations")),
+    // Element type for @mentions: a person, a place or an object. Absent = character.
+    kind: v.optional(v.union(v.literal("character"), v.literal("location"), v.literal("prop"))),
+    // The @handle typed in prompts (unique per workspace). Older rows: derived from the name.
+    handle: v.optional(v.string()),
+    // Optional words the prompt uses alongside the image ("tall, grey suit").
+    description: v.optional(v.string()),
+    // More angles of the same element, attached with it.
+    extraImageUrls: v.optional(v.array(v.string())),
+    // AI Influencer tier + trait ids, so a design can be re-rolled later.
+    traits: v.optional(v.any()),
+    // Trained identity (Soul ID): photos → a reusable face for the Soul models.
+    soul: v.optional(
+      v.object({
+        version: v.union(v.literal("v1"), v.literal("v2"), v.literal("cinema")),
+        status: v.union(v.literal("training"), v.literal("ready"), v.literal("failed")),
+        refId: v.optional(v.string()),
+        photoUrls: v.array(v.string()),
+        costCredits: v.number(),
+        startedAt: v.number(),
+        error: v.optional(v.string()),
+        attempts: v.optional(v.number()),
+      }),
+    ),
+  }).index("by_workspace", ["workspaceId"]),
 
   // Admin-curated carousel design systems — same token shape as the built-in
   // templates in lib/carousel-templates.ts; users pick them from the library.
@@ -713,6 +835,10 @@ export default defineSchema({
     status: v.union(v.literal("draft"), v.literal("live")),
     blandId: v.optional(v.string()),
     phoneNumberId: v.optional(v.id("phoneNumbers")),
+    // Which call engine answers: Bland (default) or an ElevenLabs agent on
+    // a Twilio number. `elevenAgentId` is the agent synced from this row.
+    engine: v.optional(v.union(v.literal("bland"), v.literal("elevenlabs"))),
+    elevenAgentId: v.optional(v.string()),
     // Auto-scheduling: bookings extracted from calls are created on Cal.com.
     // Users just paste their public booking link — no API key needed.
     autoBook: v.optional(v.boolean()),
@@ -762,6 +888,18 @@ export default defineSchema({
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_location", ["ghlLocationId"]),
+  // One-shot states an admin mints before the GHL agency install, so a
+  // stray code can't overwrite the platform-wide ghlAuth.
+  ghlOauthStates: defineTable({
+    state: v.string(),
+    userId: v.id("users"),
+    expiresAt: v.number(),
+  }).index("by_state", ["state"]),
+  // Voice-note renders we produced — the only blobs /crm/audio will serve.
+  igVoiceNotes: defineTable({
+    workspaceId: v.id("workspaces"),
+    storageId: v.id("_storage"),
+  }).index("by_storage", ["storageId"]),
   igConversations: defineTable({
     workspaceId: v.id("workspaces"),
     ghlConversationId: v.string(),
@@ -783,6 +921,10 @@ export default defineSchema({
     // Autopilot hit something outside its brief and stood down.
     needsHuman: v.optional(v.boolean()),
     needsHumanReason: v.optional(v.string()),
+    // When the next coalesced triage run is due (webhook bursts share one).
+    triageScheduledFor: v.optional(v.number()),
+    // First autopilot message carried the AI-assistant disclosure.
+    aiDisclosedAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId", "lastMessageAt"])
     .index("by_ghl", ["ghlConversationId"])
@@ -820,16 +962,36 @@ export default defineSchema({
     // Clone engine; absent = Bland (rows from before ElevenLabs existed).
     // ElevenLabs clones are TTS-only: previews + IG voice notes, not calls.
     provider: v.optional(v.union(v.literal("bland"), v.literal("elevenlabs"))),
+    // When `userId` attested it's their voice or they hold the speaker's
+    // written permission. Required for new clones; absent on legacy rows.
+    consentAttestedAt: v.optional(v.number()),
+    // ElevenLabs voice pool. The account caps saved voices per plan, so the
+    // recording lives with us and the voice is loaded into ElevenLabs only
+    // while in use: `voiceId` is our stable key ("elv_…"), `remoteVoiceId`
+    // the ElevenLabs id while loaded. The least-recently-used voice is
+    // unloaded when the pool is full and reloads on next use. Rows with no
+    // sample (pre-pool) keep their ElevenLabs id in `voiceId`, pinned.
+    sampleStorageId: v.optional(v.id("_storage")),
+    remoteVoiceId: v.optional(v.string()),
+    lastUsedAt: v.optional(v.number()),
+    // Never unloaded before this time: a preview holds a voice ~1 minute, a
+    // browser test or call holds it for its maximum length.
+    busyUntil: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
-    .index("by_voice", ["voiceId"]),
+    .index("by_voice", ["voiceId"])
+    .index("by_provider", ["provider"]),
 
   phoneNumbers: defineTable({
     workspaceId: v.id("workspaces"),
     number: v.string(),
+    // "bland" (bought through Bland) or "twilio" (bought on our Twilio
+    // account and imported into ElevenLabs Agents).
     provider: v.string(),
     monthlyCostUsd: v.number(),
     status: v.union(v.literal("active"), v.literal("released")),
+    twilioSid: v.optional(v.string()),
+    elevenPhoneNumberId: v.optional(v.string()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_number", ["number"]),
@@ -849,7 +1011,31 @@ export default defineSchema({
       v.literal("completed"),
     ),
     leadCount: v.number(),
+    // Who the AI says it's calling for (falls back to the workspace name).
+    businessName: v.optional(v.string()),
+    // Fallback IANA zone for the 9am–8pm calling window when a lead's
+    // area code doesn't say where they are. Absent = America/New_York.
+    timezone: v.optional(v.string()),
+    // TCPA attestation (prior express written consent + DNC scrub), ticked
+    // by `consentAttestedBy` before the campaign may dial.
+    consentAttestedAt: v.optional(v.number()),
+    consentAttestedBy: v.optional(v.id("users")),
+    // Why a running campaign is waiting (calling hours, credits…).
+    statusNote: v.optional(v.string()),
+    // Call engine (Bland default) + the ElevenLabs agent dialing for it.
+    engine: v.optional(v.union(v.literal("bland"), v.literal("elevenlabs"))),
+    elevenAgentId: v.optional(v.string()),
   }).index("by_workspace", ["workspaceId"]),
+
+  // Per-workspace internal do-not-call list. Leads who refuse or ask to be
+  // removed land here; qualifier campaigns never dial these numbers.
+  voiceOptOuts: defineTable({
+    workspaceId: v.id("workspaces"),
+    phone: v.string(), // E.164
+    reason: v.string(),
+    callId: v.optional(v.id("calls")),
+    createdAt: v.number(),
+  }).index("by_workspace_phone", ["workspaceId", "phone"]),
 
   calls: defineTable({
     workspaceId: v.id("workspaces"),
@@ -869,10 +1055,19 @@ export default defineSchema({
     transcript: v.optional(v.string()),
     // AI analysis: summary, caller info, booking details, qualifier outcome.
     result: v.optional(v.any()),
-    // Bland's call id — lets us fetch transcripts for browser test sessions.
+    // The engine's call id — Bland call_id, or the ElevenLabs conversation_id
+    // when `engine` is "elevenlabs". Lets us fetch transcripts and dedupe.
     blandCallId: v.optional(v.string()),
+    engine: v.optional(v.union(v.literal("bland"), v.literal("elevenlabs"))),
+    // ElevenLabs browser tests: the throwaway agent the session talks to.
+    elevenAgentId: v.optional(v.string()),
     // Browser tests are recorded but never billed.
     isTest: v.optional(v.boolean()),
+    // A dispatcher has claimed this pending row (guards against double-dial
+    // when two dispatch runs overlap).
+    dispatchClaimedAt: v.optional(v.number()),
+    // Credits the call cost but the balance couldn't cover (billed what was left).
+    unbilledCredits: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_qualifier_campaign", ["qualifierCampaignId"])
@@ -891,10 +1086,27 @@ export default defineSchema({
     recapExtraEmails: v.optional(v.array(v.string())),
     // Recording + transcript lifetime at Recall (their retention timer).
     retentionDays: v.optional(v.number()),
-    // Calendar events: record everything with a link, or pick by hand.
-    autoJoin: v.optional(v.union(v.literal("all"), v.literal("manual"))),
+    // Calendar events: record everything with a link, only meetings the
+    // calendar owner hosts, or pick by hand.
+    autoJoin: v.optional(
+      v.union(v.literal("all"), v.literal("hosting"), v.literal("manual")),
+    ),
+    // Auto-join rules: only when every guest is on these domains; skip
+    // recurring series.
+    joinInternalOnly: v.optional(v.boolean()),
+    internalDomains: v.optional(v.array(v.string())),
+    skipRecurring: v.optional(v.boolean()),
+    // Notes / Ask / brief language ("auto" = the meeting's own).
+    outputLanguage: v.optional(v.string()),
+    // Pre-meeting brief: on/off and how many minutes before the start.
+    briefEnabled: v.optional(v.boolean()),
+    briefLeadMin: v.optional(v.number()),
     // Secret path token for the Cal.com booking webhook.
     calcomToken: v.optional(v.string()),
+    // HMAC secret for X-Cal-Signature-256; enforced once a signed delivery
+    // has been seen (calcomSecretVerified), so older setups keep working.
+    calcomSecret: v.optional(v.string()),
+    calcomSecretVerified: v.optional(v.boolean()),
     // Agenda Coach: live drift / timebox nudges during the call.
     coachEnabled: v.optional(v.boolean()),
     // Post nudges into the meeting chat (Zoom / Meet / Teams).
@@ -935,6 +1147,20 @@ export default defineSchema({
     ),
   }).index("by_state", ["state"]),
 
+  // Calendar grants waiting for the signed-in owner to confirm in-app (the
+  // OAuth callback alone can't prove whose browser finished the consent).
+  noteTakerPendingCalendars: defineTable({
+    nonce: v.string(),
+    userId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    platform: v.union(
+      v.literal("google_calendar"),
+      v.literal("microsoft_outlook"),
+    ),
+    refreshTokenEncrypted: v.string(),
+    expiresAt: v.number(),
+  }).index("by_nonce", ["nonce"]),
+
   meetings: defineTable({
     workspaceId: v.id("workspaces"),
     userId: v.id("users"),
@@ -947,6 +1173,7 @@ export default defineSchema({
       v.literal("manual"),
       v.literal("calendar"),
       v.literal("calcom"),
+      v.literal("upload"),
     ),
     // Calendar event id / Cal.com booking uid — one bot per real meeting.
     dedupKey: v.optional(v.string()),
@@ -981,15 +1208,37 @@ export default defineSchema({
     // real-time webhook and the public coach card use, and the live verdict.
     agenda: v.optional(v.array(v.object({ title: v.string(), minutes: v.number() }))),
     coachToken: v.optional(v.string()),
+    // Write credential for /notes/realtime (separate from the public card
+    // key). Absent on meetings created before it existed.
+    realtimeToken: v.optional(v.string()),
     coachState: v.optional(v.any()),
     // Action items pushed to Trello / Asana / a webhook after the notes.
     taskRouting: v.optional(v.any()),
+    // Meeting type (sales, one_on_one, …) — picks the notes template and the
+    // smart folder. Locked once a person sets it by hand.
+    meetingType: v.optional(v.string()),
+    meetingTypeLocked: v.optional(v.boolean()),
+    folderIds: v.optional(v.array(v.id("noteFolders"))),
+    // 0–100 meeting score + how it was reached (lib/meeting-score.ts).
+    score: v.optional(v.number()),
+    scoreBreakdown: v.optional(v.any()),
+    // Why the bot didn't record (lib/note-taker FAILURE_CODES).
+    failureCode: v.optional(v.string()),
+    // Uploaded recording (source "upload") — played back from our storage.
+    mediaStorageId: v.optional(v.id("_storage")),
+    // Which transcript speaker is the meeting's owner (coaching).
+    selfSpeaker: v.optional(v.string()),
+    // Pre-meeting brief (MeetingBrief) + the run it's scheduled for.
+    brief: v.optional(v.any()),
+    briefScheduledFor: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_type", ["workspaceId", "meetingType"])
     .index("by_bot", ["recallBotId"])
     .index("by_dedup", ["workspaceId", "dedupKey"])
     .index("by_status", ["status"])
     .index("by_coach_token", ["coachToken"])
+    .index("by_realtime_token", ["realtimeToken"])
     .searchIndex("search_meta", {
       searchField: "searchText",
       filterFields: ["workspaceId"],
@@ -1070,6 +1319,70 @@ export default defineSchema({
     content: v.string(),
   }).index("by_meeting", ["meetingId"]),
 
+  // Custom meeting folders (smart folders by meeting type need no row).
+  // Rules file new meetings in automatically.
+  noteFolders: defineTable({
+    workspaceId: v.id("workspaces"),
+    name: v.string(),
+    color: v.optional(v.string()),
+    rules: v.object({
+      titleContains: v.array(v.string()),
+      emailDomains: v.array(v.string()),
+    }),
+    createdBy: v.id("users"),
+  }).index("by_workspace", ["workspaceId"]),
+
+  // Ask across meetings — private per user.
+  noteAskThreads: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    title: v.string(),
+    scope: v.object({
+      kind: v.union(
+        v.literal("all"),
+        v.literal("folder"),
+        v.literal("type"),
+        v.literal("meeting"),
+      ),
+      id: v.optional(v.string()),
+    }),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId", "updatedAt"]),
+
+  noteAskMessages: defineTable({
+    threadId: v.id("noteAskThreads"),
+    role: v.union(v.literal("user"), v.literal("assistant")),
+    content: v.string(),
+    citations: v.optional(
+      v.array(
+        v.object({
+          ref: v.string(),
+          meetingId: v.id("meetings"),
+          title: v.string(),
+          atSec: v.optional(v.number()),
+        }),
+      ),
+    ),
+  }).index("by_thread", ["threadId"]),
+
+  // One row per (meeting, invitee email) — `meetings.attendees` is an array
+  // and can't be indexed; the pre-meeting brief looks people up by email.
+  meetingAttendees: defineTable({
+    workspaceId: v.id("workspaces"),
+    meetingId: v.id("meetings"),
+    email: v.string(),
+    at: v.number(),
+  })
+    .index("by_workspace_email", ["workspaceId", "email", "at"])
+    .index("by_meeting", ["meetingId"]),
+
+  // Transcript speaker names a user has said are "me" (coaching).
+  noteSpeakerAliases: defineTable({
+    userId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    name: v.string(),
+  }).index("by_user", ["userId"]),
+
   // Whop webhook idempotency — one row per processed payment/event key.
   // Whop delivers at-least-once and retries for days; a replayed renewal
   // must never grant credits twice.
@@ -1078,7 +1391,23 @@ export default defineSchema({
     type: v.string(),
   }).index("by_key", ["key"]),
 
+  // Fixed-window rate limiter (convex/rateLimits.ts): one row per key
+  // (e.g. "enhancePrompt:<userId>").
+  rateLimits: defineTable({
+    key: v.string(),
+    windowStart: v.number(),
+    count: v.number(),
+  }).index("by_key", ["key"]),
+
   // Guided product tours — where each user is in each walkthrough.
+  // Who uploaded each storage file, so a storage id alone never grants
+  // access (files.getPublicUrl, forms.submit check ownership).
+  uploads: defineTable({
+    storageId: v.id("_storage"),
+    userId: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_storage", ["storageId"]),
+
   tourProgress: defineTable({
     userId: v.id("users"),
     tourId: v.string(),

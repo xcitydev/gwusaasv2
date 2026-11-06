@@ -5,7 +5,8 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { hasConvex } from "@/lib/runtime";
-import { CornerUpRight, Globe, Loader2, Plus } from "lucide-react";
+import Link from "next/link";
+import { CornerUpRight, Globe, Loader2, MapPin, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -20,6 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/status-badge";
 import { errorText } from "@/lib/public-errors";
+import { Textarea } from "@/components/ui/textarea";
+import { LEGAL_LINKS } from "@/lib/legal";
 
 /** Setup mode (no Convex provider): outreach settings need Convex. */
 export function SettingsTab() {
@@ -41,10 +44,21 @@ function SettingsTabLive() {
   if (settings === undefined) {
     return <div className="h-40 animate-pulse rounded-xl bg-card" />;
   }
-  return <SettingsTabInner initialForwardEmail={settings?.forwardRepliesTo ?? ""} />;
+  return (
+    <SettingsTabInner
+      initialForwardEmail={settings?.forwardRepliesTo ?? ""}
+      initialPostalAddress={settings?.postalAddress ?? ""}
+    />
+  );
 }
 
-function SettingsTabInner({ initialForwardEmail }: { initialForwardEmail: string }) {
+function SettingsTabInner({
+  initialForwardEmail,
+  initialPostalAddress,
+}: {
+  initialForwardEmail: string;
+  initialPostalAddress: string;
+}) {
   const domains = useQuery(api.outreach.listDomains) ?? [];
   const setForward = useMutation(api.outreach.setForwardRepliesTo);
   const addDomain = useMutation(api.outreach.addDomain);
@@ -52,6 +66,21 @@ function SettingsTabInner({ initialForwardEmail }: { initialForwardEmail: string
 
   const [forwardEmail, setForwardEmail] = useState(initialForwardEmail);
   const [savingForward, setSavingForward] = useState(false);
+  const setPostal = useMutation(api.outreach.setPostalAddress);
+  const [postalAddress, setPostalAddress] = useState(initialPostalAddress);
+  const [savingPostal, setSavingPostal] = useState(false);
+
+  const savePostal = async () => {
+    setSavingPostal(true);
+    try {
+      await setPostal({ address: postalAddress });
+      toast.success(postalAddress.trim() ? "Postal address saved." : "Postal address removed.");
+    } catch (e) {
+      toast.error(errorText(e, "Couldn't save."));
+    } finally {
+      setSavingPostal(false);
+    }
+  };
   const [addOpen, setAddOpen] = useState(false);
   const [newDomain, setNewDomain] = useState("");
   const [redirectOpen, setRedirectOpen] = useState(false);
@@ -75,6 +104,39 @@ function SettingsTabInner({ initialForwardEmail }: { initialForwardEmail: string
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
+      {/* CAN-SPAM: required before any campaign can go live. */}
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MapPin className="size-4 text-primary" /> Sender postal address
+            {!initialPostalAddress && <StatusBadge status="required" />}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Anti-spam law (CAN-SPAM) requires a valid physical address in every
+            marketing email. It&apos;s added to each email&apos;s footer with an{" "}
+            <Link href={LEGAL_LINKS.optOut} className="text-primary underline-offset-4 hover:underline">
+              unsubscribe link
+            </Link>
+            ; campaigns can&apos;t launch until it&apos;s set. A PO box or registered
+            mail service works.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+            <Textarea
+              rows={2}
+              maxLength={300}
+              placeholder="Your Business LLC, 123 Main St, Suite 4, Miami, FL 33101, USA"
+              value={postalAddress}
+              onChange={(e) => setPostalAddress(e.target.value)}
+            />
+            <Button onClick={savePostal} disabled={savingPostal}>
+              {savingPostal && <Loader2 className="size-4 animate-spin" />} Save
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">

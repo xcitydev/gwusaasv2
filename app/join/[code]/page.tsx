@@ -9,5 +9,12 @@ export const metadata: Metadata = {
 /** Public landing for an admin-shared forms invite link: /join/GWU-XXXX-XXXX. */
 export default async function JoinPage({ params }: PageProps<"/join/[code]">) {
   const { code } = await params;
-  return <JoinInvite code={decodeURIComponent(code)} />;
+  // A malformed %-escape must not crash the page — fall back to the raw segment.
+  let decoded = code;
+  try {
+    decoded = decodeURIComponent(code);
+  } catch {
+    // keep the raw value; redeem rejects it with a friendly message
+  }
+  return <JoinInvite code={decoded} />;
 }

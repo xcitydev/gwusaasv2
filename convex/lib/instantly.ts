@@ -61,7 +61,7 @@ export async function createAccount(args: {
       email: args.email,
       first_name: args.firstName ?? args.email.split("@")[0],
       last_name: args.lastName ?? "",
-      provider_code: 2, // custom IMAP/SMTP
+      provider_code: providerCodeFor(args.smtp.host),
       imap_username: args.imap.username,
       imap_password: args.imap.password,
       imap_host: args.imap.host,
@@ -73,6 +73,71 @@ export async function createAccount(args: {
       daily_limit: args.dailyLimit,
     },
   });
+}
+
+/**
+ * Instantly's provider codes: 1 custom IMAP/SMTP, 2 Google, 3 Microsoft.
+ * The wrong code leaves the account unable to send.
+ */
+function providerCodeFor(smtpHost: string): 1 | 2 | 3 {
+  const host = smtpHost.trim().toLowerCase();
+  if (/(^|\.)(gmail|googlemail)\.com$/.test(host)) return 2;
+  if (/(^|\.)(office365|outlook)\.com$/.test(host)) return 3;
+  return 1;
+}
+
+// ── OAuth (Google Workspace / Microsoft) ────────────────────────────────
+
+/** Start a provider sign-in; the user finishes it at authUrl. */
+export async function initOAuth(
+  provider: "google" | "microsoft",
+): Promise<{ sessionId: string; authUrl: string; expiresAt: number }> {
+  const result = await call<{ session_id: string; auth_url: string; expires_at: string }>(
+    `/oauth/${provider}/init`,
+    { method: "POST", body: {} },
+  );
+  return {
+    sessionId: result.session_id,
+    authUrl: result.auth_url,
+    expiresAt: Date.parse(result.expires_at) || Date.now() + 10 * 60_000,
+  };
+}
+
+export type OAuthStatus =
+  | { status: "pending" }
+  | { status: "success"; email: string; name?: string }
+  | { status: "error"; error: string; description: string }
+  | { status: "expired" };
+
+/** Poll a sign-in. A success/error answer is only ever returned once. */
+export async function getOAuthStatus(sessionId: string): Promise<OAuthStatus> {
+  let result: Record<string, unknown>;
+  try {
+    result = await call(`/oauth/session/status/${encodeURIComponent(sessionId)}`);
+  } catch (error) {
+    if (error instanceof Error && /^Instantly 404/.test(error.message)) {
+      return { status: "expired" };
+    }
+    throw error;
+  }
+  switch (result.status) {
+    case "success":
+      return {
+        status: "success",
+        email: String(result.email ?? "").toLowerCase(),
+        name: typeof result.name === "string" ? result.name : undefined,
+      };
+    case "error":
+      return {
+        status: "error",
+        error: String(result.error ?? "error"),
+        description: String(result.error_description ?? ""),
+      };
+    case "expired":
+      return { status: "expired" };
+    default:
+      return { status: "pending" };
+  }
 }
 
 export async function enableWarmup(emails: string[]): Promise<void> {
@@ -133,10 +198,22 @@ export type AccountState = {
 
 /** Authoritative per-account state straight from Instantly. */
 export async function listAccounts(): Promise<AccountState[]> {
-  const result = await call<{ items?: Record<string, unknown>[] }>(
-    "/accounts?limit=100",
-  );
-  return (result.items ?? []).map((item) => ({
+  // Paginate: the sync treats an address missing from this list as gone from
+  // the engine, so a truncated list would wrongly disconnect inboxes.
+  const items: Record<string, unknown>[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 50; page++) {
+    const result = await call<{
+      items?: Record<string, unknown>[];
+      next_starting_after?: string | null;
+    }>(
+      `/accounts?limit=100${cursor ? `&starting_after=${encodeURIComponent(cursor)}` : ""}`,
+    );
+    items.push(...(result.items ?? []));
+    cursor = result.next_starting_after ?? undefined;
+    if (!cursor || (result.items ?? []).length === 0) break;
+  }
+  return items.map((item) => ({
     email: String(item.email ?? "").toLowerCase(),
     warmupActive: item.warmup_status === 1,
     warmupScore:
@@ -188,6 +265,10 @@ export async function createCampaign(args: {
       ],
       email_list: args.emailList,
       daily_limit: args.dailyLimit,
+      // List-Unsubscribe header (one-click unsubscribe in Gmail/Yahoo). The
+      // visible footer with link + postal address is appended to every step
+      // body by outreach.getCampaignForPublish (complianceFooter below).
+      insert_unsubscribe_header: true,
     },
   });
   return result.id;
@@ -273,6 +354,10 @@ export async function updateCampaign(
       ],
       email_list: args.emailList,
       daily_limit: args.dailyLimit,
+      // List-Unsubscribe header (one-click unsubscribe in Gmail/Yahoo). The
+      // visible footer with link + postal address is appended to every step
+      // body by outreach.getCampaignForPublish (complianceFooter below).
+      insert_unsubscribe_header: true,
     },
   });
 }
@@ -372,4 +457,41 @@ export async function replyToEmail(args: {
       body: { text: args.bodyText },
     },
   });
+}
+
+// ── Compliance footer ───────────────────────────────────────────────────
+
+/**
+ * CAN-SPAM footer appended to every campaign email: who is sending, their
+ * postal address, and a working way to opt out. Instantly's v2 API has no
+ * documented body unsubscribe variable, so the link goes to our public
+ * /opt-out page (which suppresses the address platform-wide). Bodies are
+ * HTML-ish text — Instantly wants <br/> for line breaks.
+ */
+export function complianceFooter(args: {
+  postalAddress: string;
+  optOutUrl: string;
+}): string {
+  const address = args.postalAddress
+    .replace(/[<>]/g, "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join(", ");
+  return (
+    "<br/><br/>--<br/>" +
+    `${address}<br/>` +
+    `Don't want these emails? <a href="${args.optOutUrl}">Unsubscribe</a> or reply "unsubscribe".`
+  );
+}
+
+// ── Block list ──────────────────────────────────────────────────────────
+
+/**
+ * Add an address to the workspace-wide Instantly block list so no campaign
+ * on the shared account can email it again (unsubscribes + public opt-outs).
+ * Docs: POST /block-lists-entries { bl_value } — not yet live-verified.
+ */
+export async function addToBlocklist(email: string): Promise<void> {
+  await call("/block-lists-entries", { method: "POST", body: { bl_value: email } });
 }
