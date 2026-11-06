@@ -1,5 +1,6 @@
 import {
   formatClock,
+  PACE_TARGET,
   type MeetingAnalytics,
   type SpeakerStats,
 } from "../../lib/note-taker";
@@ -110,8 +111,24 @@ export function chunkSegments(segments: Segment[], size = 150): Segment[][] {
   return chunks;
 }
 
+/**
+ * Filler words — deliberately conservative: "like", "so", "right" have too
+ * many real uses to count without a language model.
+ */
+const FILLER = /\b(u+m+|u+h+m*|e+r+m+|h+m+|you know|i mean|kind of|sort of|basically|literally)\b/gi;
+
+export function fillersIn(text: string): string[] {
+  return (text.match(FILLER) ?? []).map((w) => w.toLowerCase());
+}
+
+/** Segments long enough to judge pace on. */
+const PACE_MIN_SEC = 8;
+const MAX_MOMENTS_PER_KIND = 20;
+
 export function computeAnalytics(segments: Segment[]): MeetingAnalytics {
   const bySpeaker = new Map<string, SpeakerStats>();
+  const moments: NonNullable<MeetingAnalytics["moments"]> = [];
+  const momentCount = { filler: 0, fast: 0, slow: 0 };
   let previousSpeaker: string | null = null;
   for (const segment of segments) {
     const stats = bySpeaker.get(segment.speaker) ?? {
@@ -123,11 +140,38 @@ export function computeAnalytics(segments: Segment[]): MeetingAnalytics {
       turns: 0,
       questions: 0,
       longestMonologueSec: 0,
+      fillerWords: 0,
+      fillerPerMin: 0,
     };
     const length = Math.max(0, segment.end - segment.start);
+    const words = segment.text.split(/\s+/).filter(Boolean).length;
     stats.talkSec += length;
-    stats.words += segment.text.split(/\s+/).filter(Boolean).length;
+    stats.words += words;
     stats.questions += (segment.text.match(/\?/g) ?? []).length;
+    const fillers = fillersIn(segment.text);
+    stats.fillerWords = (stats.fillerWords ?? 0) + fillers.length;
+    if (fillers.length >= 2 && momentCount.filler < MAX_MOMENTS_PER_KIND) {
+      momentCount.filler++;
+      moments.push({
+        speaker: segment.speaker,
+        atSec: Math.floor(segment.start),
+        kind: "filler",
+        detail: [...new Set(fillers)].join(", "),
+      });
+    }
+    if (length >= PACE_MIN_SEC) {
+      const wpm = Math.round(words / (length / 60));
+      const kind = wpm > PACE_TARGET.max + 20 ? "fast" : wpm < PACE_TARGET.min - 30 ? "slow" : null;
+      if (kind && momentCount[kind] < MAX_MOMENTS_PER_KIND) {
+        momentCount[kind]++;
+        moments.push({
+          speaker: segment.speaker,
+          atSec: Math.floor(segment.start),
+          kind,
+          detail: `${wpm} wpm`,
+        });
+      }
+    }
     stats.longestMonologueSec = Math.max(stats.longestMonologueSec, length);
     if (previousSpeaker !== segment.speaker) stats.turns += 1;
     previousSpeaker = segment.speaker;
@@ -141,11 +185,15 @@ export function computeAnalytics(segments: Segment[]): MeetingAnalytics {
     stats.share = totalTalkSec > 0 ? stats.talkSec / totalTalkSec : 0;
     stats.wordsPerMinute =
       stats.talkSec >= 5 ? Math.round(stats.words / (stats.talkSec / 60)) : 0;
+    stats.fillerPerMin =
+      stats.talkSec >= 30
+        ? Math.round(((stats.fillerWords ?? 0) / (stats.talkSec / 60)) * 10) / 10
+        : 0;
     stats.talkSec = Math.round(stats.talkSec);
     stats.longestMonologueSec = Math.round(stats.longestMonologueSec);
   }
   speakers.sort((a, b) => b.talkSec - a.talkSec);
-  return { totalTalkSec: Math.round(totalTalkSec), speakers };
+  return { totalTalkSec: Math.round(totalTalkSec), speakers, moments };
 }
 
 /** A short window of text around the first search hit. */

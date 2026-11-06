@@ -15,6 +15,8 @@ const isPublicRoute = createRouteMatcher([
   "/terms",
   "/acceptable-use",
   "/opt-out",
+  "/robots.txt",
+  "/sitemap.xml",
 ]);
 
 const hasClerk = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);

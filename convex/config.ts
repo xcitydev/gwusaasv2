@@ -21,6 +21,13 @@ export const CONFIG_DEFAULTS = {
   teamPlanCredits: 30000,
   // Create with AI / Studio / carousels: provider cost × this, in credits.
   generationMarkup: 4.5,
+  // Audio tab (ElevenLabs) provider costs, billed × generationMarkup. Based
+  // on ElevenLabs credits at ~$0.30 per 1,000 (Creator-plan overage): TTS =
+  // 1 credit/character, voice changer ≈ 1,000 credits/min, dubbing ≈
+  // 3,000 credits/min. Re-check against the plan the account is on.
+  audioUsdPer1kChars: 0.3,
+  voiceChangeUsdPerMinute: 0.3,
+  dubbingUsdPerMinute: 0.9,
   referralPercent: 15,
   // Outreach caps per plan. Instantly is ONE platform account, so the sum
   // across customers must fit the plan below. Contacts = distinct leads in
@@ -57,6 +64,9 @@ export const CONFIG_DEFAULTS = {
   // AI Note Taker: Recall bot + transcription ≈ $0.65/h → ×4.5 = $2.93/h
   // ≈ 4.9 credits/min, rounded to 5.
   noteTakerCreditsPerMinute: 5,
+  // Pre-meeting brief: one Sonnet pass over leads / outreach / past
+  // meetings ≈ 0.4¢ → ×4.5 ≈ 2 credits.
+  noteTakerBriefCredits: 2,
   // Credits per imported lead, by source tier (×4.5 on scrape+verify cost):
   // Maps ≈ 2¢ → 9 · LinkedIn/B2B ≈ 1.4¢ verified → 7 · niche ≈ 2¢ → 9.
   leadCreditCostMaps: 9,

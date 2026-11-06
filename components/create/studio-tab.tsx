@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Doc, Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ import {
   Sparkles,
   Timer,
   Upload,
+  UserRound,
   Video,
   Wand2,
   X,
@@ -51,8 +52,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch";
 import {
   STUDIO_FAMILIES,
-  STUDIO_MODELS,
-  findStudioModel,
   normalizeStudioInput,
   studioCreditsFromUsd,
   studioListUsd,
@@ -61,13 +60,24 @@ import {
   type StudioField,
   type StudioModel,
 } from "@/lib/studio-models";
+import {
+  PICKER_MODELS,
+  findAnyModel,
+  findPickerModel,
+  standardCredits,
+  standardRequest,
+  type PickerModel,
+} from "@/lib/studio-picker";
+import { modelLabel } from "@/components/hub/generations-rail";
+import { MentionTextarea, findMentions, type MentionElement } from "./mention-textarea";
+import { ElementDialog, type ElementDialogTarget } from "./element-dialog";
 import { cn } from "@/lib/utils";
 import { EnhanceButton, handleGenerateError } from "./create-client";
 import { probeVideoDuration } from "./generate-helpers";
 import { errorText } from "@/lib/public-errors";
 
 // Knobs that get their own chip in the composer; the rest live under "Settings".
-const CHIP_KEYS = new Set(["aspect_ratio", "resolution"]);
+const CHIP_KEYS = new Set(["aspect_ratio", "resolution", "duration"]);
 const MAX_VIDEO_UPLOAD_MB = 80;
 
 const FAMILY_ICON: Record<StudioFamily, typeof ImageIcon> = {
@@ -75,12 +85,13 @@ const FAMILY_ICON: Record<StudioFamily, typeof ImageIcon> = {
   video: Clapperboard,
   genjutsu: Wand2,
   motion: PersonStanding,
+  influencer: UserRound,
 };
 
-const chipClass =
+export const chipClass =
   "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-secondary/50 px-3 text-sm font-medium text-foreground transition-colors hover:bg-secondary data-[state=open]:bg-secondary disabled:pointer-events-none disabled:opacity-50";
 
-function useDebounced<T>(value: T, delayMs: number): T {
+export function useDebounced<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(value), delayMs);
@@ -98,27 +109,10 @@ function defaultOptions(model: StudioModel): Record<string, string | boolean> {
   return out;
 }
 
-const isVideoGen = (g: Doc<"generations">) => g.kind === "video" || g.kind === "motion";
+export const isVideoGen = (g: Doc<"generations">) => g.kind === "video" || g.kind === "motion";
 
-/** Uploads a file to Convex storage and returns its public URL. */
-function useUploader() {
-  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
-  const getPublicUrl = useMutation(api.files.getPublicUrl);
-  return useCallback(
-    async (file: File): Promise<string> => {
-      const uploadUrl = await generateUploadUrl();
-      const res = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      });
-      if (!res.ok) throw new Error("upload failed");
-      const { storageId } = await res.json();
-      return await getPublicUrl({ storageId });
-    },
-    [generateUploadUrl, getPublicUrl],
-  );
-}
+export { useUploader } from "./use-uploader";
+import { useUploader } from "./use-uploader";
 
 /** A tiny rectangle drawn in the ratio's shape, like the reference picker. */
 function RatioIcon({ ratio }: { ratio: string }) {
@@ -141,9 +135,11 @@ function RatioIcon({ ratio }: { ratio: string }) {
 
 function ModelPicker({
   model,
+  models,
   onPick,
 }: {
-  model: StudioModel;
+  model: PickerModel;
+  models: PickerModel[];
   onPick: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -161,11 +157,11 @@ function ModelPicker({
           <CommandInput placeholder="Search models…" />
           <CommandList className="max-h-[min(26rem,60dvh)]">
             <CommandEmpty>No model matches.</CommandEmpty>
-            {STUDIO_FAMILIES.map((family) => {
+            {STUDIO_FAMILIES.filter((f) => models.some((m) => m.family === f.value)).map((family) => {
               const FamilyIcon = FAMILY_ICON[family.value];
               return (
                 <CommandGroup key={family.value} heading={family.label}>
-                  {STUDIO_MODELS.filter((m) => m.family === family.value).map((m) => (
+                  {models.filter((m) => m.family === family.value).map((m) => (
                     <CommandItem
                       key={m.id}
                       value={`${m.label} ${m.tagline} ${family.label}`}
@@ -219,7 +215,13 @@ function OptionChip({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button type="button" className={chipClass} aria-label={field.label}>
-          {isAspect ? <RatioIcon ratio={value ?? "auto"} /> : <Gem className="size-3.5" />}
+          {isAspect ? (
+            <RatioIcon ratio={value ?? "auto"} />
+          ) : field.key === "duration" ? (
+            <Timer className="size-3.5" />
+          ) : (
+            <Gem className="size-3.5" />
+          )}
           {shown}
         </button>
       </PopoverTrigger>
@@ -248,6 +250,71 @@ function OptionChip({
             );
           })}
         </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Soul models: pick a trained character so every image keeps that face. */
+function TrainedCharacterChip({
+  version,
+  value,
+  onChange,
+}: {
+  version: "v1" | "v2" | "cinema";
+  value: string | undefined;
+  onChange: (refId: string | undefined) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const characters = (useQuery(api.characters.list) ?? []).filter(
+    (c) => c.soul?.status === "ready" && c.soul.version === version && c.soul.refId,
+  );
+  const current = characters.find((c) => c.soul?.refId === value);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" className={cn(chipClass, current && "border-primary/50 text-primary")} aria-label="Trained character">
+          {current ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={current.imageUrl} alt="" className="size-5 rounded-full object-cover" />
+          ) : (
+            <UserRound className="size-3.5" />
+          )}
+          <span className="max-w-[8rem] truncate">{current ? current.name : "Character"}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-64 gap-1 p-1.5">
+        <p className="px-2 pb-1 pt-1 text-xs font-medium text-muted-foreground">Keep the same face</p>
+        <button
+          type="button"
+          onClick={() => {
+            onChange(undefined);
+            setOpen(false);
+          }}
+          className={cn("flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted", !current && "bg-muted")}
+        >
+          None
+        </button>
+        {characters.map((c) => (
+          <button
+            key={c._id}
+            type="button"
+            onClick={() => {
+              onChange(c.soul!.refId);
+              setOpen(false);
+            }}
+            className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted", current?._id === c._id && "bg-muted")}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={c.imageUrl} alt="" className="size-7 rounded-full object-cover" />
+            <span className="truncate">{c.name}</span>
+          </button>
+        ))}
+        {characters.length === 0 && (
+          <p className="px-2 py-2 text-xs text-muted-foreground">
+            No trained characters for this model yet — train one in the Elements tab.
+          </p>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -349,6 +416,20 @@ function SettingsChip({
                   aria-label={field.label}
                 />
               </label>
+            ) : field.type === "text" ? (
+              <div key={field.key}>
+                <p className="mb-1.5 text-xs font-medium">{field.label}</p>
+                <Input
+                  value={(options[field.key] as string | undefined) ?? ""}
+                  maxLength={field.maxLength}
+                  placeholder={field.placeholder}
+                  onChange={(e) => onChange(field.key, e.target.value || undefined)}
+                  className="h-8"
+                />
+                {field.helper && (
+                  <p className="mt-1 text-xs text-muted-foreground">{field.helper}</p>
+                )}
+              </div>
             ) : (
               <div key={field.key}>
                 <p className="mb-1.5 text-xs font-medium">{field.label}</p>
@@ -391,7 +472,7 @@ function SettingsChip({
  * One reference slot in the composer: a thumbnail when filled, otherwise a
  * dashed tile that opens upload / paste link / pick from your generations.
  */
-function MediaSlot({
+export function MediaSlot({
   kind,
   label,
   value,
@@ -412,8 +493,9 @@ function MediaSlot({
   const [link, setLink] = useState("");
   const [uploading, setUploading] = useState(false);
   const picks = generations
-    .filter((g) => g.status === "done" && g.resultUrl && (kind === "video") === isVideoGen(g))
+    .filter((g) => g.status === "done" && g.resultUrl && g.kind !== "audio" && (kind === "video") === isVideoGen(g))
     .slice(0, 12);
+  const characters = useQuery(api.characters.list) ?? [];
 
   const choose = async (url: string) => {
     setOpen(false);
@@ -530,6 +612,28 @@ function MediaSlot({
             Add
           </Button>
         </form>
+        {kind === "image" && characters.length > 0 && (
+          <>
+            <p className="pt-1 text-xs font-medium text-muted-foreground">Your elements</p>
+            <div className="grid grid-cols-4 gap-1.5">
+              {characters.slice(0, 8).map((c) => (
+                <button
+                  key={c._id}
+                  type="button"
+                  onClick={() => void choose(c.imageUrl)}
+                  className="group relative aspect-square overflow-hidden rounded-md border border-border transition-colors hover:border-primary/60"
+                  title={c.name}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={c.imageUrl} alt={c.name} className="h-full w-full object-cover" />
+                  <span className="absolute inset-x-0 bottom-0 truncate bg-black/65 px-1 text-[9px] text-white">
+                    {c.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
         {picks.length > 0 && (
           <>
             <p className="pt-1 text-xs font-medium text-muted-foreground">From your generations</p>
@@ -562,10 +666,25 @@ function MediaSlot({
 /* Gallery                                                              */
 /* ------------------------------------------------------------------ */
 
-function tileRatio(g: Doc<"generations">): string {
+/** Real width÷height of each loaded result, so tiles keep their shape across renders. */
+const knownRatios = new Map<string, number>();
+
+/** Best guess at a tile's shape before (or without) its file loading. */
+function tileRatio(g: Doc<"generations">): number {
+  if (g.resultUrl && knownRatios.has(g.resultUrl)) return knownRatios.get(g.resultUrl)!;
   const ratio = (g.params?.options?.aspect_ratio as string | undefined) ?? "";
   const [w, h] = ratio.split(":").map(Number);
-  return w && h ? `${w} / ${h}` : isVideoGen(g) ? "16 / 9" : "1 / 1";
+  return w && h ? w / h : isVideoGen(g) ? 16 / 9 : 1;
+}
+
+/**
+ * Justified rows (like Higgsfield / Google Photos): every tile grows in
+ * proportion to its width÷height, so a row fills the full width and all
+ * tiles in it share one height. --row-h on the container sets the target.
+ */
+function justified(ratio: number): React.CSSProperties {
+  const r = Math.min(3, Math.max(0.4, ratio));
+  return { flexGrow: r, flexBasis: `calc(var(--row-h) * ${r})`, aspectRatio: String(r) };
 }
 
 function GalleryTile({
@@ -580,13 +699,20 @@ function GalleryTile({
   canceling: boolean;
 }) {
   const busy = g.status === "pending" || g.status === "running";
-  const label = findStudioModel(g.model)?.label ?? g.model;
+  const label = modelLabel(g.model);
+  const [ratio, setRatio] = useState(() => tileRatio(g));
+  const learn = (w: number, h: number) => {
+    if (!w || !h || !g.resultUrl) return;
+    const r = w / h;
+    knownRatios.set(g.resultUrl, r);
+    if (Math.abs(r - ratio) > 0.01) setRatio(r);
+  };
 
   if (busy || g.status === "failed" || !g.resultUrl) {
     return (
       <div
-        className="relative h-44 max-w-full overflow-hidden rounded-lg border border-border bg-secondary/40 sm:h-64"
-        style={{ aspectRatio: tileRatio(g) }}
+        className="relative min-w-0 self-start overflow-hidden rounded-lg border border-border bg-secondary/40"
+        style={justified(ratio)}
       >
         {busy && (
           <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-primary/10 via-transparent to-primary/5" />
@@ -616,8 +742,8 @@ function GalleryTile({
     <button
       type="button"
       onClick={onOpen}
-      className="group relative h-44 max-w-full overflow-hidden rounded-lg border border-border bg-secondary transition-colors hover:border-primary/50 sm:h-64"
-      style={{ aspectRatio: tileRatio(g) }}
+      className="group relative min-w-0 self-start overflow-hidden rounded-lg border border-border bg-secondary transition-colors hover:border-primary/50"
+      style={justified(ratio)}
       aria-label={`Open ${g.prompt}`}
     >
       {isVideoGen(g) ? (
@@ -627,13 +753,19 @@ function GalleryTile({
           loop
           playsInline
           preload="metadata"
+          onLoadedMetadata={(e) => learn(e.currentTarget.videoWidth, e.currentTarget.videoHeight)}
           onMouseEnter={(e) => void e.currentTarget.play().catch(() => {})}
           onMouseLeave={(e) => e.currentTarget.pause()}
           className="h-full w-full object-cover"
         />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={g.resultUrl} alt={g.prompt} className="h-full w-full object-cover" />
+        <img
+          src={g.resultUrl}
+          alt={g.prompt}
+          onLoad={(e) => learn(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)}
+          className="h-full w-full object-cover"
+        />
       )}
       {isVideoGen(g) && (
         <span className="absolute right-1.5 top-1.5 rounded-md bg-black/60 p-1 text-white">
@@ -652,7 +784,31 @@ function GalleryTile({
 /* ------------------------------------------------------------------ */
 
 /** Setup mode (no Convex provider): Studio generation needs Convex. */
-export function StudioTab() {
+/** A reference another tab wants dropped into the composer (nonce = each send). */
+export type IncomingReference = {
+  url: string;
+  nonce: number;
+  /** A trained character: picked on a matching Soul model instead of as an image. */
+  soulRefId?: string;
+  soulVersion?: "v1" | "v2" | "cinema";
+};
+
+/**
+ * Lets other tabs reuse this composer: limit it to some models, add body
+ * keys (traits, a preset), append a prompt recipe, or put a control on top.
+ */
+export type StudioConfig = {
+  incoming?: IncomingReference | null;
+  models?: string[];
+  extraOptions?: Record<string, unknown>;
+  promptSuffix?: string;
+  composerTop?: ReactNode;
+  placeholder?: string;
+  emptyTitle?: string;
+  emptyBody?: string;
+};
+
+export function StudioTab(config: StudioConfig) {
   if (!hasConvex) {
     return (
       <Card className="border-white/10">
@@ -666,35 +822,60 @@ export function StudioTab() {
       </Card>
     );
   }
-  return <StudioTabLive />;
+  return <StudioTabLive {...config} />;
 }
 
-function StudioTabLive() {
+function StudioTabLive({
+  incoming = null,
+  models: modelIds,
+  extraOptions,
+  promptSuffix,
+  composerTop,
+  placeholder,
+  emptyTitle,
+  emptyBody,
+}: StudioConfig) {
+  const available = useMemo(
+    () =>
+      modelIds
+        ? modelIds.map((id) => findAnyModel(id)).filter((m): m is PickerModel => Boolean(m))
+        : PICKER_MODELS,
+    [modelIds],
+  );
   const pricing = useQuery(api.generations.pricing);
   const generationsQuery = useQuery(api.generations.list);
   const generate = useAction(api.studioActions.generate);
+  const generateStandard = useAction(api.createActions.generate);
   const estimateCost = useAction(api.studioActions.estimateCost);
   const cancel = useAction(api.studioActions.cancelGeneration);
   const upload = useUploader();
 
   const allGenerations = useMemo(() => generationsQuery ?? [], [generationsQuery]);
+  // Every render shows here (Studio and standard engines), or only this
+  // tab's models when it's limited to some.
   const studioGenerations = useMemo(
-    () => allGenerations.filter((g) => g.provider === "higgsfield"),
-    [allGenerations],
+    () =>
+      modelIds
+        ? allGenerations.filter((g) => modelIds.includes(g.model))
+        : // Audio lives on its own tab.
+          allGenerations.filter((g) => g.kind !== "audio"),
+    [allGenerations, modelIds],
   );
+  const [elementTarget, setElementTarget] = useState<ElementDialogTarget | null>(null);
 
-  const [modelId, setModelId] = useState(STUDIO_MODELS[0].id);
-  const model = findStudioModel(modelId)!;
+  const [modelId, setModelId] = useState(available[0].id);
+  const model = findAnyModel(modelId) ?? available[0];
+  const isStandard = model.engine === "standard";
   const [prompt, setPrompt] = useState("");
   const [options, setOptions] = useState<Record<string, string | boolean>>(() =>
-    defaultOptions(STUDIO_MODELS[0]),
+    defaultOptions(available[0]),
   );
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [startImage, setStartImage] = useState("");
   const [endImage, setEndImage] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [videoSec, setVideoSec] = useState<number | null>(null);
-  const [duration, setDuration] = useState<number>(STUDIO_MODELS[0].duration?.default ?? 5);
+  const [duration, setDuration] = useState<number>(available[0].duration?.default ?? 5);
   const [batch, setBatch] = useState(1);
   const [busy, setBusy] = useState(false);
   const [canceling, setCanceling] = useState<Id<"generations"> | null>(null);
@@ -709,7 +890,8 @@ function StudioTabLive() {
   );
 
   const pickModel = (id: string) => {
-    const next = findStudioModel(id)!;
+    const next = findAnyModel(id);
+    if (!next) return;
     setModelId(id);
     setOptions(defaultOptions(next));
     setDuration(next.duration?.default ?? 5);
@@ -724,22 +906,143 @@ function StudioTabLive() {
       return copy;
     });
 
+  // ---- @mentions: saved elements typed into the prompt ----
+  const elementsQuery = useQuery(api.characters.list);
+  const elements = useMemo<MentionElement[]>(
+    () =>
+      (elementsQuery ?? [])
+        .filter((c) => c.soul?.status !== "training" && c.soul?.status !== "failed")
+        .map((c) => ({
+          id: c._id,
+          handle: c.handle,
+          name: c.name,
+          imageUrl: c.imageUrl,
+          kind: c.kind ?? "character",
+          trained: c.soul?.status === "ready",
+          soulRefId: c.soul?.status === "ready" ? c.soul.refId : undefined,
+          soulVersion: c.soul?.version,
+          description: c.description,
+          extraImageUrls: c.extraImageUrls,
+        })),
+    [elementsQuery],
+  );
+  const refList = model.images ? imageUrls : [startImage, endImage].filter(Boolean);
+  const usesSoul = (el: MentionElement) =>
+    Boolean(el.soulRefId && model.soulVersion === el.soulVersion);
+
+  /** Attach a mentioned element to this model: trained face, multi-ref list, or the single slot. */
+  const attachElement = (el: MentionElement) => {
+    if (usesSoul(el)) {
+      setOption("custom_reference_id", el.soulRefId);
+      return;
+    }
+    if (model.images) {
+      if (imageUrls.includes(el.imageUrl)) return;
+      if (imageUrls.length >= model.images.max) {
+        toast.error(`${model.label} takes up to ${model.images.max} references.`);
+        return;
+      }
+      const max = model.images.max;
+      // Main image first; extra angles only while there's room for them.
+      setImageUrls((current) => {
+        if (current.includes(el.imageUrl)) return current;
+        const next = [...current, el.imageUrl];
+        for (const extra of el.extraImageUrls ?? []) {
+          if (next.length >= max) break;
+          if (!next.includes(extra)) next.push(extra);
+        }
+        return next;
+      });
+      return;
+    }
+    if (model.image) {
+      if (startImage === el.imageUrl || endImage === el.imageUrl) return;
+      if (!startImage) setStartImage(el.imageUrl);
+      else
+        toast.error(
+          `${model.label} takes one reference image — pick a reference-to-video model like Kling O3 to use several @elements.`,
+        );
+      return;
+    }
+    toast.error(
+      `${model.label} can't use reference images — pick a model like Kling O3 · Reference to video or Cinema Studio.`,
+    );
+  };
+
+  const onPromptChange = (next: string) => {
+    // Mentions typed out in full (not picked from the list) attach too.
+    const before = new Set(findMentions(prompt, elements).map((e) => e.id));
+    setPrompt(next);
+    for (const el of findMentions(next, elements)) if (!before.has(el.id)) attachElement(el);
+  };
+
+  const mentions = findMentions(prompt, elements);
+  const mentionError = (() => {
+    for (const el of mentions) {
+      if (usesSoul(el) || refList.includes(el.imageUrl)) continue;
+      return `@${el.handle} isn't attached — ${
+        model.images || model.image
+          ? `remove it or free a reference slot`
+          : `${model.label} doesn't take references; try Kling O3 · Reference to video`
+      }`;
+    }
+    return null;
+  })();
+
+  /** Swap each @handle for words (or Cinema Studio tokens) pointing at its attached image. */
+  const resolvedPrompt = (() => {
+    const byHandle = new Map(elements.map((e) => [e.handle.toLowerCase(), e]));
+    return prompt.trim().replace(/@([a-z0-9][a-z0-9_-]*)/gi, (whole, handle: string) => {
+      const el = byHandle.get(handle.toLowerCase());
+      if (!el) return whole;
+      if (usesSoul(el)) return el.name;
+      const index = refList.indexOf(el.imageUrl);
+      if (index < 0) return el.name;
+      // Every attached image of this element (main + extra angles), 1-based.
+      const numbers = [el.imageUrl, ...(el.extraImageUrls ?? [])]
+        .map((url) => refList.indexOf(url) + 1)
+        .filter((n) => n > 0);
+      const detail = el.description ? ` (${el.description})` : "";
+      if (model.refToken === "cinema") {
+        return `${numbers.map((n) => `<<<image_${n}>>>`).join(" ")}${detail}`;
+      }
+      const noun = el.kind === "location" ? "the place" : el.kind === "prop" ? "the object" : "the person";
+      const which =
+        numbers.length > 1
+          ? `reference images ${numbers.slice(0, -1).join(", ")} and ${numbers[numbers.length - 1]}`
+          : `reference image ${numbers[0]}`;
+      return `${noun} from ${which}${detail}`;
+    });
+  })();
+
   // What the server will receive — also drives the live quote.
+  const fullPrompt = [resolvedPrompt, promptSuffix].filter(Boolean).join(". ");
   const request = useMemo(
     () => ({
       modelId,
-      prompt,
-      options,
+      prompt: fullPrompt,
+      options: { ...options, ...extraOptions },
       imageUrls: model.images ? imageUrls : [startImage, endImage].filter(Boolean),
       videoUrl: videoUrl || undefined,
       durationSec: model.video ? (videoSec ?? undefined) : duration,
       batch,
     }),
-    [modelId, prompt, options, imageUrls, startImage, endImage, videoUrl, videoSec, duration, batch, model.images, model.video],
+    [modelId, fullPrompt, options, extraOptions, imageUrls, startImage, endImage, videoUrl, videoSec, duration, batch, model.images, model.video],
   );
 
   // Is the form complete enough to price / send? (Same rules as the server.)
+  const stdRequest = useMemo(
+    () =>
+      isStandard
+        ? standardRequest(model, { prompt: resolvedPrompt, options, startImage, videoUrl, videoSec })
+        : null,
+    [isStandard, model, resolvedPrompt, options, startImage, videoUrl, videoSec],
+  );
+
   const validation = useMemo(() => {
+    if (mentionError) return mentionError;
+    if (typeof stdRequest === "string") return stdRequest;
+    if (stdRequest) return null;
     try {
       normalizeStudioInput(model, request);
       if (model.video && !videoSec) return "Waiting for the video's length…";
@@ -747,10 +1050,13 @@ function StudioTabLive() {
     } catch (e) {
       return errorText(e, "Incomplete");
     }
-  }, [model, request, videoSec]);
+  }, [model, request, videoSec, stdRequest, mentionError]);
 
   const listCredits = useMemo(() => {
     if (!pricing) return 0;
+    if (stdRequest !== null) {
+      return typeof stdRequest === "string" ? 0 : standardCredits(stdRequest, pricing);
+    }
     try {
       const input = normalizeStudioInput(model, request);
       return studioCreditsFromUsd({
@@ -761,7 +1067,7 @@ function StudioTabLive() {
     } catch {
       return 0;
     }
-  }, [model, request, pricing]);
+  }, [model, request, pricing, stdRequest]);
 
   // Exact quote from Higgsfield once the form is valid (debounced).
   const requestKey = useMemo(() => JSON.stringify(request), [request]);
@@ -769,7 +1075,7 @@ function StudioTabLive() {
   useEffect(() => {
     const key = JSON.stringify(debouncedRequest);
     // Only quote once the debounce has caught up with what `validation` checked.
-    if (validation || key !== requestKey) return;
+    if (isStandard || validation || key !== requestKey) return;
     let cancelled = false;
     estimateCost(debouncedRequest)
       .then((result) => {
@@ -781,11 +1087,35 @@ function StudioTabLive() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedRequest, requestKey, validation, estimateCost]);
+  }, [debouncedRequest, requestKey, validation, estimateCost, isStandard]);
   const liveQuote = quote && quote.key === requestKey ? quote : null;
-  const credits = liveQuote?.credits ?? listCredits;
+  const credits = isStandard ? listCredits : (liveQuote?.credits ?? listCredits);
+  // Standard-engine prices come straight from our catalog, so they're exact.
+  const quoteExact = isStandard || Boolean(liveQuote?.exact);
 
   const takesImages = Boolean(model.images || model.image);
+
+  // A character sent from another tab: drop it into this model's reference
+  // slot, or switch to the first image model that takes one. Done while
+  // rendering (React's "adjust state on prop change" pattern), so no effect.
+  const [seenNonce, setSeenNonce] = useState(0);
+  if (incoming && incoming.nonce !== seenNonce && incoming.soulRefId) {
+    setSeenNonce(incoming.nonce);
+    const soul = available.find((m) => m.soulVersion === incoming.soulVersion);
+    if (soul) {
+      if (soul.id !== model.id) pickModel(soul.id);
+      setOption("custom_reference_id", incoming.soulRefId);
+    }
+  } else if (incoming && incoming.nonce !== seenNonce) {
+    setSeenNonce(incoming.nonce);
+    const target =
+      model.images || model.image
+        ? model
+        : (available.find((m) => m.output === "image" && (m.images || m.image)) ?? model);
+    if (target.id !== model.id) pickModel(target.id);
+    if (target.images) setImageUrls((current) => [...current, incoming.url].slice(0, target.images!.max));
+    else if (target.image) setStartImage(incoming.url);
+  }
 
   /** Drops a reference into the next free slot the current model has. */
   const addReference = (url: string, kind: "image" | "video", seconds?: number | null): boolean => {
@@ -831,6 +1161,25 @@ function StudioTabLive() {
   const run = async () => {
     if (validation) {
       toast.error(validation);
+      return;
+    }
+    if (stdRequest && typeof stdRequest !== "string") {
+      // The standard engine answers when the render is finished, so don't
+      // hold the composer: the tile shows progress in the gallery.
+      toast.success(
+        model.output === "image"
+          ? "Generating — your image appears above in a moment."
+          : "Generating — this takes a few minutes; it appears above.",
+      );
+      if (model.prompt === "required") setPrompt("");
+      generateStandard(stdRequest).catch((e) => {
+        const message = e instanceof Error ? errorText(e, "") ?? "" : "";
+        if (/first$|motion video|character image|under \d+ seconds|pick one of those/.test(message)) {
+          toast.error(message);
+        } else {
+          handleGenerateError(e);
+        }
+      });
       return;
     }
     setBusy(true);
@@ -879,10 +1228,19 @@ function StudioTabLive() {
   const aspectField = model.fields.find(
     (f): f is Extract<StudioField, { type: "select" }> => f.key === "aspect_ratio" && f.type === "select",
   );
+  const durationField = model.fields.find(
+    (f): f is Extract<StudioField, { type: "select" }> => f.key === "duration" && f.type === "select",
+  );
   const resolutionField = model.fields.find(
     (f): f is Extract<StudioField, { type: "select" }> => f.key === "resolution" && f.type === "select",
   );
-  const otherFields = model.fields.filter((f) => !CHIP_KEYS.has(f.key) || f.type !== "select");
+  const otherFields = model.fields.filter(
+    (f) =>
+      (!CHIP_KEYS.has(f.key) || f.type !== "select") &&
+      !(f.type === "text" && f.hidden) &&
+      // Knobs the tab sets itself (e.g. a preset's quality) aren't offered.
+      !(extraOptions && f.key in extraOptions),
+  );
   const batchIndex = model.batch ? model.batch.options.indexOf(batch) : -1;
   const hasMedia = Boolean(model.image || model.images || model.video);
 
@@ -901,13 +1259,14 @@ function StudioTabLive() {
             <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10">
               <Sparkles className="size-5 text-primary" />
             </span>
-            <p className="font-medium">Your Studio renders appear here</p>
+            <p className="font-medium">{emptyTitle ?? "Your Studio renders appear here"}</p>
             <p className="max-w-sm px-4 text-sm text-muted-foreground">
-              Pick a model below, describe the shot and hit Generate. Everything also lands in your Library.
+              {emptyBody ??
+                "Pick a model below, describe the shot and hit Generate. Everything also lands in your Library."}
             </p>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 [--row-h:140px] sm:[--row-h:200px] lg:[--row-h:250px]">
             {studioGenerations.map((g) => (
               <GalleryTile
                 key={g._id}
@@ -917,6 +1276,9 @@ function StudioTabLive() {
                 canceling={canceling === g._id}
               />
             ))}
+            {/* Soaks up part of the last row's spare width so a short final
+                row stays close to the others' height instead of ballooning. */}
+            <div aria-hidden style={{ flexGrow: 3, flexBasis: 0 }} />
           </div>
         )}
       </div>
@@ -924,12 +1286,13 @@ function StudioTabLive() {
       {/* Composer */}
       <div className="sticky bottom-3 z-20 mx-auto w-full max-w-4xl">
         <div className="rounded-2xl border border-border bg-card/95 p-3 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-4">
+          {composerTop && <div className="mb-3">{composerTop}</div>}
           {hasMedia && (
             <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
               {model.image && (
                 <MediaSlot
                   kind="image"
-                  label={model.image.required ? "Start image" : "Image"}
+                  label={model.image.label.replace(" (optional)", "")}
                   value={startImage}
                   generations={allGenerations}
                   onChange={(url) => setStartImage(url)}
@@ -991,26 +1354,21 @@ function StudioTabLive() {
             </div>
           )}
 
-          <textarea
+          <MentionTextarea
             ref={promptRef}
-            rows={2}
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                void run();
-              }
-            }}
+            onChange={onPromptChange}
+            elements={elements}
+            onMention={attachElement}
+            onSubmit={() => void run()}
             placeholder={
-              model.family === "genjutsu"
+              placeholder ??
+              (model.family === "genjutsu"
                 ? "Optional — e.g. 'keep the background, swap the jacket for the reference'"
                 : model.output === "image"
-                  ? "Describe the image — editorial portrait in soft daylight, 35mm, muted tones…"
-                  : "Describe the shot — slow dolly-in on a rain-soaked street at night, neon reflections…"
+                  ? "Describe the image — type @ to add a saved character, place or prop…"
+                  : "Describe the shot — type @ to add a saved character, place or prop…")
             }
-            aria-label="Prompt"
-            className="field-sizing-content max-h-48 min-h-14 w-full resize-none bg-transparent px-1 py-1 text-base outline-none placeholder:text-muted-foreground md:text-sm"
           />
 
           <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -1036,7 +1394,18 @@ function StudioTabLive() {
                   </button>
                 </>
               )}
-              <ModelPicker model={model} onPick={pickModel} />
+              {available.length > 1 ? (
+                <ModelPicker model={model} models={available} onPick={pickModel} />
+              ) : (
+                <span className={cn(chipClass, "pointer-events-none")}>{model.label}</span>
+              )}
+              {model.soulVersion && (
+                <TrainedCharacterChip
+                  version={model.soulVersion}
+                  value={options.custom_reference_id as string | undefined}
+                  onChange={(next) => setOption("custom_reference_id", next)}
+                />
+              )}
               {aspectField && (
                 <OptionChip
                   field={aspectField}
@@ -1049,6 +1418,13 @@ function StudioTabLive() {
                   field={resolutionField}
                   value={options.resolution as string | undefined}
                   onChange={(next) => setOption("resolution", next)}
+                />
+              )}
+              {durationField && (
+                <OptionChip
+                  field={durationField}
+                  value={options.duration as string | undefined}
+                  onChange={(next) => setOption("duration", next)}
                 />
               )}
               {model.duration && (
@@ -1105,12 +1481,19 @@ function StudioTabLive() {
                 </span>
               </Button>
               <p className="text-center text-[10px] text-muted-foreground">
-                {validation ?? (liveQuote?.exact ? "exact quote" : "list price — exact quote loading…")}
+                {validation ??
+                  (quoteExact
+                    ? "exact quote"
+                    : liveQuote
+                      ? "estimated — billed on usage"
+                      : "list price — exact quote loading…")}
               </p>
             </div>
           </div>
         </div>
       </div>
+
+      <ElementDialog target={elementTarget} onClose={() => setElementTarget(null)} />
 
       {/* Preview */}
       <Dialog open={open !== null} onOpenChange={(o) => !o && setOpenId(null)}>
@@ -1119,7 +1502,7 @@ function StudioTabLive() {
             <DialogTitle className="line-clamp-2 pr-6 text-base font-medium">{open?.prompt}</DialogTitle>
             <DialogDescription>
               {open &&
-                `${findStudioModel(open.model)?.label ?? open.model} · ${open.costCredits} credits · ${new Date(open._creationTime).toLocaleString()}`}
+                `${modelLabel(open.model)} · ${open.costCredits} credits · ${new Date(open._creationTime).toLocaleString()}`}
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1151,7 +1534,8 @@ function StudioTabLive() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  if (findStudioModel(open.model)) pickModel(open.model);
+                  const reuse = findPickerModel(open.model) ?? findPickerModel(`std:${open.model}`);
+                  if (reuse) pickModel(reuse.id);
                   setPrompt(open.prompt);
                   setOpenId(null);
                   promptRef.current?.focus();
@@ -1159,6 +1543,25 @@ function StudioTabLive() {
               >
                 <RotateCcw className="size-4" /> Reuse prompt
               </Button>
+              {!isVideoGen(open) && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const target: ElementDialogTarget = {
+                      mode: "create",
+                      generationId: open._id,
+                      imageUrl: open.resultUrl!,
+                      kind: "character",
+                      traits: open.model === "ai-influencer" ? open.params?.body : undefined,
+                    };
+                    // Let the preview finish closing so two modals never overlap.
+                    setOpenId(null);
+                    setTimeout(() => setElementTarget(target), 200);
+                  }}
+                >
+                  <UserRound className="size-4" /> Save as element
+                </Button>
+              )}
               <Button variant="outline" onClick={() => void copy(open.prompt, "Prompt")}>
                 <ClipboardCopy className="size-4" /> Copy prompt
               </Button>

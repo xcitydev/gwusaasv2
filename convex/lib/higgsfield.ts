@@ -52,7 +52,8 @@ async function request<T>(
   const text = await res.text();
   if (!res.ok) {
     const detail = errorDetail(text);
-    const busy = res.status === 400 && /concurrent requests/i.test(detail);
+    // 429 = too many Soul IDs training at once; both mean "retry later".
+    const busy = (res.status === 400 && /concurrent requests/i.test(detail)) || res.status === 429;
     throw new HiggsfieldError(
       res.status,
       `Higgsfield ${res.status}: ${detail}`,
@@ -213,5 +214,66 @@ export function terminalFailureMessage(result: HfStatusResult): string {
     return "Rejected by the model's content filter — the input or result was flagged.";
   }
   if (result.status === "canceled") return "The request was canceled.";
-  return result.error?.slice(0, 200) || "The model failed to generate";
+  // Tag upstream text with the engine so the public-error scrubber files it
+  // under generation (e.g. their "credit balance is too low" is OUR account,
+  // not the user's) instead of guessing a vendor from the wording.
+  return result.error ? `Higgsfield: ${result.error.slice(0, 200)}` : "The model failed to generate";
+}
+
+export type MarketingPreset = {
+  id: string;
+  type?: string;
+  name: string;
+  cover_image?: string;
+  metadata?: { aspect_ratio?: string; group_name?: string };
+  format_slugs?: string[];
+};
+
+/** One page of Marketing Studio Image presets (style recipes for product shots/ads). */
+export async function listMarketingPresets(opts: {
+  search?: string;
+  size?: number;
+  cursor?: number;
+}): Promise<{ total: number; cursor: number | null; items: MarketingPreset[] }> {
+  const params = new URLSearchParams();
+  if (opts.search) params.set("search", opts.search.slice(0, 100));
+  params.set("size", String(Math.min(100, Math.max(1, opts.size ?? 100))));
+  params.set("cursor", String(opts.cursor ?? 0));
+  return await request(`${BASE}/marketing-studio/image/presets?${params}`);
+}
+
+export type SoulVersion = "v1" | "v2" | "cinema";
+
+export type CustomReference = {
+  id: string;
+  name?: string;
+  model_version?: SoulVersion;
+  status: "not_ready" | "queued" | "in_progress" | "completed" | "failed" | string;
+  thumbnail_url?: string | null;
+  fail_reason?: string | null;
+};
+
+/**
+ * Soul ID: train a reusable character from photos. Not a /requests job —
+ * poll getCustomReference(id) until "completed", then pass the id as
+ * custom_reference_id to the matching Soul model. A 429 means too many
+ * are training at once (nothing charged); HiggsfieldError.busy covers it.
+ */
+export async function createCustomReference(args: {
+  name: string;
+  modelVersion: SoulVersion;
+  imageUrls: string[];
+}): Promise<CustomReference> {
+  return await request(`${BASE}/v1/custom-references`, {
+    method: "POST",
+    body: {
+      name: args.name.slice(0, 100),
+      model_version: args.modelVersion,
+      input_images: args.imageUrls.map((image_url) => ({ type: "image_url", image_url })),
+    },
+  });
+}
+
+export async function getCustomReference(id: string): Promise<CustomReference> {
+  return await request(`${BASE}/v1/custom-references/${encodeURIComponent(id)}`);
 }

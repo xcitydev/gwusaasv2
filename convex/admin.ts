@@ -111,7 +111,9 @@ export const adjustCredits = mutation({
         workspaceId: args.workspaceId,
         amount: args.amount,
         feature: "admin_adjustment",
-        description: args.reason || `Granted by ${admin.email}`,
+        // Shown to the user in Credit history — never the admin's identity
+        // (the ledger row's userId still records who did it).
+        description: args.reason.trim() || "Bonus credits",
         userId: admin._id,
       });
     } else {
@@ -119,7 +121,7 @@ export const adjustCredits = mutation({
         workspaceId: args.workspaceId,
         amount: -args.amount,
         feature: "admin_adjustment",
-        description: args.reason || `Removed by ${admin.email}`,
+        description: args.reason.trim() || "Credit adjustment",
         userId: admin._id,
       });
     }

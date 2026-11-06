@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { friendlyError } from "./shared";
+import { AutoJoinPicker } from "./auto-join-picker";
+import type { AutoJoinMode } from "@/lib/note-taker";
 
 /**
  * Second half of the calendar connect: an explicit, signed-in confirmation.
@@ -20,12 +22,13 @@ export function CalendarConnectConfirm({ nonce }: { nonce: string }) {
   const confirm = useAction(api.noteTakerActions.confirmCalendarConnect);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoJoin, setAutoJoin] = useState<AutoJoinMode>("hosting");
 
   const doConfirm = async () => {
     setBusy(true);
     setError(null);
     try {
-      const { email } = await confirm({ nonce });
+      const { email } = await confirm({ nonce, autoJoin });
       toast.success(email ? `Connected ${email}.` : "Calendar connected.");
       router.replace("/note-taker");
     } catch (e) {
@@ -53,6 +56,12 @@ export function CalendarConnectConfirm({ nonce }: { nonce: string }) {
             Taker settings.
           </p>
         ) : (
+          <div className="w-full space-y-2 text-left">
+            <p className="text-sm font-medium">Which meetings should it join on its own?</p>
+            <AutoJoinPicker value={autoJoin} onChange={setAutoJoin} />
+          </div>
+        )}
+        {nonce && (
           <Button
             onClick={() => void doConfirm()}
             disabled={busy || isLoading || !isAuthenticated}

@@ -7,7 +7,7 @@ import { Id } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 import { assertPlanAction } from "./lib/plan";
-import { POOL_MAX_AGE_MS } from "../lib/lead-keys";
+import { POOL_MAX_AGE_MS, phoneLeadKey } from "../lib/lead-keys";
 import { friendlyCopy } from "../lib/public-errors";
 
 /**
@@ -35,16 +35,6 @@ const filtersSchema = z.object({
 
 export type LeadFilters = z.infer<typeof filtersSchema>;
 
-type FoundLead = {
-  email: string;
-  name: string;
-  company: string;
-  title: string;
-  location: string;
-  industry: string;
-  website: string;
-  phone: string;
-};
 
 /**
  * Start the provider job for a search (scrape or Explorium fetch). Apify
@@ -239,13 +229,18 @@ export const leadSearch = action({
         v.literal("realtor_agents"),
       ),
     ),
-    // Explicit UI choice; falls back to a count in the query text, then 50.
+    // Required: exactly how many leads the user picked (1–1000). Optional in
+    // the validator only so an old open tab gets the friendly message below
+    // instead of a raw validation error.
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{ searchId: Id<"leadSearches"> }> => {
     await assertPlanAction(ctx, "personal", "Scrape Leads");
     const queryText = args.query.trim();
     if (!queryText) throw new Error("Describe who you're looking for");
+    if (args.limit === undefined || !Number.isInteger(args.limit) || args.limit < 1 || args.limit > 1000) {
+      throw new Error("Enter how many leads you want — a whole number from 1 to 1000.");
+    }
 
     // Reading the request needs Claude. No key, no balance, or any other
     // failure → stop and alert admins; never guess the filters (a guess
@@ -270,7 +265,7 @@ export const leadSearch = action({
       });
     }
     const source = args.forceSource ?? filters.source;
-    const limit = Math.max(1, Math.min(1000, Math.round(args.limit ?? filters.requestedCount ?? 50)));
+    const limit = args.limit;
 
     const prep = await ctx.runQuery(internal.leadSearches.prepare, { source });
     if (prep.running) throw new Error(ONE_AT_A_TIME);
@@ -284,7 +279,11 @@ export const leadSearch = action({
       limit,
       minScrapedAt: Date.now() - POOL_MAX_AGE_MS,
     });
-    if (pooled.length === 0) {
+    // The user gets the number they asked for: library leads show at once,
+    // and a real scrape automatically fills the shortfall.
+    const fromLibrary = pooled.filter(isContactable).length;
+    const shortfall = limit - fromLibrary;
+    if (shortfall > 0) {
       // A real scrape is needed: its provider must be set up. Never fill
       // the screen with made-up sample leads instead.
       await assertProviderConfigured(ctx, source, queryText, prep);
@@ -301,12 +300,28 @@ export const leadSearch = action({
         results: pooled,
         fromPool: true,
       });
-      return { searchId };
+      if (shortfall <= 0) return { searchId };
+      await ctx.runMutation(internal.leadSearches.startExtend, { id: searchId });
     }
-    await runScrape(ctx, searchId, source, filters, queryText, limit);
+    await runScrape(ctx, searchId, source, filters, queryText, scrapeSize(limit, fromLibrary));
     return { searchId };
   },
 });
+
+/** Has an email or phone — something the user can actually import and contact. */
+function isContactable(lead: { email?: string; phone?: string }): boolean {
+  return (lead.email ?? "").includes("@") || phoneLeadKey(lead.phone) !== null;
+}
+
+/**
+ * How many places to scrape to end up with `limit` new leads. The provider
+ * can't skip leads we already have, so its top results repeat the library
+ * rows already shown and any the workspace already owns — ask for extra to
+ * cover that. Extras aren't wasted: every scrape is saved to the library.
+ */
+function scrapeSize(limit: number, alreadyShown: number): number {
+  return Math.min(1000, limit + alreadyShown + Math.max(10, Math.ceil(limit * 0.5)));
+}
 
 /**
  * "Find more": the library had fewer leads than asked for and the user
@@ -323,15 +338,21 @@ export const findMoreLeads = action({
     if (prep.running) throw new Error(ONE_AT_A_TIME);
     if (search.status !== "done" || search.sample) throw new Error("This search can't be extended.");
     const limit = search.limit ?? 50;
-    const shown = ((search.results ?? []) as unknown[]).length;
-    if (shown >= limit) throw new Error("You already have every lead you asked for.");
+    const shown = (search.results ?? []) as { duplicate?: boolean; noEmail?: boolean; phoneOnly?: boolean }[];
+    const importable = shown.filter((r) => !r.duplicate && (!r.noEmail || r.phoneOnly)).length;
+    if (importable >= limit) throw new Error("You already have every lead you asked for.");
     await assertProviderConfigured(ctx, search.source, search.query, prep);
-    assertCanAfford(prep.credits, limit - shown, prep.costPerLead);
+    assertCanAfford(prep.credits, limit - importable, prep.costPerLead);
 
     await ctx.runMutation(internal.leadSearches.startExtend, { id: args.searchId });
-    // Scrape the full count: the provider can't skip leads we already have,
-    // so its top results would repeat — the merge drops the repeats.
-    await runScrape(ctx, args.searchId, search.source, search.filters as LeadFilters, search.query, limit);
+    await runScrape(
+      ctx,
+      args.searchId,
+      search.source,
+      search.filters as LeadFilters,
+      search.query,
+      scrapeSize(limit, shown.length),
+    );
   },
 });
 

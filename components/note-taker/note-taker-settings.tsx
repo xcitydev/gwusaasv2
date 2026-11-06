@@ -25,7 +25,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { OUTPUT_LANGUAGES } from "@/lib/note-taker";
 import { friendlyError, type Overview } from "./shared";
+import { AutoJoinPicker } from "./auto-join-picker";
+
+function ToggleRow({
+  id,
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="space-y-0.5">
+        <Label htmlFor={id} className="text-sm">
+          {label}
+        </Label>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </div>
+      <Switch id={id} checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
 
 function CopyField({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -63,6 +92,12 @@ export function NoteTakerSettings({ overview }: { overview: Overview }) {
   const [extras, setExtras] = useState(settings.recapExtraEmails.join(", "));
   const [retention, setRetention] = useState(String(settings.retentionDays));
   const [autoJoin, setAutoJoin] = useState(settings.autoJoin);
+  const [internalOnly, setInternalOnly] = useState(settings.joinInternalOnly);
+  const [domains, setDomains] = useState(settings.internalDomains.join(", "));
+  const [skipRecurring, setSkipRecurring] = useState(settings.skipRecurring);
+  const [language, setLanguage] = useState(settings.outputLanguage);
+  const [briefEnabled, setBriefEnabled] = useState(settings.briefEnabled);
+  const [briefLead, setBriefLead] = useState(String(settings.briefLeadMin));
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -74,6 +109,17 @@ export function NoteTakerSettings({ overview }: { overview: Overview }) {
       setExtras(settings.recapExtraEmails.join(", "));
       setRetention(String(settings.retentionDays));
       setAutoJoin(settings.autoJoin);
+      setInternalOnly(settings.joinInternalOnly);
+      setDomains(
+        (settings.internalDomains.length > 0
+          ? settings.internalDomains
+          : overview.suggestedDomains
+        ).join(", "),
+      );
+      setSkipRecurring(settings.skipRecurring);
+      setLanguage(settings.outputLanguage);
+      setBriefEnabled(settings.briefEnabled);
+      setBriefLead(String(settings.briefLeadMin));
     }
     setOpen(next);
   };
@@ -87,6 +133,12 @@ export function NoteTakerSettings({ overview }: { overview: Overview }) {
         recapExtraEmails: extras.split(/[,\s]+/).filter(Boolean),
         retentionDays: Number(retention) || 30,
         autoJoin,
+        joinInternalOnly: internalOnly,
+        internalDomains: domains.split(/[,\s]+/).filter(Boolean),
+        skipRecurring,
+        outputLanguage: language,
+        briefEnabled,
+        briefLeadMin: Number(briefLead) || 60,
       });
       toast.success("Note taker settings saved.");
       setOpen(false);
@@ -273,23 +325,87 @@ export function NoteTakerSettings({ overview }: { overview: Overview }) {
                 </Button>
               ))}
             </div>
+            <div className="space-y-2">
+              <Label>Auto-join calendar meetings</Label>
+              <AutoJoinPicker value={autoJoin} onChange={setAutoJoin} />
+            </div>
+            {autoJoin !== "manual" && (
+              <div className="space-y-3 rounded-lg border border-border p-3">
+                <ToggleRow
+                  id="nt-internal"
+                  label="Internal meetings only"
+                  hint="Join only when every guest is from your company."
+                  checked={internalOnly}
+                  onChange={setInternalOnly}
+                />
+                {internalOnly && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="nt-domains" className="text-xs">
+                      Company email domains
+                    </Label>
+                    <Input
+                      id="nt-domains"
+                      value={domains}
+                      onChange={(e) => setDomains(e.target.value)}
+                      placeholder="acme.com, acme.co.uk"
+                    />
+                  </div>
+                )}
+                <ToggleRow
+                  id="nt-recurring"
+                  label="Skip recurring meetings"
+                  hint="Standups and weekly syncs stay off unless you flip Record."
+                  checked={skipRecurring}
+                  onChange={setSkipRecurring}
+                />
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-3">
             <div className="space-y-1.5">
-              <Label>Meetings on a connected calendar</Label>
-              <Select
-                value={autoJoin}
-                onValueChange={(value) => setAutoJoin(value as typeof autoJoin)}
-              >
+              <Label>Notes language</Label>
+              <Select value={language} onValueChange={setLanguage}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="manual">I pick which ones to record</SelectItem>
-                  <SelectItem value="all">
-                    Record every meeting that has a link
-                  </SelectItem>
+                  {Object.entries(OUTPUT_LANGUAGES).map(([code, label]) => (
+                    <SelectItem key={code} value={code}>
+                      {label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Notes, answers and briefs are written in this language. The
+                transcript stays in whatever was spoken.
+              </p>
             </div>
+            <ToggleRow
+              id="nt-brief"
+              label="Pre-meeting brief"
+              hint="Before each scheduled meeting, email a one-page brief: who's coming, your history with them, and open promises."
+              checked={briefEnabled}
+              onChange={setBriefEnabled}
+            />
+            {briefEnabled && (
+              <div className="flex items-center gap-2">
+                <Label htmlFor="nt-brief-lead" className="text-xs text-muted-foreground">
+                  Send it
+                </Label>
+                <Input
+                  id="nt-brief-lead"
+                  type="number"
+                  min={10}
+                  max={1440}
+                  className="w-20"
+                  value={briefLead}
+                  onChange={(e) => setBriefLead(e.target.value)}
+                />
+                <span className="text-xs text-muted-foreground">minutes before</span>
+              </div>
+            )}
           </section>
 
           <section className="space-y-2">

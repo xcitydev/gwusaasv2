@@ -13,6 +13,7 @@ import { CreditsPill } from "@/components/shell/credits-pill";
 import { TopUpDialogHost } from "@/components/billing/top-up-dialog";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
 import { ShellUserButton } from "@/components/shell/user-button";
+import { AskBar, LiveMeetingButton } from "@/components/note-taker/header-tools";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -294,7 +295,15 @@ export function AppShell({
               </TooltipContent>
             </Tooltip>
 
+            {/* Ask your meetings — every page (needs live data + a signed-in user). */}
+            {variant === "app" && hasConvex && hasClerk && (
+              <div className="flex min-w-0 flex-1 justify-center">
+                <AskBar />
+              </div>
+            )}
+
             <div className="ml-auto flex items-center gap-2 sm:gap-3">
+              {variant === "app" && hasConvex && hasClerk && <LiveMeetingButton />}
               <CreditsPill />
               <NotificationsBell />
               <ShellUserButton />

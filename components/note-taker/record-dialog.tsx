@@ -24,15 +24,18 @@ import {
   zoomLinkMissingPasscode,
 } from "@/lib/note-taker";
 import { cn } from "@/lib/utils";
-import { friendlyError, type Overview } from "./shared";
+import { MinutesMeter, friendlyError, type Overview } from "./shared";
 
 /** Paste a link → the bot joins now, or at the time you pick. */
 export function RecordDialog({
   overview,
   onSent,
+  trigger,
 }: {
   overview: Overview;
   onSent: (meetingId: Id<"meetings">) => void;
+  /** Custom trigger (the header's "Add to live meeting"); default button otherwise. */
+  trigger?: React.ReactNode;
 }) {
   const sendBot = useAction(api.noteTakerActions.sendBot);
   const [open, setOpen] = useState(false);
@@ -45,10 +48,6 @@ export function RecordDialog({
   const platform = url.trim() ? detectPlatform(url) : null;
   const badLink = url.trim().length > 8 && !platform;
   const zoomNoPwd = platform === "zoom" && zoomLinkMissingPasscode(url);
-  const hours =
-    overview.creditsPerMinute > 0
-      ? overview.credits / overview.creditsPerMinute / 60
-      : 0;
   const broke = overview.credits < overview.minCredits;
 
   const submit = async () => {
@@ -85,9 +84,11 @@ export function RecordDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button disabled={!overview.configured} data-tour="notetaker-record">
-          <Video className="size-4" /> Record a meeting
-        </Button>
+        {trigger ?? (
+          <Button disabled={!overview.configured} data-tour="notetaker-record">
+            <Video className="size-4" /> Record a meeting
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -172,11 +173,10 @@ export function RecordDialog({
             )}
           </div>
 
-          <p className="rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
-            {overview.creditsPerMinute} credits per recorded minute · you have{" "}
-            {overview.credits.toLocaleString()} credits
-            {hours >= 1 && ` (about ${Math.floor(hours)} hours)`}. The bot leaves
-            on its own when everyone else does.
+          <MinutesMeter overview={overview} />
+          <p className="text-xs text-muted-foreground">
+            {overview.creditsPerMinute} credits per recorded minute. The bot
+            leaves on its own when everyone else does.
           </p>
         </div>
 

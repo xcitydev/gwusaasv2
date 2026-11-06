@@ -7,7 +7,12 @@ import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { z } from "zod";
 import { sendEmail } from "./lib/email";
-import { formatDuration, type MeetingNotes } from "../lib/note-taker";
+import {
+  formatDuration,
+  OUTPUT_LANGUAGES,
+  type MeetingNotes,
+} from "../lib/note-taker";
+import { MEETING_TYPES, isMeetingType, templatePrompt } from "../lib/meeting-templates";
 
 /**
  * AI Note Taker — the writing half. One structured Claude pass turns a
@@ -46,7 +51,17 @@ const notesSchema = z.object({
     highlights: z.array(z.string()),
     suggestions: z.array(z.string()),
   }),
+  meetingType: z.enum(MEETING_TYPES),
+  templateSections: z.array(
+    z.object({ heading: z.string(), items: z.array(z.string()) }),
+  ),
 });
+
+/** "Write in Spanish" etc. — empty for the meeting's own language. */
+function languageLine(code: string | undefined): string {
+  if (!code || code === "auto" || !OUTPUT_LANGUAGES[code]) return "";
+  return `\nWrite every field in ${OUTPUT_LANGUAGES[code]}, whatever language was spoken (keep names as spoken).`;
+}
 
 /**
  * What to tell the user when a Claude call fails. Billing and capacity
@@ -119,10 +134,18 @@ export const generateNotes = internalAction({
       const { default: Anthropic } = await import("@anthropic-ai/sdk");
       const { zodOutputFormat } = await import("@anthropic-ai/sdk/helpers/zod");
       const client = new Anthropic();
+      const forced =
+        meeting.meetingTypeLocked && isMeetingType(meeting.meetingType)
+          ? meeting.meetingType
+          : null;
       const response = await client.messages.parse({
         model: MODEL,
         max_tokens: 16000,
-        system: NOTES_SYSTEM,
+        system:
+          NOTES_SYSTEM +
+          "\n" +
+          templatePrompt(forced) +
+          languageLine(data.settings.outputLanguage),
         messages: [
           {
             role: "user",
@@ -160,9 +183,16 @@ export const generateNotes = internalAction({
   },
 });
 
-/** "Write the notes again" — after a failed pass, or for a fresh take. */
+/**
+ * "Write the notes again" — after a failed pass, or for a fresh take. With
+ * `meetingType`, the person has picked the type: it's locked and the notes
+ * are rewritten with that template.
+ */
 export const regenerateNotes = action({
-  args: { meetingId: v.id("meetings") },
+  args: {
+    meetingId: v.id("meetings"),
+    meetingType: v.optional(v.string()),
+  },
   handler: async (ctx, args): Promise<void> => {
     const meeting = await ctx.runQuery(internal.noteTaker.getOwnMeeting, {
       meetingId: args.meetingId,
@@ -170,11 +200,18 @@ export const regenerateNotes = action({
     if (!meeting) throw new Error("Meeting not found");
     if (!meeting.finalizedAt) throw new Error("The transcript isn't in yet");
     if (meeting.notesStatus === "pending") return;
+    if (args.meetingType !== undefined && !isMeetingType(args.meetingType)) {
+      throw new Error("Unknown meeting type");
+    }
     await ctx.runMutation(internal.noteTaker.patchMeeting, {
       meetingId: args.meetingId,
       status: "processing",
       notesStatus: "pending",
       clearStatusDetail: true,
+      ...(args.meetingType && {
+        meetingType: args.meetingType,
+        meetingTypeLocked: true,
+      }),
     });
     await ctx.scheduler.runAfter(0, internal.noteTakerAi.generateNotes, {
       meetingId: args.meetingId,
@@ -214,6 +251,9 @@ function recapHtml(args: {
       [args.when, args.length, args.people].filter(Boolean).join(" · "),
     )}</p>` +
     `<p style="margin:0">${escapeHtml(notes.summary)}</p>` +
+    (notes.templateSections ?? [])
+      .map((s) => section(escapeHtml(s.heading), s.items.map(escapeHtml)))
+      .join("") +
     section("Key points", notes.keyPoints.map(escapeHtml)) +
     section("Decisions", notes.decisions.map(escapeHtml)) +
     section(
@@ -295,8 +335,9 @@ export const emailRecap = action({
     if (!result.sent) {
       throw new Error(
         result.reason === "RESEND_API_KEY not configured"
-          ? "NOT_CONFIGURED: Email isn't switched on yet (RESEND_API_KEY)."
-          : (result.reason ?? "Couldn't send the email"),
+          ? "NOT_CONFIGURED: Email isn't switched on yet."
+          : // Never surface the mail provider's name or status code.
+            "Couldn't send the email right now — try again shortly.",
       );
     }
     return { sentTo: own.callerEmail };

@@ -23,7 +23,9 @@ export const pollApifyRun = internalAction({
 
     try {
       const run = await getRun(search.apifyRunId);
-      const fetchLimit = Math.min(search.limit ?? 200, 1000);
+      // Runs are sized above the request (see scrapeSize in ai.ts) so repeats
+      // and already-owned leads can be skipped; read everything the run found.
+      const fetchLimit = 1000;
       if (run.status === "SUCCEEDED") {
         if (!run.defaultDatasetId) throw new Error(`Apify run ${search.apifyRunId} finished without a dataset`);
         const items = await getDatasetItems(run.defaultDatasetId, fetchLimit);

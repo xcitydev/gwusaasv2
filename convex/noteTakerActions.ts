@@ -21,6 +21,7 @@ import {
   scheduleEventBot,
   removeEventBot,
   describeEvent,
+  eventFacts,
   type RecallBot,
   type RecallCalendarEvent,
 } from "./lib/recall";
@@ -33,6 +34,8 @@ import {
 } from "./lib/transcript";
 import {
   detectPlatform,
+  autoJoinBlock,
+  failureCodeFor,
   ACTIVE_STATUSES,
   type MeetingStatus,
 } from "../lib/note-taker";
@@ -170,6 +173,7 @@ async function dispatch(
       status: "failed",
       statusDetail:
         error instanceof Error ? error.message.slice(0, 200) : "Couldn't send the bot",
+      failureCode: "send_failed",
     });
     if (opts.rethrow) throw error;
   }
@@ -254,6 +258,7 @@ async function refresh(
       meetingId: meeting._id,
       status: "failed",
       statusDetail: friendlyFailure(latest.sub_code, latest.message),
+      failureCode: failureCodeFor(latest.sub_code),
     });
     return { status: "failed", finalized: false };
   }
@@ -262,6 +267,7 @@ async function refresh(
       meetingId: meeting._id,
       status: "failed",
       statusDetail: "The recording expired before it could be processed",
+      failureCode: "media_expired",
       mediaDeleted: true,
     });
     return { status: "failed", finalized: false };
@@ -330,6 +336,7 @@ async function finalize(
       status: "failed",
       statusDetail:
         "The bot never recorded — it wasn't admitted, or nobody joined.",
+      failureCode: "not_admitted",
     });
     return { status: "failed", finalized: false };
   }
@@ -429,6 +436,7 @@ export const pollMeeting = internalAction({
         meetingId: args.meetingId,
         status: "failed",
         statusDetail: "Timed out waiting for the meeting to finish",
+        failureCode: "timeout",
       });
       return;
     }
@@ -556,6 +564,10 @@ export const getRecordingUrl = action({
       meetingId: args.meetingId,
     });
     if (!meeting) throw new Error("Meeting not found");
+    // Uploads play straight from our own storage.
+    if (meeting.mediaStorageId) {
+      return { url: await ctx.storage.getUrl(meeting.mediaStorageId) };
+    }
     if (!meeting.recallBotId || !recallConfigured()) return { url: null };
     try {
       const bot = await getBot(meeting.recallBotId);
@@ -712,7 +724,14 @@ export const completeCalendarConnect = internalAction({
  * first sync.
  */
 export const confirmCalendarConnect = action({
-  args: { nonce: v.string() },
+  args: {
+    nonce: v.string(),
+    // Which meetings to join on their own; omitted → "hosting" unless the
+    // workspace already chose.
+    autoJoin: v.optional(
+      v.union(v.literal("all"), v.literal("hosting"), v.literal("manual")),
+    ),
+  },
   handler: async (ctx, args): Promise<{ email: string | null }> => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
     const pending = await ctx.runMutation(internal.noteTaker.claimPendingCalendar, {
@@ -742,6 +761,10 @@ export const confirmCalendarConnect = action({
       platform: config.platform,
       recallCalendarId: calendar.id,
       email: calendar.platform_email ?? undefined,
+    });
+    await ctx.runMutation(internal.noteTaker.applyConnectAutoJoin, {
+      workspaceId: pending.workspaceId,
+      autoJoin: args.autoJoin,
     });
     // Recall needs a moment to pull events after a fresh connect.
     await ctx.scheduler.runAfter(20_000, internal.noteTakerActions.syncCalendar, {
@@ -800,7 +823,15 @@ async function reconcileEvent(
   }
   // A skip sticks until the user presses Record again.
   if (existing?.status === "cancelled" && !force) return;
-  if (!force && settings.autoJoin !== "all" && existing?.status !== "scheduled") return;
+  // Auto-join rules (mode, hosting, internal-only, recurring). A bot that's
+  // already scheduled stays; the Record toggle (force) overrides them.
+  if (
+    !force &&
+    existing?.status !== "scheduled" &&
+    autoJoinBlock(settings, eventFacts(event, calendar.email))
+  ) {
+    return;
+  }
   if (
     existing?.status === "scheduled" &&
     existing.recallBotId &&
@@ -830,6 +861,7 @@ async function reconcileEvent(
       meetingId,
       status: "cancelled",
       statusDetail: "Not enough credits — top up, then press Record",
+      failureCode: "no_credits",
     });
     return;
   }
@@ -853,6 +885,7 @@ async function reconcileEvent(
     meetingId,
     status: "scheduled",
     clearStatusDetail: true,
+    clearFailureCode: true,
     ...(botId && { recallBotId: botId }),
   });
   await ctx.scheduler.runAfter(
@@ -860,6 +893,21 @@ async function reconcileEvent(
     internal.noteTakerActions.pollMeeting,
     { meetingId, expectedStart: startMs },
   );
+  // Pre-meeting brief, `briefLeadMin` before the start (now, if that's
+  // already passed but the meeting hasn't started yet).
+  if (settings.briefEnabled && info.meeting.briefScheduledFor !== startMs) {
+    const runAt = Math.max(Date.now(), startMs - settings.briefLeadMin * 60_000);
+    if (runAt < startMs - 60_000) {
+      await ctx.runMutation(internal.noteTaker.patchMeeting, {
+        meetingId,
+        briefScheduledFor: startMs,
+      });
+      await ctx.scheduler.runAt(runAt, internal.noteTakerBrief.scheduledBrief, {
+        meetingId,
+        forStart: startMs,
+      });
+    }
+  }
 }
 
 /** Pull changed events for one calendar and reconcile each. */
@@ -938,6 +986,8 @@ export const listUpcomingEvents = action({
       platform: string | null;
       attendeeCount: number;
       recording: boolean;
+      /** Why auto-join passes this one by (null when recording / no rule hit). */
+      offReason: string | null;
     }[]
   > => {
     if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
@@ -947,6 +997,8 @@ export const listUpcomingEvents = action({
     const upcoming = [];
     for (const calendar of calendars) {
       if (calendar.status !== "connected") continue;
+      const data = await loadCalendar(ctx, calendar._id);
+      if (!data) continue;
       const events = await listCalendarEvents({
         calendarId: calendar.recallCalendarId,
         startsAfter: new Date().toISOString(),
@@ -966,6 +1018,10 @@ export const listUpcomingEvents = action({
           platform: meetingUrl ? detectPlatform(meetingUrl) : null,
           attendeeCount: attendees.length,
           recording: (event.bots ?? []).length > 0,
+          offReason:
+            (event.bots ?? []).length > 0 || !meetingUrl
+              ? null
+              : autoJoinBlock(data.settings, eventFacts(event, calendar.email)),
         });
       }
     }

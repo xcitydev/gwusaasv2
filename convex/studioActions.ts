@@ -252,30 +252,45 @@ export const retrySubmit = internalAction({
   },
 });
 
-/** Copy the output into our storage (theirs expires) and close the record. */
-async function storeAndFinish(
+/** Copy one output into our storage (theirs expires); falls back to their link. */
+async function storeOne(
   ctx: ActionCtx,
-  generationId: Id<"generations">,
   outputUrl: string,
-): Promise<void> {
-  let resultUrl = outputUrl;
-  let storageId: Id<"_storage"> | undefined;
+): Promise<{ resultUrl: string; storageId?: Id<"_storage"> }> {
   try {
     const res = await fetch(outputUrl);
     if (!res.ok) throw new Error(`download ${res.status}`);
-    const blob = await res.blob();
-    storageId = await ctx.storage.store(blob);
-    resultUrl = (await ctx.storage.getUrl(storageId)) ?? outputUrl;
+    const storageId = await ctx.storage.store(await res.blob());
+    return { resultUrl: (await ctx.storage.getUrl(storageId)) ?? outputUrl, storageId };
   } catch (error) {
     // Still a success — the upstream link works for a week; log and keep it.
     console.error("Studio: couldn't copy the result into storage", error);
+    return { resultUrl: outputUrl };
   }
+}
+
+/** Store every output and close the record; batch extras become their own rows. */
+async function storeAndFinish(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  outputUrls: string[],
+): Promise<void> {
+  const [first, ...rest] = outputUrls;
+  const stored = await storeOne(ctx, first);
   await ctx.runMutation(internal.generations.finish, {
     id: generationId,
     status: "done",
-    resultUrl,
-    storageId,
+    resultUrl: stored.resultUrl,
+    storageId: stored.storageId,
   });
+  if (rest.length > 0) {
+    const extras = [];
+    for (const url of rest.slice(0, 16)) extras.push(await storeOne(ctx, url));
+    await ctx.runMutation(internal.generations.addExtraResults, {
+      parentId: generationId,
+      results: extras,
+    });
+  }
 }
 
 /** Follows one job until it ends; reschedules itself while it runs. */
@@ -300,7 +315,7 @@ export const poll = internalAction({
     }
     if (result?.status === "completed") {
       if (result.outputUrl) {
-        await storeAndFinish(ctx, args.generationId, result.outputUrl);
+        await storeAndFinish(ctx, args.generationId, result.outputUrls);
       } else {
         await ctx.runMutation(internal.generations.finish, {
           id: args.generationId,
@@ -384,5 +399,95 @@ export const cancelGeneration = action({
       status: "failed",
       error: "Canceled by you",
     });
+  },
+});
+
+/**
+ * Admin diagnostic (CLI only: `npx convex run studioActions:probeEstimates`):
+ * asks /estimate what each Studio model costs for its default settings.
+ * Free — estimates never start a job.
+ */
+export const probeEstimates = internalAction({
+  args: { imageUrl: v.string(), only: v.optional(v.array(v.string())) },
+  handler: async (_ctx, args) => {
+    const { STUDIO_MODELS } = await import("../lib/studio-models");
+    const out: Record<string, unknown> = {};
+    for (const model of STUDIO_MODELS) {
+      if (args.only && !args.only.includes(model.id)) continue;
+      if (model.video) continue; // needs a real source video
+      try {
+        const input = normalizeStudioInput(model, {
+          prompt: "a red apple on a wooden table",
+          options: model.special === "influencer" ? { tier: "normal", selection: { gender: ["female"] } } : {},
+          imageUrls: model.images ? Array(Math.max(1, model.images.min)).fill(args.imageUrl) : model.image ? [args.imageUrl] : [],
+          durationSec: model.duration?.default,
+          batch: 1,
+        });
+        const body = buildStudioBody(model, input);
+        const result = await estimate(model.path, body);
+        out[model.id] = { result, listUsd: model.listUsd, unit: model.unit, seconds: input.durationSec };
+      } catch (error) {
+        out[model.id] = { error: error instanceof Error ? error.message.slice(0, 300) : String(error) };
+      }
+    }
+    return out;
+  },
+});
+
+/** Admin diagnostic (CLI only): what the Marketing Studio preset list looks like. */
+export const probePresets = internalAction({
+  args: {},
+  handler: async () => {
+    const { listMarketingPresets } = await import("./lib/higgsfield");
+    const all = [];
+    let cursor: number | null = 0;
+    for (let page = 0; page < 10 && cursor !== null; page++) {
+      const res = await listMarketingPresets({ cursor, size: 100 });
+      all.push(...res.items);
+      cursor = res.cursor;
+    }
+    const groups: Record<string, number> = {};
+    const types: Record<string, number> = {};
+    const formats: Record<string, number> = {};
+    for (const p of all) {
+      groups[p.metadata?.group_name ?? "(none)"] = (groups[p.metadata?.group_name ?? "(none)"] ?? 0) + 1;
+      types[p.type ?? "(none)"] = (types[p.type ?? "(none)"] ?? 0) + 1;
+      for (const f of p.format_slugs ?? []) formats[f] = (formats[f] ?? 0) + 1;
+    }
+    return { total: all.length, groups, types, formats, sample: all.slice(0, 3) };
+  },
+});
+
+/** Ad presets for the Ads & Products tab (style recipes for Marketing Studio Image). */
+export const marketingPresets = action({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{ id: string; name: string; group: string; aspectRatio?: string; coverUrl?: string }[]> => {
+    if (!(await ctx.auth.getUserIdentity())) throw new Error("Not signed in");
+    if (!higgsfieldConfigured()) throw new Error(NOT_CONFIGURED);
+    const { listMarketingPresets } = await import("./lib/higgsfield");
+    const out = [];
+    let cursor: number | null = 0;
+    for (let page = 0; page < 5 && cursor !== null; page++) {
+      const res = await listMarketingPresets({ cursor, size: 100 });
+      for (const item of res.items) {
+        const cover = item.cover_image as unknown;
+        out.push({
+          id: item.id,
+          name: item.name,
+          group: item.metadata?.group_name ?? "Other",
+          aspectRatio: item.metadata?.aspect_ratio,
+          coverUrl:
+            typeof cover === "string"
+              ? cover
+              : cover && typeof cover === "object" && "url" in cover
+                ? String((cover as { url: unknown }).url)
+                : undefined,
+        });
+      }
+      cursor = res.cursor;
+    }
+    return out;
   },
 });

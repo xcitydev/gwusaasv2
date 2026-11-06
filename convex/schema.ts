@@ -634,7 +634,9 @@ export default defineSchema({
     .index("by_workspace_category", ["workspaceId", "category"])
     .index("by_campaign", ["campaignId"])
     .index("by_instantly_id", ["instantlyId"])
-    .index("by_in_reply_to", ["inReplyTo"]),
+    .index("by_in_reply_to", ["inReplyTo"])
+    // Pre-meeting brief: a meeting invitee's reply history.
+    .index("by_workspace_lead_email", ["workspaceId", "leadEmail", "receivedAt"]),
 
   // ── Create with AI + AI tools (phase 5) ────────────────────────────────
   generations: defineTable({
@@ -645,6 +647,7 @@ export default defineSchema({
       v.literal("video"),
       v.literal("edit"),
       v.literal("motion"),
+      v.literal("audio"),
     ),
     model: v.string(),
     prompt: v.string(),
@@ -660,12 +663,46 @@ export default defineSchema({
     storageId: v.optional(v.id("_storage")),
     error: v.optional(v.string()),
     // Which engine ran it; absent = fal (rows from before Studio existed).
-    provider: v.optional(v.union(v.literal("fal"), v.literal("higgsfield"))),
+    provider: v.optional(v.union(v.literal("fal"), v.literal("higgsfield"), v.literal("elevenlabs"))),
     // Upstream job id — how a webhook finds its row.
     providerRequestId: v.optional(v.string()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_provider_request", ["providerRequestId"]),
+
+  // Saved characters (AI Influencer sheets or the user's own photos), reused
+  // as references across Studio.
+  characters: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    name: v.string(),
+    imageUrl: v.string(),
+    source: v.union(v.literal("influencer"), v.literal("upload"), v.literal("generation")),
+    generationId: v.optional(v.id("generations")),
+    // Element type for @mentions: a person, a place or an object. Absent = character.
+    kind: v.optional(v.union(v.literal("character"), v.literal("location"), v.literal("prop"))),
+    // The @handle typed in prompts (unique per workspace). Older rows: derived from the name.
+    handle: v.optional(v.string()),
+    // Optional words the prompt uses alongside the image ("tall, grey suit").
+    description: v.optional(v.string()),
+    // More angles of the same element, attached with it.
+    extraImageUrls: v.optional(v.array(v.string())),
+    // AI Influencer tier + trait ids, so a design can be re-rolled later.
+    traits: v.optional(v.any()),
+    // Trained identity (Soul ID): photos → a reusable face for the Soul models.
+    soul: v.optional(
+      v.object({
+        version: v.union(v.literal("v1"), v.literal("v2"), v.literal("cinema")),
+        status: v.union(v.literal("training"), v.literal("ready"), v.literal("failed")),
+        refId: v.optional(v.string()),
+        photoUrls: v.array(v.string()),
+        costCredits: v.number(),
+        startedAt: v.number(),
+        error: v.optional(v.string()),
+        attempts: v.optional(v.number()),
+      }),
+    ),
+  }).index("by_workspace", ["workspaceId"]),
 
   // Admin-curated carousel design systems — same token shape as the built-in
   // templates in lib/carousel-templates.ts; users pick them from the library.
@@ -1049,8 +1086,21 @@ export default defineSchema({
     recapExtraEmails: v.optional(v.array(v.string())),
     // Recording + transcript lifetime at Recall (their retention timer).
     retentionDays: v.optional(v.number()),
-    // Calendar events: record everything with a link, or pick by hand.
-    autoJoin: v.optional(v.union(v.literal("all"), v.literal("manual"))),
+    // Calendar events: record everything with a link, only meetings the
+    // calendar owner hosts, or pick by hand.
+    autoJoin: v.optional(
+      v.union(v.literal("all"), v.literal("hosting"), v.literal("manual")),
+    ),
+    // Auto-join rules: only when every guest is on these domains; skip
+    // recurring series.
+    joinInternalOnly: v.optional(v.boolean()),
+    internalDomains: v.optional(v.array(v.string())),
+    skipRecurring: v.optional(v.boolean()),
+    // Notes / Ask / brief language ("auto" = the meeting's own).
+    outputLanguage: v.optional(v.string()),
+    // Pre-meeting brief: on/off and how many minutes before the start.
+    briefEnabled: v.optional(v.boolean()),
+    briefLeadMin: v.optional(v.number()),
     // Secret path token for the Cal.com booking webhook.
     calcomToken: v.optional(v.string()),
     // HMAC secret for X-Cal-Signature-256; enforced once a signed delivery
@@ -1123,6 +1173,7 @@ export default defineSchema({
       v.literal("manual"),
       v.literal("calendar"),
       v.literal("calcom"),
+      v.literal("upload"),
     ),
     // Calendar event id / Cal.com booking uid — one bot per real meeting.
     dedupKey: v.optional(v.string()),
@@ -1163,8 +1214,26 @@ export default defineSchema({
     coachState: v.optional(v.any()),
     // Action items pushed to Trello / Asana / a webhook after the notes.
     taskRouting: v.optional(v.any()),
+    // Meeting type (sales, one_on_one, …) — picks the notes template and the
+    // smart folder. Locked once a person sets it by hand.
+    meetingType: v.optional(v.string()),
+    meetingTypeLocked: v.optional(v.boolean()),
+    folderIds: v.optional(v.array(v.id("noteFolders"))),
+    // 0–100 meeting score + how it was reached (lib/meeting-score.ts).
+    score: v.optional(v.number()),
+    scoreBreakdown: v.optional(v.any()),
+    // Why the bot didn't record (lib/note-taker FAILURE_CODES).
+    failureCode: v.optional(v.string()),
+    // Uploaded recording (source "upload") — played back from our storage.
+    mediaStorageId: v.optional(v.id("_storage")),
+    // Which transcript speaker is the meeting's owner (coaching).
+    selfSpeaker: v.optional(v.string()),
+    // Pre-meeting brief (MeetingBrief) + the run it's scheduled for.
+    brief: v.optional(v.any()),
+    briefScheduledFor: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_type", ["workspaceId", "meetingType"])
     .index("by_bot", ["recallBotId"])
     .index("by_dedup", ["workspaceId", "dedupKey"])
     .index("by_status", ["status"])
@@ -1249,6 +1318,70 @@ export default defineSchema({
     role: v.union(v.literal("user"), v.literal("assistant")),
     content: v.string(),
   }).index("by_meeting", ["meetingId"]),
+
+  // Custom meeting folders (smart folders by meeting type need no row).
+  // Rules file new meetings in automatically.
+  noteFolders: defineTable({
+    workspaceId: v.id("workspaces"),
+    name: v.string(),
+    color: v.optional(v.string()),
+    rules: v.object({
+      titleContains: v.array(v.string()),
+      emailDomains: v.array(v.string()),
+    }),
+    createdBy: v.id("users"),
+  }).index("by_workspace", ["workspaceId"]),
+
+  // Ask across meetings — private per user.
+  noteAskThreads: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    title: v.string(),
+    scope: v.object({
+      kind: v.union(
+        v.literal("all"),
+        v.literal("folder"),
+        v.literal("type"),
+        v.literal("meeting"),
+      ),
+      id: v.optional(v.string()),
+    }),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId", "updatedAt"]),
+
+  noteAskMessages: defineTable({
+    threadId: v.id("noteAskThreads"),
+    role: v.union(v.literal("user"), v.literal("assistant")),
+    content: v.string(),
+    citations: v.optional(
+      v.array(
+        v.object({
+          ref: v.string(),
+          meetingId: v.id("meetings"),
+          title: v.string(),
+          atSec: v.optional(v.number()),
+        }),
+      ),
+    ),
+  }).index("by_thread", ["threadId"]),
+
+  // One row per (meeting, invitee email) — `meetings.attendees` is an array
+  // and can't be indexed; the pre-meeting brief looks people up by email.
+  meetingAttendees: defineTable({
+    workspaceId: v.id("workspaces"),
+    meetingId: v.id("meetings"),
+    email: v.string(),
+    at: v.number(),
+  })
+    .index("by_workspace_email", ["workspaceId", "email", "at"])
+    .index("by_meeting", ["meetingId"]),
+
+  // Transcript speaker names a user has said are "me" (coaching).
+  noteSpeakerAliases: defineTable({
+    userId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    name: v.string(),
+  }).index("by_user", ["userId"]),
 
   // Whop webhook idempotency — one row per processed payment/event key.
   // Whop delivers at-least-once and retries for days; a replayed renewal

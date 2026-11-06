@@ -77,6 +77,7 @@ export const start = internalMutation({
       v.literal("video"),
       v.literal("edit"),
       v.literal("motion"),
+      v.literal("audio"),
     ),
     model: v.string(),
     prompt: v.string(),
@@ -86,7 +87,8 @@ export const start = internalMutation({
     resolution: v.optional(v.string()),
     // Studio (Higgsfield) jobs: priced from their live /estimate (USD),
     // marked up like everything else.
-    provider: v.optional(v.literal("higgsfield")),
+    // Audio (ElevenLabs) jobs are priced the same way, from a USD cost.
+    provider: v.optional(v.union(v.literal("higgsfield"), v.literal("elevenlabs"))),
     baseUsd: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -94,7 +96,7 @@ export const start = internalMutation({
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
     // Motion control is driven by the video, not a prompt.
-    if (!args.prompt.trim() && args.kind !== "motion") {
+    if (!args.prompt.trim() && args.kind !== "motion" && args.kind !== "audio") {
       throw new Error("Write a prompt first");
     }
 
@@ -103,13 +105,15 @@ export const start = internalMutation({
       getConfigValue(ctx, "creditPriceUsd"),
     ]);
     const credits =
-      args.provider === "higgsfield"
+      args.provider === "higgsfield" || args.provider === "elevenlabs"
         ? studioCreditsFromUsd({
             baseUsd: args.baseUsd ?? 0,
             markup,
             creditPriceUsd,
           })
-        : costInCredits({
+        : args.kind === "audio"
+          ? 0
+          : costInCredits({
             kind: args.kind === "edit" ? "image" : args.kind,
             modelId: args.model,
             durationSec: args.durationSec,
@@ -193,6 +197,42 @@ export const markSubmitted = internalMutation({
         hfCancelUrl: args.cancelUrl,
         hfSubmittedAt: Date.now(),
       },
+    });
+  },
+});
+
+/**
+ * Batch jobs (Soul ×4, Ads Studio) return several files under one charge:
+ * the first lands on the parent row, the rest become their own done rows
+ * at no extra cost so each shows (and downloads) on its own.
+ */
+export const addExtraResults = internalMutation({
+  args: {
+    parentId: v.id("generations"),
+    results: v.array(v.object({ resultUrl: v.string(), storageId: v.optional(v.id("_storage")) })),
+  },
+  handler: async (ctx, args) => {
+    const parent = await ctx.db.get(args.parentId);
+    if (!parent || parent.status !== "done") return;
+    const already = (parent.params as { extraCount?: number } | undefined)?.extraCount;
+    if (already) return; // idempotent: poll + webhook can both finish a job
+    for (const result of args.results) {
+      await ctx.db.insert("generations", {
+        workspaceId: parent.workspaceId,
+        userId: parent.userId,
+        kind: parent.kind,
+        model: parent.model,
+        prompt: parent.prompt,
+        params: { batchOf: parent._id },
+        status: "done",
+        costCredits: 0,
+        resultUrl: result.resultUrl,
+        storageId: result.storageId,
+        provider: parent.provider,
+      });
+    }
+    await ctx.db.patch(parent._id, {
+      params: { ...(parent.params ?? {}), extraCount: args.results.length },
     });
   },
 });
