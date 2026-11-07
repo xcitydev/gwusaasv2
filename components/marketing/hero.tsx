@@ -73,7 +73,7 @@ export function Hero() {
           </div>
         </div>
       </div>
-      <div className="relative z-10 w-full max-w-[90rem] px-6 text-center">
+      <div className="relative z-10 w-full max-w-[90rem] px-2 text-center sm:px-6">
         {/* Headline: Magic UI TextAnimate blurInUp per character, sequenced
             word by word. The vertical gradient lives on each animated
             segment (per-character gradient reads identically for a
@@ -82,7 +82,7 @@ export function Hero() {
           {HEADLINE_WORDS.map((word, i) => (
             <span
               key={word.text}
-              className={cn("whitespace-nowrap leading-[1.02] sm:leading-[1.3]", i === 1 && "mt-1 sm:mt-2")}
+              className={cn("max-w-full whitespace-normal leading-[1.02] [overflow-wrap:normal] sm:whitespace-nowrap sm:leading-[1.3]", i === 1 && "mt-1 sm:mt-2")}
             >
               {reduce ? (
                 <span
@@ -99,7 +99,7 @@ export function Hero() {
                 <TextAnimate
                   as="span"
                   animation="blurInUp"
-                  by="character"
+                  by="word"
                   once
                   delay={0.2 + i * 0.1}
                   duration={0.5}

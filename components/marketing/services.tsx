@@ -177,7 +177,7 @@ export function ServiceRail() {
       <div className="relative">
         <div
           ref={railRef}
-          className={cn("service-rail overflow-x-auto cursor-grab touch-pan-x select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", dragging && "cursor-grabbing")}
+          className={cn("service-rail overflow-x-auto cursor-grab touch-pan-y select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", dragging && "cursor-grabbing")}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
