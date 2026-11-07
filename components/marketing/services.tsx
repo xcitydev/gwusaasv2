@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType, type PointerEvent } from "react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import {
@@ -17,7 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { EASE, Marquee } from "./primitives";
+import { EASE } from "./primitives";
 import {
   CallVisual,
   InboxVisual,
@@ -108,16 +108,107 @@ export const SERVICES: Service[] = [
 
 /** Auto-sliding service cards with live mini-visuals. */
 export function ServiceRail() {
+  const [dragging, setDragging] = useState(false);
+  const railRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  const hoveringRef = useRef(false);
+  const drag = useRef<{ pointerId: number; startX: number; startScroll: number; moved: boolean; didDrag: boolean } | null>(null);
+
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const updatePause = () => {
+      const track = rail.firstElementChild as HTMLElement | null;
+      if (track) track.style.animationPlayState = draggingRef.current || hoveringRef.current ? "paused" : "running";
+    };
+    const observer = new ResizeObserver(updatePause);
+    observer.observe(rail);
+    updatePause();
+    return () => observer.disconnect();
+  }, []);
+
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if ((event.pointerType === "mouse" && event.button !== 0) || drag.current) return;
+    const rail = railRef.current;
+    if (!rail) return;
+    drag.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScroll: rail.scrollLeft,
+      moved: false,
+      didDrag: false,
+    };
+    draggingRef.current = true;
+    const track = rail.firstElementChild as HTMLElement | null;
+    if (track) track.style.animationPlayState = "paused";
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+  };
+
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const state = drag.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    if (Math.abs(event.clientX - state.startX) > 5) {
+      state.moved = true;
+      state.didDrag = true;
+    }
+    if (state.moved && railRef.current) railRef.current.scrollLeft = state.startScroll - (event.clientX - state.startX);
+  };
+
+  const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    if (drag.current.didDrag) {
+      const suppressClick = (clickEvent: MouseEvent) => {
+        clickEvent.preventDefault();
+        clickEvent.stopPropagation();
+      };
+      railRef.current?.addEventListener("click", suppressClick, { capture: true, once: true });
+      window.setTimeout(() => railRef.current?.removeEventListener("click", suppressClick, true), 0);
+    }
+    drag.current = null;
+    draggingRef.current = false;
+    const track = railRef.current?.firstElementChild as HTMLElement | null;
+    if (track) track.style.animationPlayState = hoveringRef.current ? "paused" : "running";
+    setDragging(false);
+  };
+
   return (
     <section id="services" aria-label="AI services" className="scroll-mt-24">
       <div className="relative">
-        <Marquee duration={70} className="items-stretch">
+        <div
+          ref={railRef}
+          className={cn("service-rail overflow-x-auto cursor-grab touch-pan-x select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", dragging && "cursor-grabbing")}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onMouseEnter={() => {
+            hoveringRef.current = true;
+            const track = railRef.current?.firstElementChild as HTMLElement | null;
+            if (track) track.style.animationPlayState = "paused";
+          }}
+          onMouseLeave={() => {
+            hoveringRef.current = false;
+            if (!drag.current) {
+              const track = railRef.current?.firstElementChild as HTMLElement | null;
+              if (track) track.style.animationPlayState = "running";
+            }
+          }}
+          onDragStart={(event) => event.preventDefault()}
+        >
+        <div className="service-rail-track flex w-max items-stretch py-1">
           {SERVICES.map((s) => (
             <div key={s.id} className="mx-3 w-[78vw] max-w-[300px] shrink-0 sm:w-[300px] lg:w-[318px]">
               <ServiceCard service={s} active={false} />
             </div>
           ))}
-        </Marquee>
+          {SERVICES.map((s) => (
+            <div key={`copy-${s.id}`} aria-hidden="true" className="mx-3 w-[78vw] max-w-[300px] shrink-0 sm:w-[300px] lg:w-[318px]">
+              <ServiceCard service={s} active={false} />
+            </div>
+          ))}
+        </div>
+        </div>
       </div>
     </section>
   );

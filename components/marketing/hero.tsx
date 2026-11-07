@@ -1,16 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowRight, ChevronDown } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { TextAnimate } from "@/components/ui/text-animate";
 import { cn } from "@/lib/utils";
 import { SERVICES, ServiceRail } from "./services";
 import { AnimatedGenerateButton } from "./animated-generate-button";
 import { BeamButton } from "./beam-button";
-import { Counter, EASE, Marquee } from "./primitives";
+import { EASE, Marquee } from "./primitives";
 
 /**
  * Hero (References/hero.html): glass eyebrow badge, per-word gradient
@@ -19,13 +17,8 @@ import { Counter, EASE, Marquee } from "./primitives";
  */
 
 const HEADLINE_WORDS: { text: string; bright?: boolean }[] = [
-  { text: "Your" },
-  { text: "Entire" },
-  { text: "Growth" },
-  { text: "Team." },
-  { text: "One" },
-  { text: "AI" },
-  { text: "Platform.", bright: true },
+  { text: "Your Entire Marketing Team" },
+  { text: "One AI Platform", bright: true },
 ];
 
 /** Entrance mirroring the reference's staggered fade-slide-in. */
@@ -80,14 +73,17 @@ export function Hero() {
           </div>
         </div>
       </div>
-      <div className="relative z-10 max-w-5xl px-6 text-center">
+      <div className="relative z-10 w-full max-w-[90rem] px-6 text-center">
         {/* Headline: Magic UI TextAnimate blurInUp per character, sequenced
             word by word. The vertical gradient lives on each animated
             segment (per-character gradient reads identically for a
             top-to-bottom fade), the wrapper keeps the per-word brightness. */}
-        <h1 className="mt-6 flex flex-wrap justify-center gap-x-[0.18em] gap-y-1 text-5xl font-medium leading-[0.98] tracking-[-0.06em] sm:mt-8 sm:gap-x-[0.25em] sm:gap-y-2 sm:text-6xl md:text-8xl md:leading-[1.1]">
+        <h1 className="mt-6 flex flex-col items-center text-5xl font-medium leading-[0.98] tracking-[-0.06em] sm:mt-8 sm:text-6xl md:text-8xl md:leading-[1.1]">
           {HEADLINE_WORDS.map((word, i) => (
-            <span key={word.text} className="leading-[1.02] sm:leading-[1.3]">
+            <span
+              key={word.text}
+              className={cn("whitespace-nowrap leading-[1.02] sm:leading-[1.3]", i === 1 && "mt-1 sm:mt-2")}
+            >
               {reduce ? (
                 <span
                   className={cn(
@@ -193,15 +189,6 @@ export function Hero() {
   );
 }
 
-const HEADLINE = ["Your", "whole", "growth", "team,"];
-
-const STATS: { value: number; suffix: string; label: string }[] = [
-  { value: 10, suffix: "+", label: "AI modules, one workspace" },
-  { value: 20, suffix: "+", label: "image & video models" },
-  { value: 24, suffix: "/7", label: "calls answered in your voice" },
-  { value: 15, suffix: "s", label: "to clone your voice" },
-];
-
 /** The pitch, right after the screen: headline, lede, CTAs, numbers. */
 export function Statement() {
   return (
@@ -222,68 +209,6 @@ export function Statement() {
           viewport={{ once: true, margin: "-80px" }}
           variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}
         >
-          <h2 className="text-balance text-4xl font-semibold leading-[1.04] tracking-tight sm:text-6xl">
-            <span className="block">
-              {HEADLINE.map((word) => (
-                <span key={word}>
-                  <motion.span
-                    className="inline-block"
-                    variants={{
-                      hidden: { opacity: 0, y: 24, filter: "blur(8px)" },
-                      show: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.8, ease: EASE } },
-                    }}
-                  >
-                    {word}
-                  </motion.span>{" "}
-                </span>
-              ))}
-            </span>
-            <motion.span
-              className="block bg-gradient-to-b from-blue-300 to-blue-500 bg-clip-text text-transparent"
-              variants={{
-                hidden: { opacity: 0, y: 24, filter: "blur(8px)" },
-                show: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.9, ease: EASE } },
-              }}
-            >
-              run by AI.
-            </motion.span>
-          </h2>
-          <motion.p
-            variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.8, ease: EASE } } }}
-            className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-muted-foreground sm:text-xl"
-          >
-            Cold email that books, leads found for you, a receptionist that
-            answers in your own cloned voice, Instagram DMs on autopilot,
-            meeting notes written while you talk — and a full creative studio.
-            One workspace, one balance.
-          </motion.p>
-          <motion.div
-            variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.8, ease: EASE } } }}
-            className="mt-8 flex flex-wrap items-center justify-center gap-3"
-          >
-            <AnimatedGenerateButton
-              href="/sign-up"
-              label="Start free"
-              trailingIcon={<ArrowRight aria-hidden className="size-4" />}
-              className="min-w-[180px]"
-            />
-            <Button asChild size="lg" variant="outline" className="h-12 rounded-full px-6 text-base">
-              <Link href="#features">See what&apos;s inside</Link>
-            </Button>
-          </motion.div>
-          <motion.dl
-            variants={{ hidden: { opacity: 0 }, show: { opacity: 1, transition: { duration: 0.8 } } }}
-            className="mx-auto mt-14 grid max-w-3xl grid-cols-2 gap-6 sm:grid-cols-4"
-          >
-            {STATS.map((s) => (
-              <div key={s.label}>
-                <dt className="text-3xl font-semibold tracking-tight">
-                  <Counter to={s.value} suffix={s.suffix} />
-                </dt>
-                <dd className="mt-1 text-xs text-muted-foreground">{s.label}</dd>
-              </div>
-            ))}
-          </motion.dl>
         </motion.div>
       </div>
     </section>

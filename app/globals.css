@@ -159,8 +159,21 @@ svg.lucide {
 @utility animate-marquee {
   animation: marquee 40s linear infinite;
 }
+.service-rail-track {
+  animation: service-rail-scroll 84s linear infinite;
+  will-change: transform;
+}
+.service-rail-track:hover,
+.service-rail:hover .service-rail-track {
+  animation-play-state: paused;
+}
+@keyframes service-rail-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
 @media (prefers-reduced-motion: reduce) {
   .animate-marquee { animation: none; }
+  .service-rail-track { animation: none; }
 }
 @keyframes dashboard-glow-drift {
   0%, 100% { transform: translate3d(0, 0, 0) scale(1); }

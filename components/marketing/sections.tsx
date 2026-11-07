@@ -27,6 +27,7 @@ import { TextAnimate } from "@/components/ui/text-animate";
 import { cn } from "@/lib/utils";
 import {
   Backdrop,
+  Counter,
   EASE,
   Eyebrow,
   GlowCard,
@@ -608,6 +609,34 @@ export function Features() {
           </Item>
         ))}
       </Stagger>
+      <div className="mt-10 flex flex-col items-center">
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <AnimatedGenerateButton
+            href="/sign-up"
+            label="Start free"
+            trailingIcon={<ArrowRight aria-hidden className="size-4" />}
+            className="min-w-[180px]"
+          />
+          <Button asChild size="lg" variant="outline" className="h-12 rounded-full px-6 text-base">
+            <Link href="#features">See what&apos;s inside</Link>
+          </Button>
+        </div>
+        <dl className="mt-12 grid w-full max-w-3xl grid-cols-2 gap-6 text-center sm:grid-cols-4">
+          {[
+            { value: 10, suffix: "+", label: "AI modules, one workspace" },
+            { value: 20, suffix: "+", label: "image & video models" },
+            { value: 24, suffix: "/7", label: "calls answered in your voice" },
+            { value: 15, suffix: "s", label: "to clone your voice" },
+          ].map((stat) => (
+            <div key={stat.label}>
+              <dt className="text-3xl font-semibold tracking-tight">
+                <Counter to={stat.value} suffix={stat.suffix} />
+              </dt>
+              <dd className="mt-1 text-xs text-muted-foreground">{stat.label}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
     </Section>
   );
 }

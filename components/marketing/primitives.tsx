@@ -282,6 +282,7 @@ export function Marquee({
       {[0, 1].map((copy) => (
         <div
           key={copy}
+          data-marquee-track
           aria-hidden={copy === 1}
           className="flex shrink-0 items-center gap-3 pr-3 animate-marquee group-hover/marquee:[animation-play-state:paused]"
           style={{
