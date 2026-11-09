@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { AudioWaveform, Loader2, Mic, RotateCcw, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -119,6 +120,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
   const [promptIndex, setPromptIndex] = useState(0);
   const [creating, setCreating] = useState(false);
   const [doneVoice, setDoneVoice] = useState<string | null>(null);
+  const [consent, setConsent] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -176,6 +178,10 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
       toast.error("Give your voice a name first.");
       return;
     }
+    if (!consent) {
+      toast.error("Confirm this is your voice, or that you have the speaker's written permission.");
+      return;
+    }
     if (seconds < MIN_SECONDS[engine]) {
       toast.error(
         engine === "bland"
@@ -210,6 +216,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
             storageId,
             gender: gender === "unset" ? undefined : gender,
             provider,
+            consentAttested: consent,
           });
         } catch (e) {
           const raw = e instanceof Error ? e.message : "";
@@ -237,6 +244,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
     if (recState === "recording") stopRecording();
     resetRecording();
     setDoneVoice(null);
+    setConsent(false);
     setOpen(false);
   };
 
@@ -392,6 +400,18 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
                   </button>
                 </div>
 
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-white/10 p-3 text-xs leading-relaxed text-muted-foreground">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={consent}
+                    onCheckedChange={(checked) => setConsent(checked === true)}
+                  />
+                  <span>
+                    This is my own voice, or I have written permission from the
+                    speaker to clone it.
+                  </span>
+                </label>
+
                 <div className="flex flex-col items-center gap-3 py-2">
                   {recState === "recording" && (
                     <p className="font-mono text-2xl tabular-nums text-primary">
@@ -416,7 +436,7 @@ export function CloneVoiceCard({ onCloned }: { onCloned?: () => void }) {
                       <Button variant="outline" onClick={resetRecording}>
                         <RotateCcw className="size-4" /> Re-record
                       </Button>
-                      <Button onClick={create} disabled={creating}>
+                      <Button onClick={create} disabled={creating || !consent}>
                         {creating && <Loader2 className="size-4 animate-spin" />}
                         Create my voice
                       </Button>

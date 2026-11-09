@@ -1,4 +1,4 @@
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import { action, publicFailure } from "./lib/functions";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -20,14 +20,38 @@ import {
   activateCampaign,
   pauseCampaign,
   deleteCampaign,
+  deleteAccount,
   getCampaignAnalytics,
   listReplyEmails,
   replyToEmail,
+  initOAuth,
+  getOAuthStatus,
 } from "./lib/instantly";
 
 /** Instantly's duplicate-account wording varies — match all known forms. */
 function isAlreadyRegistered(message: string): boolean {
   return /already (exist|been added)|duplicate/i.test(message);
+}
+
+const ALREADY_REGISTERED =
+  "this address is already registered on the platform. Contact support to link it.";
+
+/**
+ * The engine says the address already exists. Link it only for admin-owned
+ * workspaces; anyone else gets an error instead of a working sender.
+ */
+async function claimOrRefuse(
+  ctx: Pick<ActionCtx, "runQuery" | "runMutation">,
+  id: Id<"inboxes">,
+): Promise<boolean> {
+  const admin: boolean = await ctx.runQuery(internal.outreach.inboxOwnerIsAdmin, { id });
+  await ctx.runMutation(
+    internal.outreach.updateInboxHealth,
+    admin
+      ? { id, engineConnected: true, clearEngineError: true }
+      : { id, engineConnected: false, status: "error", lastEngineError: ALREADY_REGISTERED },
+  );
+  return admin;
 }
 
 /**
@@ -94,7 +118,9 @@ export const connectInboxes = action({
 
     // Best-effort engine registration — local state is the source of truth,
     // the sync cron reconciles health/status afterwards.
-    const engineErrors: string[] = [];
+    const engineErrors: string[] = result.taken.map(
+      (email) => `${email}: this address is already connected to another account`,
+    );
     if (instantlyConfigured()) {
       for (const inbox of args.inboxes) {
         if (inbox.provider !== "imap_smtp" || !inbox.imap || !inbox.smtp) continue;
@@ -113,6 +139,7 @@ export const connectInboxes = action({
             await ctx.runMutation(internal.outreach.updateInboxHealth, {
               id: row.id,
               engineConnected: true,
+              engineCreatedByUs: true,
               status: "warming",
               clearEngineError: true,
             });
@@ -120,12 +147,11 @@ export const connectInboxes = action({
         } catch (error) {
           const message = error instanceof Error ? error.message : "engine error";
           if (isAlreadyRegistered(message)) {
-            if (row) {
-              await ctx.runMutation(internal.outreach.updateInboxHealth, {
-                id: row.id,
-                engineConnected: true,
-                clearEngineError: true,
-              });
+            // Someone else's mailbox (or one only an admin set up) already
+            // lives on the shared engine: claiming it with unproven
+            // credentials would let this workspace send as that mailbox.
+            if (row && !(await claimOrRefuse(ctx, row.id))) {
+              engineErrors.push(`${inbox.email}: ${ALREADY_REGISTERED}`);
             }
           } else {
             // The engine's own reason (bad IMAP password…) is useful once its
@@ -213,6 +239,19 @@ export const setCampaignStatus = action({
     if (!campaign) throw new Error("Campaign not found");
 
     let instantlyId = campaign.instantlyId ?? undefined;
+    let activated = false;
+    // A campaign published under an earlier engine account (API key change)
+    // no longer exists there: publish it afresh instead of failing on a 404.
+    if (args.status === "active" && instantlyId) {
+      try {
+        await activateCampaign(instantlyId);
+        activated = true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (!/404|not found/i.test(message)) throw error;
+        instantlyId = undefined;
+      }
+    }
     if (args.status === "active" && !instantlyId) {
       // First activation: create in Instantly with our snake_case merge tags
       // translated to Instantly's camelCase ones, then add leads.
@@ -232,8 +271,8 @@ export const setCampaignStatus = action({
       await addLeadsToCampaign(instantlyId, campaign.leads);
     }
     if (instantlyId) {
-      if (args.status === "active") await activateCampaign(instantlyId);
-      else await pauseCampaign(instantlyId);
+      if (args.status !== "active") await pauseCampaign(instantlyId);
+      else if (!activated) await activateCampaign(instantlyId);
     }
     await ctx.runMutation(internal.outreach.setCampaignStatusLocal, {
       id: args.id,
@@ -399,6 +438,7 @@ export const syncEngine = internalAction({
         await ctx.runMutation(internal.outreach.updateInboxHealth, {
           id: inbox._id,
           engineConnected: true,
+          engineCreatedByUs: true,
           status: "warming",
           clearEngineError: true,
         });
@@ -407,12 +447,9 @@ export const syncEngine = internalAction({
         const message = error instanceof Error ? error.message : "engine error";
         // Only an explicit duplicate means the account is already registered.
         if (isAlreadyRegistered(message)) {
-          await ctx.runMutation(internal.outreach.updateInboxHealth, {
-            id: inbox._id,
-            engineConnected: true,
-            clearEngineError: true,
-          });
-          engineEmails.push({ _id: inbox._id, email: inbox.email });
+          if (await claimOrRefuse(ctx, inbox._id)) {
+            engineEmails.push({ _id: inbox._id, email: inbox.email });
+          }
         } else {
           console.error(`Engine registration failed for ${inbox.email}:`, error);
           await ctx.runMutation(internal.outreach.updateInboxHealth, {
@@ -436,6 +473,17 @@ export const syncEngine = internalAction({
           const account = accounts.find(
             (a) => a.email === inbox.email.toLowerCase(),
           );
+          // Gone from the engine (e.g. the engine API key now points at a
+          // different account): mark it disconnected so step 0 re-registers
+          // it from the stored credentials on the next run.
+          if (!account) {
+            await ctx.runMutation(internal.outreach.updateInboxHealth, {
+              id: inbox._id,
+              engineConnected: false,
+              status: "connecting",
+            });
+            continue;
+          }
           const stats = analytics.find((a) => a.email === inbox.email);
           // stat_warmup_score is what Instantly's own dashboard shows (0 until
           // enough data); prefer it so our Health column always matches theirs.
@@ -549,6 +597,22 @@ export const archiveCampaign = action({
   },
 });
 
+/** Unregister a removed inbox from the shared engine (already gone is fine). */
+export const deleteEngineAccount = internalAction({
+  args: { email: v.string() },
+  handler: async (_ctx, args): Promise<void> => {
+    if (!instantlyConfigured()) return;
+    try {
+      await deleteAccount(args.email);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!/404|not found/i.test(message)) {
+        console.error(`Engine account delete failed for ${args.email}:`, error);
+      }
+    }
+  },
+});
+
 /** Daily: campaigns completed 30+ days ago are archived to free quota. */
 export const autoArchive = internalAction({
   args: {},
@@ -574,10 +638,15 @@ export const autoArchive = internalAction({
   },
 });
 
-/** Manual "sync now" from the UI. */
+/**
+ * Manual "sync now" from the UI. It syncs the whole shared engine account,
+ * so it is admin-only — everyone else gets the cron's regular sync.
+ */
 export const syncNow = action({
   args: {},
   handler: async (ctx): Promise<{ configured: boolean }> => {
+    const isAdmin = await ctx.runQuery(internal.voice.callerIsAdmin, {});
+    if (!isAdmin) throw new Error("Admin only");
     if (!instantlyConfigured()) return { configured: false };
     await ctx.runAction(internal.outreachActions.syncEngine, {});
     return { configured: true };
@@ -586,3 +655,124 @@ export const syncNow = action({
 
 export type ConnectResult = { added: number; skipped: number; engineErrors: string[] };
 export type SetStatusArgs = { id: Id<"campaigns">; status: "active" | "paused" | "completed" };
+
+// ── Sign in with Google / Microsoft ─────────────────────────────────────
+
+/**
+ * Start connecting a Google Workspace or Microsoft mailbox. The user signs
+ * in with the provider at authUrl; nothing about the mailbox is typed in, so
+ * the connected address is always one the user proved they control.
+ */
+export const startMailboxSignIn = action({
+  args: { provider: v.union(v.literal("google"), v.literal("outlook")) },
+  handler: async (ctx, args): Promise<{ sessionId: string; authUrl: string }> => {
+    await assertPlanAction(ctx, "personal", "Outreach");
+    if (!instantlyConfigured()) {
+      throw new Error("NOT_CONFIGURED: the sending engine is not connected");
+    }
+    await ctx.runMutation(internal.outreach.assertRoomForOneInbox, {});
+    const session = await initOAuth(args.provider === "google" ? "google" : "microsoft");
+    await ctx.runMutation(internal.outreach.recordOAuthSession, {
+      sessionId: session.sessionId,
+      provider: args.provider,
+      expiresAt: session.expiresAt,
+    });
+    return { sessionId: session.sessionId, authUrl: session.authUrl };
+  },
+});
+
+export type MailboxSignInResult =
+  | { status: "pending" }
+  | { status: "connected"; email: string }
+  | { status: "failed"; message: string };
+
+/** Poll a sign-in started by this workspace (the client polls every few seconds). */
+export const checkMailboxSignIn = action({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args): Promise<MailboxSignInResult> => {
+    const own = await ctx.runQuery(internal.outreach.ownOAuthSession, {
+      sessionId: args.sessionId,
+    });
+    if (!own) return { status: "failed", message: "This sign-in has ended. Start again." };
+
+    const result = await getOAuthStatus(args.sessionId);
+    if (result.status === "pending") {
+      if (Date.now() < own.expiresAt) return { status: "pending" };
+      await ctx.runMutation(internal.outreach.dropOAuthSession, { sessionId: args.sessionId });
+      return { status: "failed", message: "The sign-in timed out. Start again." };
+    }
+    if (result.status === "expired") {
+      await ctx.runMutation(internal.outreach.dropOAuthSession, { sessionId: args.sessionId });
+      return { status: "failed", message: "The sign-in timed out. Start again." };
+    }
+    if (result.status === "error") {
+      await ctx.runMutation(internal.outreach.dropOAuthSession, { sessionId: args.sessionId });
+      if (result.error === "account_exists") {
+        return {
+          status: "failed",
+          message: "That mailbox is already connected on the platform. Contact support to link it.",
+        };
+      }
+      if (/gsuite|workspace/i.test(`${result.error} ${result.description}`)) {
+        return {
+          status: "failed",
+          message:
+            "Google sign-in only works for Google Workspace addresses. For a personal @gmail.com address, connect it with an app password instead.",
+        };
+      }
+      const { message } = await publicFailure(ctx, result.description || result.error, {
+        source: "mailbox sign-in",
+        area: "email",
+      });
+      return { status: "failed", message };
+    }
+
+    const done = await ctx.runMutation(internal.outreach.completeOAuthInbox, {
+      sessionId: args.sessionId,
+      email: result.email,
+    });
+    if (!done.ok) {
+      return {
+        status: "failed",
+        message: `${done.email} is already connected to another account.`,
+      };
+    }
+    try {
+      await enableWarmup([done.email]);
+    } catch (error) {
+      // The sync cron mirrors warmup state; this only speeds it up.
+      console.error("Warmup enable after sign-in failed:", error);
+    }
+    return { status: "connected", email: done.email };
+  },
+});
+
+/**
+ * Which way to connect an address: Google, Microsoft, or plain IMAP. Looks
+ * the domain's mail servers up (only the domain leaves the backend).
+ */
+export const detectMailProvider = action({
+  args: { email: v.string() },
+  handler: async (
+    _ctx,
+    args,
+  ): Promise<{ kind: "gmail" | "google" | "outlook" | "imap" }> => {
+    const domain = args.email.trim().toLowerCase().split("@")[1] ?? "";
+    if (/^(gmail|googlemail)\.com$/.test(domain)) return { kind: "gmail" };
+    if (/^(outlook|hotmail|live|msn)\.[a-z.]+$/.test(domain)) return { kind: "outlook" };
+    if (!domain.includes(".")) return { kind: "imap" };
+    try {
+      const res = await fetch(
+        `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=MX`,
+        { headers: { accept: "application/dns-json" } },
+      );
+      const json = (await res.json()) as { Answer?: { data?: string }[] };
+      const mx = (json.Answer ?? []).map((a) => String(a.data ?? "").toLowerCase()).join(" ");
+      if (/google(mail)?\.com|googlemail/.test(mx)) return { kind: "google" };
+      if (/outlook\.com|office365|microsoft/.test(mx)) return { kind: "outlook" };
+    } catch (error) {
+      console.error("MX lookup failed:", error);
+    }
+    return { kind: "imap" };
+  },
+});

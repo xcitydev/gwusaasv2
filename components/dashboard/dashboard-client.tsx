@@ -336,7 +336,7 @@ function ShortcutCard({ item, locked }: { item: NavItem; locked?: boolean }) {
 
 function RecentRenders() {
   const generations = useQuery(api.generations.list);
-  const recent = (generations ?? []).filter((g) => g.status === "done" && g.resultUrl).slice(0, 6);
+  const recent = (generations ?? []).filter((g) => g.status === "done" && g.resultUrl && g.kind !== "audio").slice(0, 6);
   if (recent.length === 0) return null;
   return (
     <Reveal>

@@ -14,7 +14,6 @@ import {
   RefreshCw,
   Search,
   Sparkles,
-  Zap,
 } from "lucide-react";
 import { LEAD_SOURCES, leadSourceMeta, type LeadSourceId } from "@/lib/lead-sources";
 import {
@@ -109,7 +108,9 @@ function AiSearchLive() {
   const [findingMore, setFindingMore] = useState(false);
   const importFromSearch = useMutation(api.leadSearches.importFromSearch);
   const [query, setQuery] = useState("");
-  const [limitChoice, setLimitChoice] = useState("auto");
+  // Required: the user always says exactly how many leads they want.
+  const [limitChoice, setLimitChoice] = useState("");
+  const [limitError, setLimitError] = useState(false);
   const [sourceChoice, setSourceChoice] = useState<"auto" | LeadSourceId>("auto");
   const [starting, setStarting] = useState(false);
   const [activeId, setActiveId] = useState<Id<"leadSearches"> | null>(null);
@@ -124,18 +125,23 @@ function AiSearchLive() {
 
   const start = async (forceSource?: LeadSourceId) => {
     if (!query.trim()) return;
+    const parsedLimit = Number(limitChoice);
+    if (!limitChoice.trim() || !Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 1000) {
+      setLimitError(true);
+      toast.error("Enter how many leads you want — a whole number from 1 to 1000.");
+      return;
+    }
+    setLimitError(false);
     setStarting(true);
     setSelected(new Set());
     try {
-      const parsedLimit = Math.round(Number(limitChoice));
       // Explicit re-run override > upfront picker > AI auto-routing.
       const picked =
         forceSource ?? (sourceChoice !== "auto" ? sourceChoice : undefined);
       const res = await startSearch({
         query,
         forceSource: picked === "sample" ? undefined : picked,
-        ...(Number.isFinite(parsedLimit) &&
-          parsedLimit > 0 && { limit: Math.min(parsedLimit, 1000) }),
+        limit: parsedLimit,
       });
       setActiveId(res.searchId);
     } catch (e) {
@@ -252,12 +258,18 @@ function AiSearchLive() {
                 min={1}
                 max={1000}
                 inputMode="numeric"
-                value={limitChoice === "auto" ? "" : limitChoice}
-                onChange={(e) => setLimitChoice(e.target.value || "auto")}
-                placeholder="Auto"
-                aria-label="How many leads (up to 1000)"
-                className="h-11 w-24 shrink-0 text-center"
-                title="How many leads to fetch (up to 1000). Empty = Auto (50, or the number in your query)."
+                required
+                value={limitChoice}
+                onChange={(e) => {
+                  setLimitChoice(e.target.value);
+                  setLimitError(false);
+                }}
+                onKeyDown={(e) => e.key === "Enter" && start()}
+                placeholder="How many?"
+                aria-label="How many leads (1 to 1000)"
+                aria-invalid={limitError || undefined}
+                className={`h-11 w-28 shrink-0 text-center ${limitError ? "border-destructive ring-1 ring-destructive" : ""}`}
+                title="How many leads you want (1 to 1000) — required."
               />
               <Button onClick={() => start()} disabled={starting} className="h-11 px-5" data-tour="leads-search">
                 {starting ? (
@@ -348,21 +360,17 @@ function AiSearchLive() {
                   automatically.
                 </div>
               )}
-              {(search.poolCount ?? 0) > 0 && (
-                <div className="mb-3 flex flex-col gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-2.5 text-xs text-emerald-300 sm:flex-row sm:items-center sm:justify-between">
-                  <span className="flex items-center gap-2">
-                    <Zap className="size-4 shrink-0" />
-                    {search.poolCount} lead{search.poolCount === 1 ? "" : "s"} found instantly in
-                    our lead library.
-                    {search.canFindMore &&
-                      ` You asked for ${search.limit ?? rows.length} — search for more if you need them.`}
+              {/* Where leads came from (saved vs freshly found) is never shown
+                  to users. Only a short-of-target search offers Find more. */}
+              {search.canFindMore && (
+                <div className="mb-3 flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-xs text-primary sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    Showing {rows.length} of the {search.limit ?? rows.length} you asked for.
                   </span>
-                  {search.canFindMore && (
-                    <Button size="sm" variant="outline" onClick={doFindMore} disabled={findingMore}>
-                      {findingMore ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
-                      Find more
-                    </Button>
-                  )}
+                  <Button size="sm" variant="outline" onClick={doFindMore} disabled={findingMore}>
+                    {findingMore ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+                    Find more
+                  </Button>
                 </div>
               )}
               {search.warning && (

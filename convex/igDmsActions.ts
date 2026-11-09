@@ -12,6 +12,8 @@ import {
   createLocation,
   sendIgMessage,
   getContact,
+  sealToken,
+  openToken,
 } from "./lib/ghl";
 import { blandConfigured, ttsWav } from "./lib/bland";
 import { renderVoiceNote } from "./lib/audio";
@@ -50,10 +52,15 @@ export const agencyInstallUrl = action({
       const auth = await ctx.runQuery(internal.igDms.getAgencyAuth, {
         role: app,
       });
+      // Each link carries a fresh one-shot state; the callback rejects
+      // codes that don't come back with one.
+      const state = configured
+        ? await ctx.runMutation(internal.igDms.createGhlOauthState, {})
+        : null;
       result[app] = {
         configured,
         installed: Boolean(auth),
-        url: configured ? installUrl(app, callbackUrl()) : null,
+        url: state ? installUrl(app, callbackUrl(), state) : null,
       };
     }
     return result;
@@ -63,10 +70,19 @@ export const agencyInstallUrl = action({
 /**
  * OAuth callback (from http.ts): code → agency tokens. The code carries no
  * app identity, so try each app's credentials — only the right pair works.
+ * Only installs an admin started (agencyInstallUrl's one-shot state) count.
  */
 export const completeAgencyInstall = internalAction({
-  args: { code: v.string() },
+  args: { code: v.string(), state: v.string() },
   handler: async (ctx, args): Promise<string> => {
+    const validState = await ctx.runMutation(internal.igDms.consumeGhlOauthState, {
+      state: args.state,
+    });
+    if (!validState) {
+      throw new Error(
+        "This install link is invalid or expired — open a fresh one from the admin panel.",
+      );
+    }
     const errors: string[] = [];
     for (const app of ["messenger", "provisioner"] as const) {
       if (!ghlConfigured(app)) continue;
@@ -87,9 +103,9 @@ export const completeAgencyInstall = internalAction({
           if (account) {
             await ctx.runMutation(internal.igDms.patchAccount, {
               id: account._id,
-              locationToken: tokens.access_token,
+              locationToken: await sealToken(tokens.access_token),
               locationTokenExpiresAt: Date.now() + tokens.expires_in * 1000,
-              locationRefreshToken: tokens.refresh_token,
+              locationRefreshToken: await sealToken(tokens.refresh_token),
             });
             return `${app} (location ${tokens.locationId})`;
           }
@@ -102,8 +118,8 @@ export const completeAgencyInstall = internalAction({
         await ctx.runMutation(internal.igDms.saveAgencyAuth, {
           role: app,
           companyId: tokens.companyId,
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token,
+          accessToken: await sealToken(tokens.access_token),
+          refreshToken: await sealToken(tokens.refresh_token),
           expiresAt: Date.now() + tokens.expires_in * 1000,
         });
         return app;
@@ -129,18 +145,21 @@ async function freshAgencyAuth(
     );
   }
   if (auth.expiresAt > Date.now() + 5 * 60 * 1000) {
-    return { companyId: auth.companyId, accessToken: auth.accessToken };
+    return { companyId: auth.companyId, accessToken: await openToken(auth.accessToken) };
   }
   const refreshed = await exchangeToken({
     app,
     grant: "refresh_token",
-    codeOrToken: auth.refreshToken,
+    codeOrToken: await openToken(auth.refreshToken),
   });
   await ctx.runMutation(internal.igDms.saveAgencyAuth, {
     role: app,
     companyId: refreshed.companyId ?? auth.companyId,
-    accessToken: refreshed.access_token,
-    refreshToken: refreshed.refresh_token ?? auth.refreshToken,
+    accessToken: await sealToken(refreshed.access_token),
+    // Keep the stored (already sealed, or legacy) value when GHL omits one.
+    refreshToken: refreshed.refresh_token
+      ? await sealToken(refreshed.refresh_token)
+      : auth.refreshToken,
     expiresAt: Date.now() + refreshed.expires_in * 1000,
   });
   return {
@@ -184,11 +203,12 @@ async function freshLocationToken(
     locationRefreshToken?: string | null;
   },
 ): Promise<string> {
+  // Stored sealed (lib/ghl sealToken); legacy plaintext rows still read.
   if (
     account.locationToken &&
     account.locationTokenExpiresAt > Date.now() + 5 * 60 * 1000
   ) {
-    return account.locationToken;
+    return await openToken(account.locationToken);
   }
   // Preferred: refresh this location's own messenger grant (Location-class
   // OAuth from installing the messenger app on the sub-account).
@@ -196,14 +216,15 @@ async function freshLocationToken(
     const refreshed = await exchangeToken({
       app: "messenger",
       grant: "refresh_token",
-      codeOrToken: account.locationRefreshToken,
+      codeOrToken: await openToken(account.locationRefreshToken),
     });
     await ctx.runMutation(internal.igDms.patchAccount, {
       id: account.id,
-      locationToken: refreshed.access_token,
+      locationToken: await sealToken(refreshed.access_token),
       locationTokenExpiresAt: Date.now() + refreshed.expires_in * 1000,
-      locationRefreshToken:
-        refreshed.refresh_token ?? account.locationRefreshToken,
+      locationRefreshToken: refreshed.refresh_token
+        ? await sealToken(refreshed.refresh_token)
+        : account.locationRefreshToken,
     });
     return refreshed.access_token;
   }
@@ -217,7 +238,7 @@ async function freshLocationToken(
   });
   await ctx.runMutation(internal.igDms.patchAccount, {
     id: account.id,
-    locationToken: minted.access_token,
+    locationToken: await sealToken(minted.access_token),
     locationTokenExpiresAt: Date.now() + minted.expires_in * 1000,
   });
   return minted.access_token;
@@ -253,7 +274,12 @@ export const sendReply = action({
 
 /** Autopilot send — no user identity (scheduled from triage). */
 export const sendSystemReply = internalAction({
-  args: { conversationId: v.id("igConversations"), text: v.string() },
+  args: {
+    conversationId: v.id("igConversations"),
+    text: v.string(),
+    // The text carries the first-message AI disclosure (igAi.runAutopilot).
+    markAiDisclosed: v.optional(v.boolean()),
+  },
   handler: async (ctx, args): Promise<void> => {
     if (!ghlConfigured("messenger")) return;
     const text = args.text.trim();
@@ -273,6 +299,7 @@ export const sendSystemReply = internalAction({
       body: text,
       ghlMessageId: result.messageId,
       sentBy: "ai",
+      markAiDisclosed: args.markAiDisclosed,
     });
   },
 });
@@ -319,13 +346,22 @@ async function voiceNoteUrl(
  * speech when the audio is WAV → Convex storage. ElevenLabs only returns
  * mixable PCM on its Pro tier; below that the note is a clean MP3.
  */
+/** Whether the voice is one of the caller's ElevenLabs clones. */
+async function isElevenVoice(ctx: ActionCtx, voiceId: string): Promise<boolean> {
+  const clones = await ctx.runQuery(internal.voice.listWorkspaceClones, {});
+  return clones.find((c) => c.voiceId === voiceId)?.provider === "elevenlabs";
+}
+
 async function renderAndStoreVoiceNote(
   ctx: ActionCtx,
   input: VoiceNoteInput,
 ): Promise<Id<"_storage">> {
-  const clones = await ctx.runQuery(internal.voice.listWorkspaceClones, {});
-  const isEleven =
-    clones.find((c) => c.voiceId === input.voiceId)?.provider === "elevenlabs";
+  const isEleven = await isElevenVoice(ctx, input.voiceId);
+  const { pooledProvider, withPooledVoice } = await import("./lib/voicePool");
+  // Cloned voices only for the workspace that made them.
+  const scope = pooledProvider(input.voiceId)
+    ? { workspaceId: (await ctx.runQuery(internal.voice.getCallerWorkspace, {})).workspaceId }
+    : undefined;
   let speech: Uint8Array;
   let mime: "audio/wav" | "audio/mpeg" = "audio/wav";
   if (isEleven) {
@@ -335,18 +371,28 @@ async function renderAndStoreVoiceNote(
         "NOT_CONFIGURED: ElevenLabs isn't connected yet (ELEVENLABS_API_KEY).",
       );
     }
-    ({ bytes: speech, mime } = await ttsForVoiceNote(input.voiceId, input.text));
+    ({ bytes: speech, mime } = await withPooledVoice(
+      ctx,
+      input.voiceId,
+      (remote) => ttsForVoiceNote(remote, input.text),
+      scope,
+    ));
   } else {
     if (!blandConfigured()) {
       throw new Error(
         "NOT_CONFIGURED: The voice engine isn't connected yet (BLAND_API_KEY).",
       );
     }
-    speech = await ttsWav(input.voiceId, input.text);
+    speech = await withPooledVoice(
+      ctx,
+      input.voiceId,
+      (remote) => ttsWav(remote, input.text),
+      scope,
+    );
   }
   const rendered =
     mime === "audio/wav" ? await renderVoiceNote(speech, input.ambiance) : speech;
-  return await ctx.storage.store(
+  const storageId = await ctx.storage.store(
     new Blob(
       [
         rendered.buffer.slice(
@@ -357,6 +403,10 @@ async function renderAndStoreVoiceNote(
       { type: mime },
     ),
   );
+  // Registered to the caller's workspace: /crm/audio serves only these, and
+  // a send may only reuse its own workspace's preview.
+  await ctx.runMutation(internal.igDms.registerVoiceNote, { storageId });
+  return storageId;
 }
 
 /**
@@ -373,6 +423,7 @@ export const previewVoiceNote = action({
     const input = validateVoiceNoteInput(args);
     const { credits } = await ctx.runMutation(internal.igDms.chargeVoiceNote, {
       chars: input.text.length,
+      elevenLabs: await isElevenVoice(ctx, input.voiceId),
     });
     try {
       const storageId = await renderAndStoreVoiceNote(ctx, input);
@@ -410,11 +461,16 @@ export const sendVoiceNote = action({
     let credits = 0;
     let audioStorageId: Id<"_storage">;
     if (args.renderedStorageId) {
-      // Already rendered (and billed) by the preview.
+      // Already rendered (and billed) by the preview — the caller's own.
+      const owns = await ctx.runQuery(internal.igDms.callerOwnsVoiceNote, {
+        storageId: args.renderedStorageId,
+      });
+      if (!owns) throw new Error("That preview is gone — render it again");
       audioStorageId = args.renderedStorageId;
     } else {
       ({ credits } = await ctx.runMutation(internal.igDms.chargeVoiceNote, {
         chars: input.text.length,
+        elevenLabs: await isElevenVoice(ctx, input.voiceId),
       }));
       try {
         audioStorageId = await renderAndStoreVoiceNote(ctx, input);

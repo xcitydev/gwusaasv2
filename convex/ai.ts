@@ -4,10 +4,11 @@ import { internalAction, type ActionCtx } from "./_generated/server";
 import { action } from "./lib/functions";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { z } from "zod";
 import { assertPlanAction } from "./lib/plan";
-import { POOL_MAX_AGE_MS } from "../lib/lead-keys";
+import { POOL_MAX_AGE_MS, phoneLeadKey } from "../lib/lead-keys";
+import { friendlyCopy } from "../lib/public-errors";
 
 /**
  * AI-powered actions. Runs in the Node runtime because the Anthropic SDK
@@ -34,16 +35,6 @@ const filtersSchema = z.object({
 
 export type LeadFilters = z.infer<typeof filtersSchema>;
 
-type FoundLead = {
-  email: string;
-  name: string;
-  company: string;
-  title: string;
-  location: string;
-  industry: string;
-  website: string;
-  phone: string;
-};
 
 /**
  * Start the provider job for a search (scrape or Explorium fetch). Apify
@@ -132,11 +123,82 @@ async function runScrape(
       attempts: 0,
     });
   } catch (error) {
+    const msg = errorMessage(error);
+    // Our own advice to the user (missing ZIPs) passes through; anything
+    // else is a provider problem — naming the vendor makes failSearch hide
+    // it from the user and alert admins.
+    const userFacing = /needs ZIP codes/.test(msg);
     await ctx.runMutation(internal.leadSearches.failSearch, {
       id: searchId,
-      error: error instanceof Error ? error.message : "Couldn't start the search",
+      error: userFacing
+        ? msg
+        : `${source === "explorium" ? "Explorium" : "Apify"} couldn't start the ${source} search: ${msg}`,
     });
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The lead search can't run properly (missing key, vendor out of money,
+ * vendor down). Files an admin incident (bell + /admin/incidents) and
+ * returns the friendly error for the caller to throw — the user is told
+ * something went wrong instead of being shown guessed or sample leads.
+ */
+async function leadSearchOutage(
+  ctx: ActionCtx,
+  opts: {
+    vendor: string;
+    stage: string;
+    detail: string;
+    query: string;
+    ids?: { userId: Id<"users">; workspaceId: Id<"workspaces"> };
+  },
+): Promise<ConvexError<string>> {
+  console.error(`[incident] lead search (${opts.stage}):`, opts.detail);
+  let ids = opts.ids;
+  if (!ids) {
+    // Attribute the incident to the user when we can; never let that fail the report.
+    ids = await ctx
+      .runQuery(internal.leadSearches.prepare, { source: "google_maps" })
+      .then((p) => ({ userId: p.userId, workspaceId: p.workspaceId }))
+      .catch(() => undefined);
+  }
+  try {
+    await ctx.runMutation(internal.incidents.record, {
+      area: "leads",
+      vendor: opts.vendor,
+      source: `lead search: ${opts.stage}`,
+      message: `${opts.detail} — search: "${opts.query.slice(0, 200)}"`,
+      userId: ids?.userId,
+      workspaceId: ids?.workspaceId,
+    });
+  } catch (reportError) {
+    console.error("Could not record incident:", reportError);
+  }
+  return new ConvexError(friendlyCopy("leads"));
+}
+
+/** Scrapes need their provider key — otherwise alert admins and stop. */
+async function assertProviderConfigured(
+  ctx: ActionCtx,
+  source: string,
+  query: string,
+  prep: { userId: Id<"users">; workspaceId: Id<"workspaces"> },
+) {
+  const { apifyConfigured } = await import("./lib/apify");
+  const { exploriumConfigured } = await import("./lib/explorium");
+  const explorium = source === "explorium";
+  if (explorium ? exploriumConfigured() : apifyConfigured()) return;
+  throw await leadSearchOutage(ctx, {
+    vendor: explorium ? "Explorium" : "Apify",
+    stage: "start scrape",
+    detail: `${explorium ? "EXPLORIUM_API_KEY" : "APIFY_API_TOKEN"} is not set on the deployment, so ${source} lead searches can't run.`,
+    query,
+    ids: { userId: prep.userId, workspaceId: prep.workspaceId },
+  });
 }
 
 /** A new scrape only starts when the balance could pay for its leads. */
@@ -167,39 +229,46 @@ export const leadSearch = action({
         v.literal("realtor_agents"),
       ),
     ),
-    // Explicit UI choice; falls back to a count in the query text, then 50.
+    // Required: exactly how many leads the user picked (1–1000). Optional in
+    // the validator only so an old open tab gets the friendly message below
+    // instead of a raw validation error.
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{ searchId: Id<"leadSearches"> }> => {
     await assertPlanAction(ctx, "personal", "Scrape Leads");
     const queryText = args.query.trim();
     if (!queryText) throw new Error("Describe who you're looking for");
+    if (args.limit === undefined || !Number.isInteger(args.limit) || args.limit < 1 || args.limit > 1000) {
+      throw new Error("Enter how many leads you want — a whole number from 1 to 1000.");
+    }
 
-    const filters = process.env.ANTHROPIC_API_KEY
-      ? await parseWithClaude(queryText)
-      : parseHeuristically(queryText);
+    // Reading the request needs Claude. No key, no balance, or any other
+    // failure → stop and alert admins; never guess the filters (a guess
+    // searched the whole US or the wrong kind of business).
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw await leadSearchOutage(ctx, {
+        vendor: "Anthropic",
+        stage: "read search",
+        detail: "ANTHROPIC_API_KEY is not set on the deployment, so lead searches can't be read.",
+        query: queryText,
+      });
+    }
+    let filters: LeadFilters;
+    try {
+      filters = await parseWithClaude(queryText);
+    } catch (error) {
+      throw await leadSearchOutage(ctx, {
+        vendor: "Anthropic",
+        stage: "read search",
+        detail: `Claude couldn't read the lead search: ${errorMessage(error)}`,
+        query: queryText,
+      });
+    }
     const source = args.forceSource ?? filters.source;
-    const limit = Math.max(1, Math.min(1000, Math.round(args.limit ?? filters.requestedCount ?? 50)));
+    const limit = args.limit;
 
     const prep = await ctx.runQuery(internal.leadSearches.prepare, { source });
     if (prep.running) throw new Error(ONE_AT_A_TIME);
-
-    const { apifyConfigured } = await import("./lib/apify");
-    const { exploriumConfigured } = await import("./lib/explorium");
-    const configured =
-      source === "explorium" ? exploriumConfigured() : apifyConfigured();
-
-    if (!configured) {
-      const searchId: Id<"leadSearches"> = await ctx.runMutation(
-        internal.leadSearches.createSearch,
-        { query: queryText, filters, source, sample: true, limit },
-      );
-      await ctx.runMutation(internal.leadSearches.storeResults, {
-        id: searchId,
-        results: generateSampleResults(filters),
-      });
-      return { searchId };
-    }
 
     // Shared library first: anything already scraped for this (or a close)
     // search is shown instantly and costs nothing to serve.
@@ -210,7 +279,16 @@ export const leadSearch = action({
       limit,
       minScrapedAt: Date.now() - POOL_MAX_AGE_MS,
     });
-    if (pooled.length === 0) assertCanAfford(prep.credits, limit, prep.costPerLead);
+    // The user gets the number they asked for: library leads show at once,
+    // and a real scrape automatically fills the shortfall.
+    const fromLibrary = pooled.filter(isContactable).length;
+    const shortfall = limit - fromLibrary;
+    if (shortfall > 0) {
+      // A real scrape is needed: its provider must be set up. Never fill
+      // the screen with made-up sample leads instead.
+      await assertProviderConfigured(ctx, source, queryText, prep);
+      assertCanAfford(prep.credits, limit, prep.costPerLead);
+    }
 
     const searchId: Id<"leadSearches"> = await ctx.runMutation(
       internal.leadSearches.createSearch,
@@ -222,12 +300,28 @@ export const leadSearch = action({
         results: pooled,
         fromPool: true,
       });
-      return { searchId };
+      if (shortfall <= 0) return { searchId };
+      await ctx.runMutation(internal.leadSearches.startExtend, { id: searchId });
     }
-    await runScrape(ctx, searchId, source, filters, queryText, limit);
+    await runScrape(ctx, searchId, source, filters, queryText, scrapeSize(limit, fromLibrary));
     return { searchId };
   },
 });
+
+/** Has an email or phone — something the user can actually import and contact. */
+function isContactable(lead: { email?: string; phone?: string }): boolean {
+  return (lead.email ?? "").includes("@") || phoneLeadKey(lead.phone) !== null;
+}
+
+/**
+ * How many places to scrape to end up with `limit` new leads. The provider
+ * can't skip leads we already have, so its top results repeat the library
+ * rows already shown and any the workspace already owns — ask for extra to
+ * cover that. Extras aren't wasted: every scrape is saved to the library.
+ */
+function scrapeSize(limit: number, alreadyShown: number): number {
+  return Math.min(1000, limit + alreadyShown + Math.max(10, Math.ceil(limit * 0.5)));
+}
 
 /**
  * "Find more": the library had fewer leads than asked for and the user
@@ -244,14 +338,21 @@ export const findMoreLeads = action({
     if (prep.running) throw new Error(ONE_AT_A_TIME);
     if (search.status !== "done" || search.sample) throw new Error("This search can't be extended.");
     const limit = search.limit ?? 50;
-    const shown = ((search.results ?? []) as unknown[]).length;
-    if (shown >= limit) throw new Error("You already have every lead you asked for.");
-    assertCanAfford(prep.credits, limit - shown, prep.costPerLead);
+    const shown = (search.results ?? []) as { duplicate?: boolean; noEmail?: boolean; phoneOnly?: boolean }[];
+    const importable = shown.filter((r) => !r.duplicate && (!r.noEmail || r.phoneOnly)).length;
+    if (importable >= limit) throw new Error("You already have every lead you asked for.");
+    await assertProviderConfigured(ctx, search.source, search.query, prep);
+    assertCanAfford(prep.credits, limit - importable, prep.costPerLead);
 
     await ctx.runMutation(internal.leadSearches.startExtend, { id: args.searchId });
-    // Scrape the full count: the provider can't skip leads we already have,
-    // so its top results would repeat — the merge drops the repeats.
-    await runScrape(ctx, args.searchId, search.source, search.filters as LeadFilters, search.query, limit);
+    await runScrape(
+      ctx,
+      args.searchId,
+      search.source,
+      search.filters as LeadFilters,
+      search.query,
+      scrapeSize(limit, shown.length),
+    );
   },
 });
 
@@ -272,12 +373,16 @@ export const runAudit = action({
   handler: async (ctx, args): Promise<Id<"audits">> => {
     const target = args.target.trim();
     if (!target) throw new Error("Enter a website or describe your business");
+    if (target.length > 500 || (args.description ?? "").length > 4000) {
+      throw new Error("That's too long — keep the website under 500 characters and the description under 4,000.");
+    }
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error(
         "NOT_CONFIGURED: AI tools need ANTHROPIC_API_KEY on the deployment.",
       );
     }
 
+    // Signed-in, rate-limited and balance-checked before the model is called.
     const auditId = await ctx.runMutation(internal.tools.startAudit, { target });
 
     try {
@@ -836,11 +941,15 @@ export const enhancePrompt = action({
     kind: v.union(v.literal("image"), v.literal("video")),
     prompt: v.string(),
   },
-  handler: async (_ctx, args): Promise<string> => {
+  handler: async (ctx, args): Promise<string> => {
     if (!args.prompt.trim()) throw new Error("Write something first");
+    if (args.prompt.length > 4000) throw new Error("Keep the idea under 4,000 characters");
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error("NOT_CONFIGURED: prompt enhancement needs ANTHROPIC_API_KEY.");
     }
+    // Free to the user, so it must be signed in (and not locked) and capped
+    // per user — otherwise this is an open model proxy.
+    await ctx.runMutation(internal.rateLimits.hitNamed, { name: "enhancePrompt" });
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic();
     const response = await client.messages.create({
@@ -1023,90 +1132,9 @@ async function parseWithClaude(queryText: string): Promise<LeadFilters> {
     messages: [{ role: "user", content: queryText }],
     output_config: { format: zodOutputFormat(filtersSchema) },
   });
-  return response.parsed_output ?? parseHeuristically(queryText);
+  if (!response.parsed_output) {
+    throw new Error(`Claude returned no usable filters (stop_reason: ${response.stop_reason})`);
+  }
+  return response.parsed_output;
 }
 
-/** Keyword fallback so the flow works before ANTHROPIC_API_KEY is set. */
-function parseHeuristically(queryText: string): LeadFilters {
-  const lower = queryText.toLowerCase();
-  const industries: Record<string, string> = {
-    "real estate": "Real Estate",
-    realtor: "Real Estate",
-    restaurant: "Restaurants",
-    dental: "Dental",
-    dentist: "Dental",
-    law: "Legal",
-    lawyer: "Legal",
-    plumb: "Plumbing",
-    roofing: "Roofing",
-    gym: "Fitness",
-    fitness: "Fitness",
-    marketing: "Marketing",
-    ecommerce: "E-commerce",
-    saas: "Software",
-    software: "Software",
-  };
-  let industry: string | null = null;
-  for (const [needle, label] of Object.entries(industries)) {
-    if (lower.includes(needle)) {
-      industry = label;
-      break;
-    }
-  }
-  const countries: Record<string, string> = {
-    usa: "United States",
-    "united states": "United States",
-    "u.s": "United States",
-    america: "United States",
-    canada: "Canada",
-    uk: "United Kingdom",
-    "united kingdom": "United Kingdom",
-    australia: "Australia",
-  };
-  let country: string | null = null;
-  for (const [needle, label] of Object.entries(countries)) {
-    if (lower.includes(needle)) {
-      country = label;
-      break;
-    }
-  }
-  const zipCodes = queryText.match(/\b\d{5}\b/g) ?? [];
-  const countMatch = queryText.match(/\b(\d{1,3})\s+(?:leads|results|businesses|people|contacts)\b/i);
-  return {
-    requestedCount: countMatch ? Number(countMatch[1]) : null,
-    source: "google_maps" as const,
-    industry,
-    jobTitles: [],
-    country,
-    region: null,
-    city: null,
-    zipCodes,
-    companySize: null,
-    keywords: queryText.split(/\s+/).filter((w) => w.length > 3).slice(0, 5),
-    mapsSearchString: industry,
-    locationQuery: country,
-  };
-}
-
-function generateSampleResults(filters: LeadFilters): FoundLead[] {
-  const industry = filters.industry ?? "Business";
-  const location =
-    filters.city ?? filters.region ?? filters.country ?? "United States";
-  const firstNames = ["Ava", "Liam", "Maya", "Noah", "Zoe", "Ethan", "Ivy", "Owen", "Lena", "Cole", "Nora", "Jude"];
-  const lastNames = ["Carter", "Brooks", "Hayes", "Reed", "Fox", "Lane", "Wells", "Gray", "Stone", "Blake", "West", "Cross"];
-  return firstNames.map((first, i) => {
-    const last = lastNames[i];
-    const company = `${last} ${industry} Group`;
-    const slug = `${first}.${last}`.toLowerCase();
-    return {
-      email: `${slug}@sample-lead.example.com`,
-      name: `${first} ${last}`,
-      company,
-      title: filters.jobTitles[0] ?? "Owner",
-      location,
-      industry,
-      website: `https://${company.toLowerCase().replace(/[^a-z]+/g, "")}.example.com`,
-      phone: `+1 555 01${String(10 + i)}`,
-    };
-  });
-}

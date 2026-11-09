@@ -1,8 +1,11 @@
 import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import type { FoundLead } from "./lib/apify";
 import { phoneLeadKey } from "../lib/lead-keys";
+import { leadMatchesSearch } from "../lib/lead-match";
+import { isOptedOut } from "./optOuts";
 
 /**
  * Shared lead library. Every real scrape is saved here, deduped across all
@@ -81,6 +84,25 @@ function toFound(row: Doc<"leadPool">): FoundLead {
 }
 
 /**
+ * Which vendor/actor a search source's rows came from — recorded on every
+ * new library row (privacy policy: "we record the source it came from").
+ */
+export function providerFor(source: string): string {
+  switch (source) {
+    case "google_maps":
+      return "apify:google_maps";
+    case "linkedin":
+      return "apify:linkedin";
+    case "realtor_agents":
+      return "apify:realtor";
+    case "explorium":
+      return "explorium";
+    default:
+      return source;
+  }
+}
+
+/**
  * Save finished scrape results into the library and remember which leads
  * this search produced. Newer non-empty fields overwrite older ones.
  */
@@ -93,9 +115,13 @@ export async function addToPool(
 ) {
   const now = scrapedAt;
   const ids: Id<"leadPool">[] = [];
+  const provider = providerFor(source);
   for (const lead of leads) {
     const dedupeKey = dedupeKeyFor(lead);
     if (!dedupeKey) continue;
+    const phoneKey = phoneLeadKey(lead.phone) ?? undefined;
+    // People who used /opt-out are never re-added to the library.
+    if (await isOptedOut(ctx, lead.email, phoneKey)) continue;
     const fields = {
       email: lead.email.trim().toLowerCase(),
       name: lead.name ?? "",
@@ -119,6 +145,8 @@ export async function addToPool(
         ...merged,
         searchText: words(merged.name, merged.company, merged.title, merged.industry, merged.location),
         scrapedAt: Math.max(existing.scrapedAt, now),
+        provider,
+        phoneKey: phoneLeadKey(merged.phone) ?? undefined,
       });
       ids.push(existing._id);
     } else {
@@ -129,12 +157,17 @@ export async function addToPool(
           ...fields,
           searchText: words(fields.name, fields.company, fields.title, fields.industry, fields.location),
           scrapedAt: now,
+          provider,
+          phoneKey,
         }),
       );
     }
   }
   if (ids.length === 0) return;
+  // Don't remember topic-less searches — their key would be just a place.
+  if (source !== "realtor_agents" && topicTerms(source, filters) === "") return;
   const queryKey = poolQueryKey(source, filters);
+  if (queryKey === "zips:") return;
   const query = await ctx.db
     .query("leadPoolQueries")
     .withIndex("by_source_query", (q) => q.eq("source", source).eq("queryKey", queryKey))
@@ -179,32 +212,45 @@ export const lookup = internalQuery({
       if (!owned) out.push(toFound(row));
     };
 
-    const exact = await ctx.db
-      .query("leadPoolQueries")
-      .withIndex("by_source_query", (q) =>
-        q.eq("source", args.source).eq("queryKey", poolQueryKey(args.source, filters)),
-      )
-      .unique();
+    // A search with no business type has a key that is just the place
+    // ("|miami") and would collide with unrelated searches — never reuse it.
+    const hasTopic = args.source === "realtor_agents" || topicTerms(args.source, filters) !== "";
+    const exact = hasTopic
+      ? await ctx.db
+          .query("leadPoolQueries")
+          .withIndex("by_source_query", (q) =>
+            q.eq("source", args.source).eq("queryKey", poolQueryKey(args.source, filters)),
+          )
+          .unique()
+      : null;
+    // Leads filed under the same search are screened too: if an earlier
+    // scrape ever came back with the wrong kind of business (or old data
+    // was filed badly), it must not be replayed for the next 60 days.
+    // LinkedIn/B2B folder rows are kept as-is — titles there are free text
+    // ("Chief Executive Officer" for "CEO") and come from a title search.
     for (const id of exact?.leadIds ?? []) {
       if (out.length >= args.limit) break;
-      await consider(await ctx.db.get(id));
+      const row = await ctx.db.get(id);
+      if (row && args.source === "google_maps" && !leadMatchesSearch(args.source, filters, row)) continue;
+      await consider(row);
     }
 
-    // Keyword fallback ("medical spas" finds leads scraped for "med spa"),
-    // restricted to the same place so a Miami search never shows Dallas.
+    // Keyword fallback ("medical spas" finds leads scraped for "med spa").
+    // Full-text search matches ANY word, so "restaurants in Miami" also
+    // returns every saved Miami barber — each hit must pass the strict
+    // place + business-type check (lib/lead-match.ts) or it is dropped.
     const topic = topicTerms(args.source, filters);
     const place = placeTerms(filters);
-    if (out.length < args.limit && topic && args.source !== "realtor_agents") {
+    if (out.length < args.limit && topic && place.length > 0 && args.source !== "realtor_agents") {
       const hits = await ctx.db
         .query("leadPool")
         .withSearchIndex("search_text", (q) =>
           q.search("searchText", [topic, ...place].join(" ")).eq("source", args.source),
         )
-        .take(Math.min(1000, args.limit * 4));
+        .take(Math.min(1000, args.limit * 8));
       for (const row of hits) {
         if (out.length >= args.limit) break;
-        const text = ` ${row.searchText} `;
-        if (place.length > 0 && !place.every((w) => text.includes(` ${w} `))) continue;
+        if (!leadMatchesSearch(args.source, filters, row)) continue;
         await consider(row);
       }
     }
@@ -229,5 +275,45 @@ export const backfill = internalMutation({
       added += rows.length;
     }
     return { done: page.isDone, cursor: page.continueCursor, added };
+  },
+});
+
+/** Library rows older than this are deleted by the retention cron. */
+const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * Retention: delete library leads scraped more than 12 months ago (the
+ * privacy policy promises it). Batched; reschedules itself until done.
+ * Stale ids left in leadPoolQueries are skipped by lookup.
+ */
+export const purgeExpired = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const cutoff = Date.now() - RETENTION_MS;
+    const batch = await ctx.db
+      .query("leadPool")
+      .withIndex("by_scraped_at", (q) => q.lt("scrapedAt", cutoff))
+      .take(500);
+    for (const row of batch) await ctx.db.delete(row._id);
+    if (batch.length === 500) {
+      await ctx.scheduler.runAfter(0, internal.leadPool.purgeExpired, {});
+    }
+    return batch.length;
+  },
+});
+
+/** One-off: fill phoneKey on rows saved before it existed (phone opt-outs match on it). */
+export const backfillPhoneKeys = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ done: boolean; cursor: string }> => {
+    const page = await ctx.db.query("leadPool").paginate({ cursor: args.cursor ?? null, numItems: 500 });
+    for (const row of page.page) {
+      const phoneKey = phoneLeadKey(row.phone) ?? undefined;
+      if (row.phoneKey !== phoneKey) await ctx.db.patch(row._id, { phoneKey });
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.leadPool.backfillPhoneKeys, { cursor: page.continueCursor });
+    }
+    return { done: page.isDone, cursor: page.continueCursor };
   },
 });

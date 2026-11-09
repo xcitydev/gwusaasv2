@@ -25,9 +25,14 @@ type VoiceOption = {
 // Voices and samples barely change — cache for the session so pickers on
 // different pages don't refetch or re-bill previews. Call pickers and TTS
 // pickers (which add ElevenLabs clones) see different lists.
-const voicesCache: { calls: VoiceOption[] | null; tts: VoiceOption[] | null } = {
+const voicesCache: {
+  calls: VoiceOption[] | null;
+  tts: VoiceOption[] | null;
+  studio: VoiceOption[] | null;
+} = {
   calls: null,
   tts: null,
+  studio: null,
 };
 const sampleCache = new Map<string, string>();
 
@@ -35,6 +40,7 @@ const sampleCache = new Map<string, string>();
 export function invalidateVoicesCache() {
   voicesCache.calls = null;
   voicesCache.tts = null;
+  voicesCache.studio = null;
   sampleCache.clear();
 }
 
@@ -43,6 +49,7 @@ export function VoicePicker({
   value,
   onChange,
   includeTts = false,
+  engine = "bland",
 }: {
   value: string;
   onChange: (voiceId: string) => void;
@@ -51,10 +58,15 @@ export function VoicePicker({
    * voice notes) — phone calls run on Bland and can't speak them.
    */
   includeTts?: boolean;
+  /**
+   * Call pickers: which engine will speak. "elevenlabs" (Studio HD calls)
+   * lists your Studio HD clones + ElevenLabs stock voices only.
+   */
+  engine?: "bland" | "elevenlabs";
 }) {
   const listVoices = useAction(api.voiceActions.listVoices);
   const voicePreview = useAction(api.voiceActions.voicePreview);
-  const cacheKey = includeTts ? "tts" : "calls";
+  const cacheKey = engine === "elevenlabs" ? "studio" : includeTts ? "tts" : "calls";
   const [voices, setVoices] = useState<VoiceOption[]>(voicesCache[cacheKey] ?? []);
   const [loadingSample, setLoadingSample] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -62,7 +74,13 @@ export function VoicePicker({
 
   useEffect(() => {
     if (voicesCache[cacheKey]) return;
-    listVoices(includeTts ? { includeElevenLabs: true } : {})
+    listVoices(
+      engine === "elevenlabs"
+        ? { engine: "elevenlabs" }
+        : includeTts
+          ? { includeElevenLabs: true }
+          : {},
+    )
       .then((list) => {
         voicesCache[cacheKey] = list;
         setVoices(list);

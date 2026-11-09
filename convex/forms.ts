@@ -4,10 +4,27 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { getFormDef } from "../lib/forms-def";
-import { requireAdmin, getAdminOrNull, getPrimaryWorkspace, requireFormsAccess } from "./lib/auth";
+import {
+  requireAdmin,
+  getAdminOrNull,
+  getCurrentUser,
+  getPrimaryWorkspace,
+  requireFormsAccess,
+} from "./lib/auth";
 import { encryptString, decryptString } from "./lib/crypto";
 import { sendEmail } from "./lib/email";
 import { notify } from "./notifications";
+import { claimUpload } from "./files";
+
+/** User-controlled text going into notification email HTML. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 const fileValidator = v.array(
   v.object({ field: v.string(), storageId: v.id("_storage"), name: v.string() }),
@@ -59,7 +76,7 @@ export const submit = action({
       await sendEmail({
         to: recipients,
         subject: `New form submission: ${def.title}`,
-        html: `<p><strong>${userName ?? userEmail}</strong> (${userEmail}) submitted the <strong>${def.formTitle}</strong> form.</p><p>Review it in the admin panel → Form Submissions.</p>`,
+        html: `<p><strong>${escapeHtml(userName ?? userEmail)}</strong> (${escapeHtml(userEmail)}) submitted the <strong>${escapeHtml(def.formTitle)}</strong> form.</p><p>Review it in the admin panel → Form Submissions.</p>`,
       });
     }
 
@@ -78,6 +95,10 @@ export const insertSubmission = internalMutation({
     const user = await requireFormsAccess(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
+    // Attachments must be files this user just uploaded, not any storage id.
+    for (const file of args.files ?? []) {
+      await claimUpload(ctx, user, file.storageId);
+    }
     const submissionId = await ctx.db.insert("formSubmissions", {
       workspaceId: workspace._id,
       userId: user._id,
@@ -94,12 +115,7 @@ export const insertSubmission = internalMutation({
 export const mine = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return [];
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .unique();
+    const user = await getCurrentUser(ctx);
     if (!user) return [];
     const submissions = await ctx.db
       .query("formSubmissions")
@@ -152,12 +168,7 @@ export const adminList = query({
 export const getMine = query({
   args: { id: v.id("formSubmissions") },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return null;
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .unique();
+    const user = await getCurrentUser(ctx);
     if (!user) return null;
     const submission = await ctx.db.get(args.id);
     if (!submission || submission.userId !== user._id) return null;

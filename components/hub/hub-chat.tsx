@@ -177,7 +177,7 @@ export function HubChat({
     const base = { markup: price.markup, creditPriceUsd: price.creditPriceUsd };
     if (req.kind === "image") {
       if (!findImageModel(req.modelId)) return { balance: bal, error: `Unknown image model ${req.modelId}` };
-      const credits = costInCredits({ kind: "image", modelId: req.modelId, ...base });
+      const credits = costInCredits({ kind: "image", modelId: req.modelId, resolution: req.resolution, ...base });
       return { credits, balance: bal, enough: bal >= credits };
     }
     if (req.kind === "video") {
@@ -186,7 +186,7 @@ export function HubChat({
       const wanted = req.durationSec;
       const durationSec =
         wanted && model.durations.includes(wanted) ? wanted : model.durations[0];
-      const credits = costInCredits({ kind: "video", modelId: req.modelId, durationSec, ...base });
+      const credits = costInCredits({ kind: "video", modelId: req.modelId, durationSec, resolution: req.resolution, ...base });
       return {
         credits,
         balance: bal,

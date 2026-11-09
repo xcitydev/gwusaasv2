@@ -228,6 +228,13 @@ export const activationCheck = internalQuery({
   args: {},
   handler: async (ctx) => {
     const { workspace } = await requireWorkspace(ctx);
+    // CAN-SPAM: every campaign email carries the sender's postal address.
+    if (!workspace.postalAddress) {
+      return {
+        ok: false as const,
+        reason: "Add your business postal address in Outreach → Settings first — it's printed in every email's footer (required by anti-spam law).",
+      };
+    }
     const [caps, row] = await Promise.all([capsFor(ctx, workspace.plan), usageRow(ctx, workspace._id)]);
     const sent = row?.emailsSent ?? 0;
     if (sent >= caps.emails) {

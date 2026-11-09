@@ -51,7 +51,16 @@ import {
   type MeetingNotes,
 } from "@/lib/note-taker";
 import { cn } from "@/lib/utils";
-import { StatusBadge, friendlyError, platformLabel, whenLabel } from "./shared";
+import {
+  ScoreChip,
+  StatusBadge,
+  friendlyError,
+  platformLabel,
+  whenLabel,
+} from "./shared";
+import { FolderMenu, TypePicker } from "./meeting-organize";
+import { BriefCard } from "./brief-card";
+import type { ScorePart } from "@/lib/meeting-score";
 
 type Meeting = Doc<"meetings">;
 
@@ -169,9 +178,18 @@ export function MeetingDetail({
             {meeting.durationSec ? (
               <span>· {formatDuration(meeting.durationSec)}</span>
             ) : null}
-            <span>· {platformLabel(meeting.platform)}</span>
+            <span>
+              · {meeting.source === "upload" ? "Upload" : platformLabel(meeting.platform)}
+            </span>
             {meeting.costCredits ? <span>· {meeting.costCredits} credits</span> : null}
           </p>
+          {hasTranscript && (
+            <div className="flex flex-wrap items-center gap-2">
+              <ScoreChip score={meeting.score} />
+              <TypePicker meeting={meeting} />
+              <FolderMenu meeting={meeting} />
+            </div>
+          )}
         </div>
         <DetailActions meeting={meeting} notes={notes} onDeleted={onBack} />
       </div>
@@ -190,7 +208,18 @@ export function MeetingDetail({
       )}
 
       {live && !hasTranscript ? (
-        <LiveCard meeting={meeting} />
+        <div className="space-y-4">
+          <LiveCard meeting={meeting} />
+          <BriefCard meeting={meeting} />
+        </div>
+      ) : !hasTranscript && (meeting.status === "failed" || meeting.status === "cancelled") ? (
+        // Nothing was recorded — no empty tabs or recording player.
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            Nothing was recorded for this meeting. The Incomplete tab lists
+            meetings like this with how to fix them.
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
@@ -201,8 +230,9 @@ export function MeetingDetail({
                 <TabsTrigger value="ask">Ask AI</TabsTrigger>
                 <TabsTrigger value="insights">Insights</TabsTrigger>
               </TabsList>
-              <TabsContent value="notes">
+              <TabsContent value="notes" className="space-y-4">
                 <NotesTab meeting={meeting} notes={notes} onSeek={seek} />
+                <BriefCard meeting={meeting} />
               </TabsContent>
               <TabsContent value="transcript">
                 <TranscriptTab
@@ -599,9 +629,22 @@ function NotesTab({
   return (
     <Card>
       <CardContent className="space-y-6 p-5">
+        {meeting.notesStatus === "pending" && (
+          <p className="inline-flex items-center gap-2 rounded-lg bg-primary/10 px-3 py-2 text-xs text-primary">
+            <Loader2 className="size-3.5 animate-spin" /> Rewriting the notes —
+            the new version replaces this in a minute.
+          </p>
+        )}
         <NotesSection title="Summary">
           <p className="text-sm leading-relaxed text-foreground/90">{notes.summary}</p>
         </NotesSection>
+        {(notes.templateSections ?? [])
+          .filter((section) => section.items.length > 0)
+          .map((section) => (
+            <NotesSection key={section.heading} title={section.heading}>
+              <BulletList items={section.items} />
+            </NotesSection>
+          ))}
         {notes.keyPoints.length > 0 && (
           <NotesSection title="Key points">
             <BulletList items={notes.keyPoints} />
@@ -963,8 +1006,50 @@ function InsightsTab({
     );
   }
   const questions = analytics.speakers.reduce((sum, s) => sum + s.questions, 0);
+  const breakdown = (meeting.scoreBreakdown ?? null) as ScorePart[] | null;
   return (
     <div className="space-y-4">
+      {meeting.score !== undefined && breakdown && breakdown.length > 0 && (
+        <Card>
+          <CardContent className="space-y-3 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold">Meeting Score</h3>
+                <p className="text-xs text-muted-foreground">
+                  How the call went on balance, questions, outcomes and tone.
+                </p>
+              </div>
+              <span className="text-3xl font-semibold tabular-nums">{meeting.score}</span>
+            </div>
+            <div className="space-y-2">
+              {breakdown.map((part) => (
+                <div
+                  key={part.key}
+                  className="grid grid-cols-[minmax(0,8rem)_1fr_auto] items-center gap-3"
+                >
+                  <span className="truncate text-xs">{part.label}</span>
+                  <div className="h-2 rounded-full bg-secondary">
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        part.value >= 0.8
+                          ? "bg-emerald-500"
+                          : part.value >= 0.5
+                            ? "bg-amber-500"
+                            : "bg-red-500",
+                      )}
+                      style={{ width: `${Math.max(part.value * 100, 3)}%` }}
+                    />
+                  </div>
+                  <span className="w-48 truncate text-right text-[11px] text-muted-foreground">
+                    {part.note}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
           label="Meeting length"

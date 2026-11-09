@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { Loader2, UsersRound } from "lucide-react";
 import { hasConvex } from "@/lib/runtime";
+import { errorText } from "@/lib/public-errors";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -36,11 +37,8 @@ function InviteLive({ token }: { token: string }) {
       toast.success(`Welcome to ${workspaceName}!`);
       router.push("/dashboard");
     } catch (e) {
-      toast.error(
-        e instanceof Error && e.message.includes("no longer valid")
-          ? "This invite is no longer valid — ask for a new one."
-          : "Couldn't accept the invite. Make sure you're signed in.",
-      );
+      // acceptInvite throws user-facing reasons (expired, wrong email, …).
+      toast.error(errorText(e, "Couldn't accept the invite. Make sure you're signed in."));
       setBusy(false);
     }
   };

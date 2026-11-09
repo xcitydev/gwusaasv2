@@ -1,9 +1,28 @@
 import { streamText, convertToModelMessages, tool, type UIMessage } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
+import { auth } from "@clerk/nextjs/server";
+import { fetchMutation } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
 import { BRAND } from "@/lib/brand";
 
 export const maxDuration = 60;
+
+// Bounded context: the last 30 messages, each text part ≤ 8,000 characters.
+const MAX_MESSAGES = 30;
+const MAX_PART_CHARS = 8000;
+const MAX_TOTAL_CHARS = 120_000;
+
+function capMessages(messages: UIMessage[]): UIMessage[] {
+  return messages.slice(-MAX_MESSAGES).map((m) => ({
+    ...m,
+    parts: (m.parts ?? []).map((p) =>
+      p.type === "text" && p.text.length > MAX_PART_CHARS
+        ? { ...p, text: p.text.slice(0, MAX_PART_CHARS) }
+        : p,
+    ),
+  }));
+}
 
 const PAGES = [
   "/dashboard",
@@ -62,10 +81,40 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  // No setup-mode bypass: without Clerk there is no identity to rate-limit.
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    return Response.json({ error: "not_configured" }, { status: 503 });
+  }
+  const { userId, getToken } = await auth();
+  if (!userId) return Response.json({ error: "unauthorized" }, { status: 401 });
+  // Per-user budget, keyed server-side from the Convex identity (the
+  // mutation also refuses locked accounts).
+  const token = await getToken({ template: "convex" });
+  if (!token) return Response.json({ error: "unauthorized" }, { status: 401 });
+  try {
+    await fetchMutation(api.rateLimits.hitChat, { bucket: "supportChat" }, { token });
+  } catch (e) {
+    const text = e instanceof Error ? e.message : "";
+    const limited = /RATE_LIMITED/.test(text);
+    return Response.json(
+      { error: limited ? "rate_limited" : "unauthorized" },
+      { status: limited ? 429 : 403 },
+    );
+  }
+
+  const body = (await req.json()) as { messages?: UIMessage[] };
+  if (!Array.isArray(body.messages)) {
+    return Response.json({ error: "bad_request" }, { status: 400 });
+  }
+  const messages = capMessages(body.messages);
+  if (JSON.stringify(messages).length > MAX_TOTAL_CHARS) {
+    return Response.json({ error: "too_large" }, { status: 413 });
+  }
 
   const result = streamText({
-    model: anthropic("claude-opus-5"),
+    // Support answers come from the fixed system prompt — the small model
+    // is plenty and keeps an always-on widget cheap.
+    model: anthropic("claude-haiku-5-5"),
     system: SYSTEM,
     messages: await convertToModelMessages(messages),
     tools: {

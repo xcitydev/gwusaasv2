@@ -23,9 +23,11 @@ export const pollApifyRun = internalAction({
 
     try {
       const run = await getRun(search.apifyRunId);
-      const fetchLimit = Math.min(search.limit ?? 200, 1000);
+      // Runs are sized above the request (see scrapeSize in ai.ts) so repeats
+      // and already-owned leads can be skipped; read everything the run found.
+      const fetchLimit = 1000;
       if (run.status === "SUCCEEDED") {
-        if (!run.defaultDatasetId) throw new Error("Run finished without results");
+        if (!run.defaultDatasetId) throw new Error(`Apify run ${search.apifyRunId} finished without a dataset`);
         const items = await getDatasetItems(run.defaultDatasetId, fetchLimit);
         const mapper =
           search.source === "google_maps"
@@ -67,7 +69,8 @@ export const pollApifyRun = internalAction({
       if (args.attempts >= MAX_ATTEMPTS) {
         await ctx.runMutation(internal.leadSearches.failSearch, {
           id: args.searchId,
-          error: "Search timed out after 15 minutes. Try a narrower search.",
+          // Mentions the vendor so it is hidden from the user and filed for admins.
+          error: `Apify run ${search.apifyRunId} still not finished after 15 minutes — search timed out`,
         });
         return;
       }
@@ -78,7 +81,7 @@ export const pollApifyRun = internalAction({
     } catch (error) {
       await ctx.runMutation(internal.leadSearches.failSearch, {
         id: args.searchId,
-        error: error instanceof Error ? error.message : "Scraper polling failed",
+        error: `Apify polling failed for run ${search.apifyRunId}: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
   },

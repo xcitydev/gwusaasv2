@@ -11,6 +11,7 @@ import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { spendCredits } from "./lib/credits";
 import { getConfigValue } from "./config";
 import { publicRowError } from "./incidents";
+import { hitForUser } from "./rateLimits";
 
 /**
  * Post-paid charge, clamped to the balance (the run already happened — a
@@ -38,6 +39,20 @@ async function chargeUpTo(
   });
 }
 
+/**
+ * Pre-check before a post-paid vendor call: the run is billed after it
+ * finishes (clamped to the balance), so without this a 0-credit account
+ * would get it free. Same error shape as spendCredits for the top-up prompt.
+ */
+function assertBalance(workspace: { credits: number }, needed: number): void {
+  const need = Math.ceil(needed);
+  if (need > 0 && workspace.credits < need) {
+    throw new Error(
+      `INSUFFICIENT_CREDITS: need ${need}, have ${Math.floor(workspace.credits)}`,
+    );
+  }
+}
+
 // ── Audits (Get Found by AI) ────────────────────────────────────────────
 
 export const listAudits = query({
@@ -61,6 +76,8 @@ export const startAudit = internalMutation({
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
+    assertBalance(workspace, await getConfigValue(ctx, "auditCredits"));
+    await hitForUser(ctx, "audit");
     return await ctx.db.insert("audits", {
       workspaceId: workspace._id,
       userId: user._id,
@@ -129,6 +146,8 @@ export const startTranscript = internalMutation({
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
+    // Length is only known afterwards; require at least the one-minute minimum.
+    assertBalance(workspace, await getConfigValue(ctx, "transcribeCreditsPerMinute"));
     return await ctx.db.insert("transcripts", {
       workspaceId: workspace._id,
       userId: user._id,
@@ -190,6 +209,7 @@ export const restartTranscript = internalMutation({
     if (!transcript || transcript.workspaceId !== workspace?._id) {
       throw new Error("Transcript not found");
     }
+    assertBalance(workspace, await getConfigValue(ctx, "transcribeCreditsPerMinute"));
     await ctx.db.patch(args.id, {
       status: "running",
       error: undefined,

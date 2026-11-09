@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import type { BlandWebClient } from "bland-client-js-sdk";
+import { startStudioCall, type StudioCall } from "@/components/voice/studio-browser-call";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
@@ -282,7 +283,18 @@ function ReceptionistEditor({
   const endBrowserTest = useAction(api.voiceActions.endBrowserTest);
 
   const [name, setName] = useState(receptionist?.name ?? "");
+  // Call engine: Standard (Bland) or Studio HD (ElevenLabs Agents).
+  const [engine, setEngine] = useState<"bland" | "elevenlabs">(
+    receptionist?.engine ?? "bland",
+  );
   const [voice, setVoice] = useState(receptionist?.voice ?? "maya");
+  const startStudioTest = useAction(api.voiceActions.startElevenBrowserTest);
+  const endStudioTest = useAction(api.voiceActions.endElevenBrowserTest);
+  const studioCallRef = useRef<StudioCall | null>(null);
+  const studioRecordRef = useRef<Id<"calls"> | null>(null);
+  const engineNumbers = numbers.filter((n) =>
+    engine === "elevenlabs" ? n.provider === "twilio" : n.provider !== "twilio",
+  );
   const [backgroundTrack, setBackgroundTrack] = useState<string | undefined>(
     receptionist?.backgroundTrack ?? undefined,
   );
@@ -318,6 +330,8 @@ function ReceptionistEditor({
     return () => {
       testClientRef.current?.stopConversation();
       testClientRef.current = null;
+      void studioCallRef.current?.stop();
+      studioCallRef.current = null;
     };
   }, []);
 
@@ -331,18 +345,14 @@ function ReceptionistEditor({
         voice,
         backgroundTrack,
         greeting: greeting || undefined,
+        engine,
       });
       toast.success("Receptionist saved.");
       if (!receptionist) onSaved(id);
       if (receptionist?.phoneNumber) {
         try {
-          await syncReceptionist({
-            phoneNumber: receptionist.phoneNumber,
-            prompt,
-            voice,
-            backgroundTrack,
-            greeting: greeting || undefined,
-          });
+          // The server pushes what was just saved — never client-sent config.
+          await syncReceptionist({ receptionistId: receptionist._id });
           toast.success("Live number updated.");
         } catch {
           // Engine not connected — local save still succeeded.
@@ -361,7 +371,7 @@ function ReceptionistEditor({
     setSearching(true);
     setSearchError("");
     try {
-      const res = await listAvailable({ areaCode: code.trim() || undefined });
+      const res = await listAvailable({ areaCode: code.trim() || undefined, engine });
       setAvailable(res.numbers);
       setPriceCredits(res.priceCredits);
     } catch (e) {
@@ -382,7 +392,7 @@ function ReceptionistEditor({
   const doBuy = async (phoneNumber: string) => {
     setBuying(phoneNumber);
     try {
-      const { number } = await buyNumber({ phoneNumber });
+      const { number } = await buyNumber({ phoneNumber, engine });
       setBoughtNumber(number);
       toast.success("Number purchased.");
     } catch (e) {
@@ -394,6 +404,70 @@ function ReceptionistEditor({
       );
     } finally {
       setBuying(null);
+    }
+  };
+
+  const stopStudioTest = () => {
+    const call = studioCallRef.current;
+    const callRecordId = studioRecordRef.current;
+    studioCallRef.current = null;
+    studioRecordRef.current = null;
+    setTestState("idle");
+    if (!call || !callRecordId) return;
+    void call
+      .stop()
+      .then((conversationId) =>
+        endStudioTest({ callRecordId, conversationId: conversationId ?? undefined }),
+      )
+      .catch(() => {});
+    toast.success(
+      "Test ended — transcript and booking details appear in Recent calls shortly.",
+    );
+  };
+
+  const studioBrowserTest = async () => {
+    if (testState === "live") {
+      stopStudioTest();
+      return;
+    }
+    if (!receptionist) {
+      toast.error("Save this receptionist first, then test it.");
+      return;
+    }
+    if (!prompt.trim()) {
+      toast.error("Write the prompt first — that's what the receptionist runs on.");
+      return;
+    }
+    if (!voice) {
+      toast.error("Pick a Studio HD voice first.");
+      return;
+    }
+    setTestState("connecting");
+    try {
+      const { conversationToken, callRecordId } = await startStudioTest({
+        receptionistId: receptionist._id,
+        prompt,
+        voice,
+        greeting: greeting || undefined,
+      });
+      studioRecordRef.current = callRecordId;
+      studioCallRef.current = await startStudioCall({
+        conversationToken,
+        onEnded: () => stopStudioTest(),
+      });
+      setTestState("live");
+      toast.success("You're live — say hello!");
+    } catch (e) {
+      setTestState("idle");
+      const recordId = studioRecordRef.current;
+      studioRecordRef.current = null;
+      if (recordId) void endStudioTest({ callRecordId: recordId }).catch(() => {});
+      const msg = e instanceof Error ? e.message : "";
+      if (/permission|notallowed/i.test(msg)) {
+        toast.error("Microphone access was blocked — allow it and try again.");
+      } else {
+        toast.error(errorText(e, "Couldn't start the test session."));
+      }
     }
   };
 
@@ -448,6 +522,10 @@ function ReceptionistEditor({
   };
 
   const browserTest = async () => {
+    if (engine === "elevenlabs" || studioCallRef.current) {
+      await studioBrowserTest();
+      return;
+    }
     if (testState === "live") {
       stopTest();
       return;
@@ -561,17 +639,51 @@ function ReceptionistEditor({
               </div>
               <div>
                 <Label className="mb-1.5">Voice</Label>
-                <VoicePicker value={voice} onChange={setVoice} />
+                <VoicePicker
+                  key={engine}
+                  value={voice}
+                  onChange={setVoice}
+                  engine={engine}
+                />
               </div>
             </div>
             <div>
-              <Label className="mb-1.5">Background sound</Label>
-              <BackgroundPicker value={backgroundTrack} onChange={setBackgroundTrack} />
+              <Label className="mb-1.5">Call engine</Label>
+              <Select
+                value={engine}
+                disabled={testState !== "idle"}
+                onValueChange={(value) => {
+                  const next = value as "bland" | "elevenlabs";
+                  if (next === engine) return;
+                  setEngine(next);
+                  // Voices don't carry across engines.
+                  setVoice(next === "bland" ? "maya" : "");
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bland">Standard</SelectItem>
+                  <SelectItem value="elevenlabs">Studio HD</SelectItem>
+                </SelectContent>
+              </Select>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Subtle ambiance makes the call feel like a real workplace
-                instead of a silent void.
+                {engine === "elevenlabs"
+                  ? "Studio HD speaks your Studio HD clone or a Studio HD stock voice, on its own Studio HD number. Save, then connect a Studio HD number."
+                  : "Standard runs on the original voice engine with its own numbers and voices."}
               </p>
             </div>
+            {engine === "bland" && (
+              <div>
+                <Label className="mb-1.5">Background sound</Label>
+                <BackgroundPicker value={backgroundTrack} onChange={setBackgroundTrack} />
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Subtle ambiance makes the call feel like a real workplace
+                  instead of a silent void.
+                </p>
+              </div>
+            )}
             <div>
               <Label className="mb-1.5">Greeting (first sentence)</Label>
               <Input
@@ -579,6 +691,11 @@ function ReceptionistEditor({
                 value={greeting}
                 onChange={(e) => setGreeting(e.target.value)}
               />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                On live calls, callers first hear that they&rsquo;ve reached an AI
+                assistant and that the call may be recorded, unless your greeting
+                already says both.
+              </p>
             </div>
             <div>
               <Label className="mb-1.5">Prompt — how it should behave *</Label>
@@ -758,15 +875,15 @@ function ReceptionistEditor({
               <Button size="sm" onClick={openBuy} data-tour="receptionist-buy-number">Buy number</Button>
             </CardHeader>
             <CardContent>
-              {numbers.length === 0 ? (
+              {engineNumbers.length === 0 ? (
                 <p className="py-4 text-center text-sm text-muted-foreground">
-                  Buy a number, connect this receptionist, and it answers every
-                  call. Numbers bill at their monthly cost; talk time bills
-                  per-second in credits.
+                  {engine === "elevenlabs"
+                    ? "Studio HD calls need a Studio HD number — buy one, connect this receptionist, and it answers every call."
+                    : "Buy a number, connect this receptionist, and it answers every call. Numbers bill at their monthly cost; talk time bills per-second in credits."}
                 </p>
               ) : (
                 <div className="divide-y divide-border">
-                  {numbers.map((n) => {
+                  {engineNumbers.map((n) => {
                     const isConnected = receptionist?.phoneNumberId === n._id;
                     return (
                       <div key={n._id} className="flex items-center justify-between gap-2 py-2.5">
@@ -800,11 +917,7 @@ function ReceptionistEditor({
                               // "this number hasn't been set up yet".
                               try {
                                 await syncReceptionist({
-                                  phoneNumber: n.number,
-                                  prompt,
-                                  voice,
-                                  backgroundTrack,
-                                  greeting: greeting || undefined,
+                                  receptionistId: receptionist._id,
                                 });
                                 toast.success(
                                   `Connected — ${name || "this receptionist"} now answers ${n.number}.`,
@@ -838,7 +951,9 @@ function ReceptionistEditor({
       <Dialog open={buyOpen} onOpenChange={setBuyOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Buy a phone number</DialogTitle>
+            <DialogTitle>
+              {engine === "elevenlabs" ? "Buy a Studio HD number" : "Buy a phone number"}
+            </DialogTitle>
             <DialogDescription>
               A dedicated US (+1) number for your AI receptionist
               {priceCredits ? (
