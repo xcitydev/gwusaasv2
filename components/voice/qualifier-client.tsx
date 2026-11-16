@@ -52,8 +52,23 @@ const CALLING_TIMEZONES: { value: string; label: string }[] = [
   { value: "America/Los_Angeles", label: "US Pacific" },
   { value: "America/Anchorage", label: "Alaska" },
   { value: "Pacific/Honolulu", label: "Hawaii" },
+  { value: "America/Mexico_City", label: "Mexico (Central)" },
+  { value: "America/Sao_Paulo", label: "Brazil (São Paulo)" },
+  { value: "America/Manaus", label: "Brazil (Manaus)" },
   { value: "Europe/London", label: "UK" },
+  { value: "Europe/Paris", label: "Central Europe (Paris, Berlin)" },
   { value: "Africa/Lagos", label: "West Africa (Lagos)" },
+  { value: "Africa/Johannesburg", label: "South Africa" },
+  { value: "Africa/Nairobi", label: "East Africa (Nairobi)" },
+  { value: "Asia/Dubai", label: "Gulf (Dubai)" },
+  { value: "Asia/Kolkata", label: "India" },
+  { value: "Asia/Singapore", label: "Singapore" },
+  { value: "Asia/Jakarta", label: "Indonesia (Jakarta)" },
+  { value: "Asia/Tokyo", label: "Japan" },
+  { value: "Australia/Perth", label: "Australia (Perth)" },
+  { value: "Australia/Brisbane", label: "Australia (Brisbane)" },
+  { value: "Australia/Sydney", label: "Australia (Sydney, Melbourne)" },
+  { value: "Pacific/Auckland", label: "New Zealand" },
 ];
 
 type QualifierCall = FunctionReturnType<typeof api.voice.listCalls>[number];
@@ -835,8 +850,11 @@ function QualifierLive() {
                 </SelectContent>
               </Select>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Used when a lead&rsquo;s state or area code doesn&rsquo;t tell us
-                where they are.
+                Each lead is called in their own country&rsquo;s time, read from
+                the country code on their number (+44, +234, +91&hellip;). This
+                default covers US/Canada numbers we can&rsquo;t place, and leads in
+                countries with several time zones (Brazil, Australia, Mexico&hellip;)
+                only when it&rsquo;s in their country, otherwise they wait.
               </p>
             </div>
             <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-white/10 p-3 text-xs leading-relaxed text-muted-foreground">

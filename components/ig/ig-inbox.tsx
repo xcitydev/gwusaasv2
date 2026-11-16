@@ -137,9 +137,16 @@ function PriorityDot({ priority }: { priority: IgPriority | undefined }) {
   );
 }
 
-export function Inbox({ account }: { account: IgAccount }) {
+export function Inbox({
+  account,
+  channel,
+}: {
+  account: IgAccount;
+  /** Set when the workspace runs both a GHL and a Meta-direct connection. */
+  channel?: "ghl" | "meta";
+}) {
   const members = useQuery(api.igDms.assignableMembers) ?? [];
-  const counts = useQuery(api.igDms.conversationCounts);
+  const counts = useQuery(api.igDms.conversationCounts, { channel });
   const markRead = useMutation(api.igDms.markRead);
   const syncNow = useAction(api.igDmsActions.syncMyAccount);
   const [tab, setTab] = useState<Tab>("needs_reply");
@@ -151,12 +158,12 @@ export function Inbox({ account }: { account: IgAccount }) {
 
   const { results, status, loadMore } = usePaginatedQuery(
     api.igDms.listConversations,
-    searching ? "skip" : { tab },
+    searching ? "skip" : { tab, channel },
     { initialNumItems: PAGE_SIZE },
   );
   const searchResults = useQuery(
     api.igDms.searchConversations,
-    searching ? { q: term } : "skip",
+    searching ? { q: term, channel } : "skip",
   );
 
   const visible = useMemo(() => sortConversations(results), [results]);
@@ -165,7 +172,7 @@ export function Inbox({ account }: { account: IgAccount }) {
   const doSync = async () => {
     setSyncing(true);
     try {
-      const { messagesAdded } = await syncNow({});
+      const { messagesAdded } = await syncNow({ channel });
       toast.success(
         messagesAdded > 0
           ? `Synced — ${messagesAdded} new message${messagesAdded === 1 ? "" : "s"}`
@@ -234,11 +241,12 @@ export function Inbox({ account }: { account: IgAccount }) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {account.igUsername && (
+          {account.igUsername && channel !== "meta" && (
             <span className="hidden text-xs text-muted-foreground sm:inline">
               @{account.igUsername}
             </span>
           )}
+          {(
           <Button
             variant="outline"
             size="sm"
@@ -249,6 +257,7 @@ export function Inbox({ account }: { account: IgAccount }) {
             <RefreshCw className={cn("size-4", syncing && "animate-spin")} />
             Sync
           </Button>
+          )}
           <CopilotSettings account={account} />
         </div>
       </div>
@@ -649,6 +658,8 @@ function Composer({
   const config = useQuery(api.config.getAll);
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<"text" | "voice">("text");
+  // GHL can't deliver Instagram audio; only direct (Meta) threads can.
+  const voiceAllowed = conversation.ghlConversationId.startsWith("meta:");
   const [voiceId, setVoiceId] = useState(account.voiceId ?? "");
   const [ambiance, setAmbiance] = useState(account.ambiance ?? "room");
   const [busy, setBusy] = useState<
@@ -821,9 +832,15 @@ function Composer({
         <Button
           variant={mode === "voice" ? "secondary" : "outline"}
           size="sm"
-          title={mode === "voice" ? "Back to text" : "Send as a voice note"}
+          title={
+            !voiceAllowed
+              ? "Voice notes need Instagram connected directly"
+              : mode === "voice"
+                ? "Back to text"
+                : "Send as a voice note"
+          }
           onClick={() => setMode(mode === "voice" ? "text" : "voice")}
-          disabled={busy !== null}
+          disabled={busy !== null || (!voiceAllowed && mode !== "voice")}
         >
           {mode === "voice" ? <X className="size-4" /> : <Mic className="size-4" />}
           {mode === "voice" ? "Cancel" : "Voice note"}

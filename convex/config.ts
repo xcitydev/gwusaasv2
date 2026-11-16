@@ -85,6 +85,9 @@ export const CONFIG_DEFAULTS = {
   // Personal plan monthly price (used for referral payout math).
   personalPlanPriceUsd: 97,
   teamPlanPriceUsd: 297,
+  // GHL affiliate signup link, shown to customers on the "Use my own GHL"
+  // option so new GHL signups earn the platform the referral commission.
+  ghlAffiliateUrl: "",
 } as const;
 
 export type ConfigKey = keyof typeof CONFIG_DEFAULTS;

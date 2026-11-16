@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { hasConvex } from "@/lib/runtime";
@@ -9,6 +9,14 @@ import { AtSign, Loader2, MessageCircle, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ListSkeleton } from "@/components/list-skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Inbox } from "./ig-inbox";
 import { errorText } from "@/lib/public-errors";
 
@@ -79,7 +87,231 @@ function AdminSetupCard() {
   );
 }
 
-function EnableHero() {
+/**
+ * Opens our messenger app's sub-account picker in the customer's own GHL.
+ * The callback binds the pick; myAccount is reactive, so the page flips to
+ * the inbox on its own once it lands.
+ */
+function useOwnGhlConnect() {
+  const start = useAction(api.igDmsActions.startOwnGhlConnect);
+  const [opening, setOpening] = useState(false);
+  const connect = async () => {
+    setOpening(true);
+    try {
+      const { url } = await start({});
+      const popup = window.open(url, "own-ghl-connect", "width=760,height=820");
+      if (!popup) {
+        toast.error("Popup blocked — allow popups for this site and retry.");
+        return;
+      }
+      toast.info("Pick the sub-account your Instagram is connected to.");
+    } catch (e) {
+      toast.error(serverMessage(e, "Couldn't start the connection."));
+    } finally {
+      setOpening(false);
+    }
+  };
+  return { connect, opening };
+}
+
+function OwnGhlOption() {
+  const config = useQuery(api.config.getAll);
+  const { connect, opening } = useOwnGhlConnect();
+  const [asking, setAsking] = useState(false);
+  const affiliateUrl = config?.ghlAffiliateUrl?.trim();
+
+  const haveOne = () => {
+    setAsking(false);
+    void connect();
+  };
+  const needOne = () => {
+    setAsking(false);
+    // Our referral link, so the signup earns the platform the commission.
+    if (affiliateUrl) window.open(affiliateUrl, "_blank", "noopener,noreferrer");
+  };
+
+  return (
+    <div className="mt-6 w-full max-w-md border-t border-white/10 pt-5">
+      <p className="text-sm font-medium">Prefer your own GoHighLevel?</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Run your DMs through your own account instead of the quick setup.
+      </p>
+      <Button
+        variant="outline"
+        className="mt-3"
+        onClick={() => setAsking(true)}
+        disabled={opening}
+      >
+        {opening && <Loader2 className="size-4 animate-spin" />} Use my own GHL
+      </Button>
+
+      <Dialog open={asking} onOpenChange={setAsking}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Do you have a GoHighLevel account?</DialogTitle>
+            <DialogDescription>
+              {affiliateUrl
+                ? "If you do, we'll connect it now. If not, you can create one first, then come back here and connect it."
+                : "If you do, we'll connect it now. If not, use the quick setup above, which needs no extra account."}
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Before connecting: your Instagram must already be connected inside
+            that sub-account (Settings → Integrations).
+          </p>
+          <DialogFooter className="gap-2 sm:gap-2">
+            {affiliateUrl ? (
+              <Button variant="outline" onClick={needOne}>
+                No, create one
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={() => setAsking(false)}>
+                No
+              </Button>
+            )}
+            <Button onClick={haveOne}>Yes, connect it</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/**
+ * Admin-only while the Meta app is unapproved (only its Instagram testers
+ * can finish the login): connect straight to Meta's Instagram API.
+ */
+function useMetaConnect() {
+  const start = useAction(api.igDmsActions.startMetaIgConnect);
+  const [opening, setOpening] = useState(false);
+  const connect = async () => {
+    setOpening(true);
+    try {
+      const { url } = await start({});
+      const popup = window.open(url, "meta-ig-connect", "width=600,height=760");
+      if (!popup) toast.error("Popup blocked. Allow popups for this site and retry.");
+    } catch (e) {
+      toast.error(serverMessage(e, "Couldn't start the Instagram connection."));
+    } finally {
+      setOpening(false);
+    }
+  };
+  return { connect, opening };
+}
+
+function MetaDirectOption({ compact = false }: { compact?: boolean }) {
+  const me = useQuery(api.users.me);
+  const { connect, opening } = useMetaConnect();
+  if (!me?.adminRole) return null;
+  if (compact) {
+    // Above an existing GHL inbox: adds a second, direct connection.
+    return (
+      <div className="mb-4 flex flex-col gap-2 rounded-lg border border-dashed border-white/15 px-4 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <span className="text-muted-foreground">
+          Admin beta: also connect an Instagram directly through our Meta app.
+          It gets its own tab next to this one.
+        </span>
+        <Button variant="outline" size="sm" onClick={connect} disabled={opening}>
+          {opening && <Loader2 className="size-4 animate-spin" />} Connect Instagram directly
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-6 w-full max-w-md rounded-lg border border-dashed border-white/15 p-4">
+      <p className="text-sm font-medium">Admin beta: connect Instagram directly</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Uses our own Meta app (voice notes as real audio). Only Instagram
+        accounts added as testers in the Meta dashboard can finish this until
+        the app is approved.
+      </p>
+      <Button variant="outline" className="mt-3" onClick={connect} disabled={opening}>
+        {opening && <Loader2 className="size-4 animate-spin" />} Connect Instagram directly
+      </Button>
+    </div>
+  );
+}
+
+/** Thin bar over the inbox for workspaces connected straight to Meta. */
+function MetaDirectBar({ username }: { username: string | null }) {
+  const disconnect = useMutation(api.igDms.disconnectOwnGhl);
+  const { connect, opening } = useMetaConnect();
+  const [busy, setBusy] = useState(false);
+  const doDisconnect = async () => {
+    if (!window.confirm("Disconnect Instagram? Its DMs will be removed from this inbox (they stay on Instagram).")) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await disconnect({ channel: "meta" });
+      toast.success("Disconnected.");
+    } catch (e) {
+      toast.error(serverMessage(e, "Couldn't disconnect."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mb-4 flex flex-col gap-2 rounded-lg border border-white/10 px-4 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-muted-foreground">
+        Connected directly to Instagram
+        {username && <span className="text-foreground"> as @{username}</span>}. New
+        messages arrive instantly.
+      </span>
+      <div className="flex shrink-0 gap-2">
+        <Button variant="ghost" size="sm" onClick={connect} disabled={opening}>
+          Reconnect
+        </Button>
+        <Button variant="ghost" size="sm" onClick={doDisconnect} disabled={busy}>
+          {busy && <Loader2 className="size-4 animate-spin" />} Disconnect
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Thin bar over the inbox for workspaces running on their own GHL. */
+function OwnGhlBar() {
+  const disconnect = useMutation(api.igDms.disconnectOwnGhl);
+  const { connect, opening } = useOwnGhlConnect();
+  const [busy, setBusy] = useState(false);
+  const doDisconnect = async () => {
+    if (
+      !window.confirm(
+        "Disconnect your GHL account? Your Instagram DMs will be removed from this inbox (they stay in GHL).",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await disconnect({});
+      toast.success("Disconnected.");
+    } catch (e) {
+      toast.error(serverMessage(e, "Couldn't disconnect."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mb-4 flex flex-col gap-2 rounded-lg border border-white/10 px-4 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-muted-foreground">
+        Running on <span className="text-foreground">your own GoHighLevel</span>{" "}
+        account. No new messages? Check Instagram is connected there, then press Sync.
+      </span>
+      <div className="flex shrink-0 gap-2">
+        <Button variant="ghost" size="sm" onClick={connect} disabled={opening}>
+          Reconnect
+        </Button>
+        <Button variant="ghost" size="sm" onClick={doDisconnect} disabled={busy}>
+          {busy && <Loader2 className="size-4 animate-spin" />} Disconnect
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function EnableHero({ isOwner }: { isOwner: boolean }) {
   const enable = useAction(api.igDmsActions.enableIgDms);
   const [enabling, setEnabling] = useState(false);
 
@@ -115,6 +347,8 @@ function EnableHero() {
           {enabling && <Loader2 className="size-4 animate-spin" />} Enable
           Instagram DMs
         </Button>
+        {isOwner && <OwnGhlOption />}
+        {isOwner && <MetaDirectOption />}
       </CardContent>
     </Card>
   );
@@ -214,19 +448,85 @@ export function IgDmsClient() {
   return <IgDmsLive />;
 }
 
+/** GHL vs Instagram-direct switcher, shown when a workspace runs both. */
+function ChannelSwitch({
+  value,
+  onChange,
+  metaUsername,
+}: {
+  value: "ghl" | "meta";
+  onChange: (value: "ghl" | "meta") => void;
+  metaUsername: string | null;
+}) {
+  const options: { value: "ghl" | "meta"; label: string }[] = [
+    { value: "ghl", label: "Via GHL" },
+    { value: "meta", label: metaUsername ? `Direct · @${metaUsername}` : "Instagram direct" },
+  ];
+  return (
+    <div className="mb-4 inline-flex rounded-lg border border-white/10 p-1" role="tablist">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="tab"
+          aria-selected={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={
+            value === o.value
+              ? "rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium text-foreground"
+              : "rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+          }
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function IgDmsLive() {
   const account = useQuery(api.igDms.myAccount);
+  const [channel, setChannel] = useState<"ghl" | "meta">("ghl");
 
   return (
     <div>
       {account === undefined ? (
         <ListSkeleton rows={3} />
       ) : account === null || account.status === "none" ? (
-        <EnableHero />
+        <EnableHero isOwner={account?.isOwner ?? false} />
       ) : account.status === "pending_connect" ? (
         <ConnectStep />
       ) : (
-        <Inbox account={account} />
+        <>
+          {account.hasGhl && account.meta ? (
+            // Both connections: switch between them; each keeps its own list.
+            <>
+              <ChannelSwitch
+                value={channel}
+                onChange={setChannel}
+                metaUsername={account.meta.igUsername}
+              />
+              {channel === "meta" && account.isOwner && (
+                <MetaDirectBar username={account.meta.igUsername} />
+              )}
+              {channel === "ghl" && account.source === "own" && account.isOwner && <OwnGhlBar />}
+              <Inbox key={channel} account={account} channel={channel} />
+            </>
+          ) : account.hasGhl ? (
+            <>
+              {account.source === "own" && account.isOwner && <OwnGhlBar />}
+              {account.isOwner && <MetaDirectOption compact />}
+              <Inbox account={account} />
+            </>
+          ) : (
+            <>
+              {account.isOwner && (
+                <MetaDirectBar username={account.meta?.igUsername ?? account.igUsername} />
+              )}
+              <Inbox account={account} channel="meta" />
+            </>
+          )}
+        </>
       )}
       <AdminSetupCard />
     </div>

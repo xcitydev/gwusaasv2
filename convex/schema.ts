@@ -875,6 +875,13 @@ export default defineSchema({
     // Hidden GHL user for the location — the social OAuth start requires one.
     ghlUserId: v.optional(v.string()),
     status: v.union(v.literal("pending_connect"), v.literal("connected")),
+    // "platform" (default when absent) = a sub-account we created inside the
+    // platform's GHL agency. "own" = the customer installed our messenger app
+    // on a sub-account in THEIR OWN GHL; Instagram is connected over there.
+    source: v.optional(v.union(v.literal("platform"), v.literal("own"))),
+    // "ghl" (default when absent) or "meta" = connected straight to Meta's
+    // Instagram API (lib/metaIg.ts); ghlLocationId is then "meta:<IG id>".
+    provider: v.optional(v.union(v.literal("ghl"), v.literal("meta"))),
     igUsername: v.optional(v.string()),
     // AI copilot. Autopilot = the AI sends replies itself (drafts-only when
     // off). The brief is the ONLY source of facts it may state — and the
@@ -894,6 +901,10 @@ export default defineSchema({
     state: v.string(),
     userId: v.id("users"),
     expiresAt: v.number(),
+    // Set when a customer starts "Use my own GHL": the code that comes back
+    // binds THEIR sub-account to this workspace, never the platform tokens.
+    purpose: v.optional(v.union(v.literal("own_ghl"), v.literal("meta_ig"))),
+    workspaceId: v.optional(v.id("workspaces")),
   }).index("by_state", ["state"]),
   // Voice-note renders we produced — the only blobs /crm/audio will serve.
   igVoiceNotes: defineTable({
@@ -904,6 +915,7 @@ export default defineSchema({
     workspaceId: v.id("workspaces"),
     ghlConversationId: v.string(),
     ghlContactId: v.string(),
+    channel: v.optional(v.literal("meta")),
     contactName: v.optional(v.string()),
     lastMessageAt: v.number(),
     lastPreview: v.optional(v.string()),
@@ -928,10 +940,24 @@ export default defineSchema({
   })
     .index("by_workspace", ["workspaceId", "lastMessageAt"])
     .index("by_ghl", ["ghlConversationId"])
+    .index("by_assignee", ["assigneeId", "workspaceId"])
+    // Absent = GHL thread; "meta" = direct-Instagram thread (see lib/metaIg).
+    .index("by_workspace_channel", ["workspaceId", "channel", "lastMessageAt"])
     .searchIndex("search_name", {
       searchField: "contactName",
       filterFields: ["workspaceId"],
     }),
+  // Running inbox tab totals per workspace and channel, kept in step by
+  // igDms' conversation write helpers — counting 30k+ threads per page load
+  // would hit Convex's 32k-documents-per-query limit. "Mine" is read from
+  // the by_assignee index instead.
+  igInboxCounts: defineTable({
+    workspaceId: v.id("workspaces"),
+    channel: v.union(v.literal("ghl"), v.literal("meta")),
+    needsReply: v.number(),
+    qualified: v.number(),
+    all: v.number(),
+  }).index("by_workspace_channel", ["workspaceId", "channel"]),
   igMessages: defineTable({
     workspaceId: v.id("workspaces"),
     conversationId: v.id("igConversations"),

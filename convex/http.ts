@@ -391,6 +391,205 @@ http.route({
 });
 
 /**
+ * TEMPORARY privacy + data-deletion page for the Meta app's "Privacy Policy
+ * URL" (Meta must reach it to publish the app). Replace with the full
+ * creatily.ai/privacy page once the legal pages are live on the main site.
+ */
+http.route({
+  path: "/legal/instagram-privacy",
+  method: "GET",
+  handler: httpAction(async () => {
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Creatily: Instagram messaging privacy</title><style>body{font-family:system-ui,sans-serif;max-width:720px;margin:0 auto;padding:32px 16px;line-height:1.6;color:#1a1a1a;background:#fff}h1{font-size:1.6rem}h2{font-size:1.15rem;margin-top:1.8em}</style></head><body>
+<h1>Creatily: Instagram messaging privacy policy</h1>
+<p>Last updated November 10, 2026. This policy covers the Instagram messaging feature of Creatily (creatily.ai): connecting a business Instagram account so its direct messages can be read and answered inside Creatily.</p>
+<h2>What we collect</h2>
+<ul><li>Your Instagram professional account ID and username, and an access token Instagram issues when you connect.</li>
+<li>Direct messages sent to and from the connected account, and the Instagram-scoped ID, name and username of the people you message.</li></ul>
+<h2>How we use it</h2>
+<ul><li>To show your Instagram conversations in your Creatily inbox and send the replies and voice notes you choose to send.</li>
+<li>If you turn on AI features, message text is processed by AI service providers to draft or send replies on your behalf, under your settings.</li></ul>
+<p>We do not sell this data and do not use it for advertising.</p>
+<h2>Storage and security</h2>
+<p>Data is stored on our cloud infrastructure. Access tokens are stored encrypted. Only members of your Creatily workspace can see your conversations.</p>
+<h2>Retention</h2>
+<p>We keep this data while the Instagram account stays connected. When you disconnect it, we delete the stored conversations, messages and access token.</p>
+<h2 id="deletion">How to delete your data</h2>
+<ol><li>In Creatily, open IG DMs and click <strong>Disconnect</strong>. This deletes the access token and all stored Instagram conversations and messages for that account.</li>
+<li>Or, in the Instagram app, go to Settings → Website permissions → Apps and websites, and remove Creatily. Then contact us through the support chat at creatily.ai and we will delete any remaining data within 30 days.</li></ol>
+<h2>Contact</h2>
+<p>Questions about this policy: use the support chat at creatily.ai.</p>
+</body></html>`;
+    return new Response(html, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }),
+});
+
+/**
+ * Meta's Instagram login returns here ("Connect Instagram directly"). The
+ * one-shot state ties the code to the workspace that started it.
+ */
+http.route({
+  path: "/meta/ig/oauth/callback",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const params = new URL(request.url).searchParams;
+    if (params.get("error")) {
+      return statusPage("Not connected", "You cancelled the Instagram login. You can close this window.", 400);
+    }
+    const code = params.get("code");
+    const state = params.get("state");
+    if (!code || !state) {
+      return statusPage("Connect failed", "Start again from the IG DMs page.", 400);
+    }
+    try {
+      const who = await ctx.runAction(internal.igDmsActions.completeMetaIgConnect, {
+        code,
+        state,
+      });
+      return statusPage(`✓ ${who} connected`, "Your DMs will show up in the inbox. You can close this window.");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "connect failed";
+      console.error("META-IG-CONNECT:", msg);
+      return statusPage("Connect failed", msg.replace(/^[\s\S]*Uncaught Error: /, ""), 400);
+    }
+  }),
+});
+
+/** Meta webhook verification handshake (dashboard "Verify and save"). */
+http.route({
+  path: "/meta/ig/webhook",
+  method: "GET",
+  handler: httpAction(async (_ctx, request) => {
+    const params = new URL(request.url).searchParams;
+    const expected = process.env.META_IG_WEBHOOK_VERIFY_TOKEN;
+    const given = params.get("hub.verify_token") ?? "";
+    if (
+      params.get("hub.mode") === "subscribe" &&
+      expected &&
+      safeEqual(given, expected)
+    ) {
+      return new Response(params.get("hub.challenge") ?? "", { status: 200 });
+    }
+    return new Response("forbidden", { status: 403 });
+  }),
+});
+
+/**
+ * Meta Instagram DM webhook. Signed (X-Hub-Signature-256) with the app
+ * secret; inbound messages go through the same ingest as GHL, echoes of
+ * what the business sent (from here or the phone) are recorded once.
+ */
+http.route({
+  path: "/meta/ig/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const raw = await request.text();
+    const { verifyMetaSignature, metaLocationId, metaConversationKey } = await import(
+      "./lib/metaIg"
+    );
+    if (!(await verifyMetaSignature(raw, request.headers.get("x-hub-signature-256")))) {
+      console.error(
+        "META-IG-WEBHOOK: rejected, invalid signature",
+        JSON.stringify({
+          hasSignature: Boolean(request.headers.get("x-hub-signature-256")),
+          bodyBytes: raw.length,
+        }),
+      );
+      return new Response("invalid signature", { status: 401 });
+    }
+    type MetaEvent = {
+      sender?: { id?: string };
+      recipient?: { id?: string };
+      timestamp?: number;
+      message?: {
+        mid?: string;
+        text?: string;
+        is_echo?: boolean;
+        is_deleted?: boolean;
+        attachments?: { type?: string }[];
+      };
+    };
+    let payload: {
+      object?: string;
+      entry?: {
+        id?: string;
+        messaging?: MetaEvent[];
+        // Some deliveries (incl. the dashboard "Test") use the changes shape.
+        changes?: { field?: string; value?: MetaEvent }[];
+      }[];
+    };
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return new Response("ok", { status: 200 });
+    }
+    if (payload.object !== "instagram") return new Response("ok", { status: 200 });
+    for (const entry of payload.entry ?? []) {
+      const accountId = entry.id;
+      if (!accountId) continue;
+      const events: MetaEvent[] = [
+        ...(entry.messaging ?? []),
+        ...(entry.changes ?? [])
+          .filter((c) => c.field === "messages" && c.value)
+          .map((c) => c.value as MetaEvent),
+      ];
+      for (const event of events) {
+        const message = event.message;
+        if (!message?.mid || message.is_deleted) continue;
+        const echo = Boolean(message.is_echo);
+        // The other person: sender on inbound, recipient on an echo.
+        const igsid = echo ? event.recipient?.id : event.sender?.id;
+        if (!igsid || igsid === accountId) continue;
+        const kind = message.attachments?.[0]?.type;
+        const body =
+          message.text ??
+          (kind === "audio" ? "🎙 Voice note" : kind ? `[${kind}]` : "");
+        if (!body) continue;
+        const common = {
+          ghlLocationId: metaLocationId(accountId),
+          ghlConversationId: metaConversationKey(accountId, igsid),
+          ghlContactId: igsid,
+          ghlMessageId: message.mid,
+          body,
+          // The dashboard Test sends a seconds string; live events send ms.
+          sentAt: (() => {
+            const t = Number(event.timestamp);
+            if (!Number.isFinite(t) || t <= 0) return Date.now();
+            return t < 1e12 ? t * 1000 : t;
+          })(),
+        };
+        // One bad event must not fail the delivery: a 500 makes Meta retry
+        // everything and can get the webhook disabled.
+        try {
+          if (echo) {
+            await ctx.runMutation(internal.igDms.ingestMetaEcho, common);
+            continue;
+          }
+          const stored = await ctx.runMutation(internal.igDms.ingestInbound, common);
+          if (stored?.needsName) {
+            await ctx.scheduler.runAfter(0, internal.igDmsActions.resolveContactName, {
+              conversationId: stored.conversationId,
+            });
+          }
+        } catch (error) {
+          console.error(
+            "META-IG-WEBHOOK: event not stored",
+            error instanceof Error ? error.message : "unknown error",
+          );
+        }
+      }
+    }
+    return new Response("ok", { status: 200 });
+  }),
+});
+
+/**
  * Voice-note audio for GHL/Meta to fetch. Served under a ".wav"/".mp3" path so
  * attachment-type detection works — Convex's raw storage URLs carry no
  * extension. Only blobs registered as voice-note renders (igVoiceNotes) are

@@ -16,6 +16,7 @@ import {
   toE164,
 } from "./lib/bland";
 import { assertPlanAction } from "./lib/plan";
+import { countryZone } from "./lib/callingZones";
 
 /**
  * "Test in browser": spin up a throwaway Bland web agent with the current
@@ -797,11 +798,22 @@ const STATE_ZONES: Record<string, string> = {
   WA: "America/Los_Angeles", AK: "America/Anchorage", HI: "Pacific/Honolulu",
 };
 
-/** Best guess at where the lead is: their state, else area code, else the campaign's zone. */
-function leadTimezone(phone: string, location: string | null, fallback: string): string {
-  const state = location?.match(/,\s*([A-Z]{2})\b/)?.[1];
-  if (state && STATE_ZONES[state]) return STATE_ZONES[state];
+/**
+ * Best guess at where the lead is: their US state, else their country (from
+ * the calling code), else the US/Canada area code, else the campaign's zone.
+ * `{ hold }` = a multi-zone country we can't place — don't call yet.
+ */
+function leadTimezone(
+  phone: string,
+  location: string | null,
+  fallback: string,
+): string | { hold: string } {
   const e164 = toE164(phone);
+  const country = countryZone(e164, fallback);
+  // A US-state location only counts for US/Canada numbers.
+  const state = location?.match(/,\s*([A-Z]{2})\b/)?.[1];
+  if (!country && state && STATE_ZONES[state]) return STATE_ZONES[state];
+  if (country) return "zone" in country ? country.zone : country;
   if (e164?.startsWith("+1") && e164.length === 12) {
     const zone = AREA_CODE_ZONES[e164.slice(2, 5)];
     if (zone) return zone;
@@ -841,6 +853,8 @@ type DispatchOutcome = {
   dispatched: number;
   skipped: number;
   deferred: number;
+  /** Leads in multi-zone countries the campaign's zone doesn't cover. */
+  held: number;
   optedOut: number;
   unaffordable: number;
   maxCallCost: number;
@@ -868,6 +882,7 @@ async function dispatchQualifierBatch(
     dispatched: 0,
     skipped: 0,
     deferred: 0,
+    held: 0,
     optedOut: 0,
     unaffordable: 0,
     maxCallCost: 0,
@@ -877,12 +892,17 @@ async function dispatchQualifierBatch(
 
   const optedOutCallIds: Id<"calls">[] = [];
   const ready: typeof dispatch.pending = [];
+  const heldCountries = new Set<string>();
   for (const target of dispatch.pending) {
     if (target.optedOut) {
       optedOutCallIds.push(target.callId);
-    } else if (
-      withinCallingHours(leadTimezone(target.phone, target.location, dispatch.timezone), now)
-    ) {
+      continue;
+    }
+    const zone = leadTimezone(target.phone, target.location, dispatch.timezone);
+    if (typeof zone !== "string") {
+      outcome.held++;
+      heldCountries.add(zone.hold);
+    } else if (withinCallingHours(zone, now)) {
       ready.push(target);
     } else {
       outcome.deferred++;
@@ -1018,6 +1038,11 @@ async function dispatchQualifierBatch(
       `${outcome.deferred} lead${outcome.deferred === 1 ? "" : "s"} waiting for calling hours (9am–8pm their local time) — they'll be called automatically.`,
     );
   }
+  if (outcome.held > 0) {
+    notes.push(
+      `${outcome.held} lead${outcome.held === 1 ? " is" : "s are"} in ${[...heldCountries].join(", ")}, which ${heldCountries.size === 1 ? "has" : "have"} several time zones — not called yet. When the other calls finish, press Start calling and pick their timezone as the default.`,
+    );
+  }
   if (outcome.unaffordable > 0 && claim.inFlight === 0 && outcome.dispatched === 0) {
     // Nothing in flight will free credits up — pause until the user tops up.
     await ctx.runMutation(internal.voice.setQualifierCampaignNote, {
@@ -1030,6 +1055,24 @@ async function dispatchQualifierBatch(
   }
   if (outcome.unaffordable > 0) {
     notes.push("Some leads are waiting for credits to free up as live calls finish.");
+  }
+  if (
+    outcome.held > 0 &&
+    outcome.deferred === 0 &&
+    outcome.unaffordable === 0 &&
+    outcome.dispatched === 0 &&
+    claim.inFlight === 0 &&
+    !moreReady
+  ) {
+    // Only held leads remain and nothing will change on its own: pause so
+    // the user can press Start calling again with the right timezone.
+    await ctx.runMutation(internal.voice.setQualifierCampaignNote, {
+      id: campaignId,
+      workspaceId,
+      statusNote: `Paused — ${outcome.held} lead${outcome.held === 1 ? " is" : "s are"} in ${[...heldCountries].join(", ")}, which ${heldCountries.size === 1 ? "has" : "have"} several time zones. Press Start calling and pick their timezone as the default to call them.`,
+      pause: true,
+    });
+    return outcome;
   }
   await ctx.runMutation(internal.voice.setQualifierCampaignNote, {
     id: campaignId,

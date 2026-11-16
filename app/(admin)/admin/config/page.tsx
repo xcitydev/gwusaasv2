@@ -25,8 +25,14 @@ const CONFIG_META: {
   key: string;
   label: string;
   help: string;
-  kind: "number" | "email";
+  kind: "number" | "email" | "url";
 }[] = [
+  {
+    key: "ghlAffiliateUrl",
+    label: "GHL affiliate link",
+    help: "Shown on the IG DMs \"Use my own GHL\" option as the sign-up link, so new GHL accounts earn you the referral commission. Leave empty to hide it.",
+    kind: "url",
+  },
   {
     key: "creditPriceUsd",
     label: "Price per credit (USD)",
@@ -258,6 +264,10 @@ function ConfigEditor() {
       toast.error("Enter a valid non-negative number.");
       return;
     }
+    if (editing.kind === "url" && parsed !== "" && !/^https:\/\/\S+$/i.test(String(parsed))) {
+      toast.error("Enter a full https:// link, or leave it empty.");
+      return;
+    }
     try {
       await set({ key: editing.key, value: parsed });
       toast.success(`${editing.label} updated.`);
@@ -322,7 +332,7 @@ function ConfigEditor() {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             inputMode={editing?.kind === "number" ? "decimal" : undefined}
-            type={editing?.kind === "email" ? "email" : "text"}
+            type={editing?.kind === "email" ? "email" : editing?.kind === "url" ? "url" : "text"}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>
