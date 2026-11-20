@@ -7,7 +7,9 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 /**
  * The referrer's dashboard. Commissions are 15% (config referralPercent) of
  * every payment a referred workspace makes, for as long as it keeps renewing:
- * one referralCommissions row per paid invoice. Legacy rows from the old
+ * one referralCommissions row per paid invoice. New commissions are pending
+ * for the 14-day refund window, then owed; refunded/disputed or
+ * self-referral payments are void and never count. Legacy rows from the old
  * one-time scheme (status qualified/paid, payoutUsd) still count toward
  * lifetime and paid totals.
  */
@@ -56,6 +58,10 @@ export const mine = query({
       commissions.filter((c) => c.status === "owed").reduce((s, c) => s + c.amountUsd, 0) +
         referrals.filter((r) => r.status === "qualified").reduce((s, r) => s + (r.payoutUsd ?? 0), 0),
     );
+    // Still inside the refund window — earned, not yet payable.
+    const pendingUsd = round2(
+      commissions.filter((c) => c.status === "pending").reduce((s, c) => s + c.amountUsd, 0),
+    );
     const paidUsd = round2(
       commissions.filter((c) => c.status === "paid").reduce((s, c) => s + c.amountUsd, 0) +
         referrals.filter((r) => r.status === "paid").reduce((s, r) => s + (r.payoutUsd ?? 0), 0),
@@ -66,6 +72,7 @@ export const mine = query({
     let monthlyUsd = 0;
     const activeIds = new Set(rows.filter((r) => r.status === "active").map((r) => r._id));
     for (const c of commissions) {
+      if (c.status === "void") continue;
       if (!activeIds.has(c.referralId) || seen.has(c.referralId)) continue;
       seen.add(c.referralId);
       monthlyUsd += c.amountUsd;
@@ -77,8 +84,9 @@ export const mine = query({
       totalSignups: rows.length,
       active: rows.filter((r) => r.status === "active").length,
       churned: rows.filter((r) => r.status === "churned").length,
-      earnedUsd: round2(owedUsd + paidUsd),
+      earnedUsd: round2(owedUsd + paidUsd + pendingUsd),
       owedUsd,
+      pendingUsd,
       paidUsd,
       monthlyUsd: round2(monthlyUsd),
       referrals: rows,
@@ -91,6 +99,7 @@ export const mine = query({
         percent: c.percent,
         amountUsd: c.amountUsd,
         status: c.status,
+        availableAt: c.availableAt ?? null,
         referredEmail: emailByReferral.get(c.referralId) ?? "deleted user",
       })),
     };

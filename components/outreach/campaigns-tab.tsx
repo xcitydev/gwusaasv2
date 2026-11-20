@@ -107,7 +107,7 @@ function CampaignsTabLive() {
       <OutreachUsageCard />
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {campaigns.filter((c) => c.status === "active").length} active ·{" "}
+          {campaigns.filter((c) => c.status === "active").length} active campaigns ·{" "}
           {campaigns.length} total
         </p>
         <Button onClick={() => setWizardOpen(true)} data-tour="outreach-new-campaign">

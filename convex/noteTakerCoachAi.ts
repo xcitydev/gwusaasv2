@@ -196,7 +196,8 @@ export const tick = internalAction({
     if (!nudge && newWords && next.offTopic && next.topic) {
       nudge = {
         kind: "drift",
-        message: `We have drifted to ${next.topic}${current ? ` — back to "${current.title}"?` : "."}${next.suggestion ? ` ${next.suggestion}` : ""}`,
+        // "We've drifted to the holiday in Lisbon." — the topic reads mid-sentence.
+        message: `We've drifted to ${(next.topic ?? "another topic").replace(/^[A-Z](?![A-Z])/, (c) => c.toLowerCase())}${current ? ` — back to "${current.title}"?` : "."}${next.suggestion ? ` ${next.suggestion}` : ""}`,
       };
     }
     if (!nudge && data.totalTalkSec >= BALANCE_MIN_TALK_SEC) {

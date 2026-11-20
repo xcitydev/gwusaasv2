@@ -18,7 +18,13 @@ import { UpgradeGate } from "@/components/upgrade-gate";
  * (The feature's Convex functions refuse free callers independently.)
  */
 export async function planGate(route: GatedRoute): Promise<ReactNode | null> {
-  if (!isConfigured) return null; // Setup mode: everything previewable.
+  if (!isConfigured) {
+    // Setup mode previews everything in dev; production must never fall open.
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Authentication is not configured");
+    }
+    return null;
+  }
   const { minPlan, feature } = GATED_ROUTES[route];
   const { userId, getToken } = await auth();
   if (!userId) return null; // proxy.ts already redirects signed-out visitors.

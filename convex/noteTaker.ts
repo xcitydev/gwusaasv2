@@ -3,6 +3,7 @@ import {
   mutation,
   internalQuery,
   internalMutation,
+  type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
 import { publicRowError } from "./incidents";
@@ -15,8 +16,26 @@ import { spendCredits } from "./lib/credits";
 import { getConfigValue } from "./config";
 import { meetingStatusValidator } from "./schema";
 import { flattenTranscript, snippetAround, type Segment } from "./lib/transcript";
-import { ACTIVE_STATUSES } from "../lib/note-taker";
-import { newCoachToken } from "./noteTakerCoach";
+import {
+  ACTIVE_STATUSES,
+  OUTPUT_LANGUAGES,
+  PUBLIC_EMAIL_DOMAINS,
+  emailDomain,
+  type CoachState,
+  type MeetingAnalytics,
+  type MeetingNotes,
+} from "../lib/note-taker";
+import { isMeetingType } from "../lib/meeting-templates";
+import { scoreMeeting } from "../lib/meeting-score";
+
+const autoJoinValidator = v.union(
+  v.literal("all"),
+  v.literal("hosting"),
+  v.literal("manual"),
+);
+import { newCoachToken, newRealtimeToken } from "./noteTakerCoach";
+import { secureToken } from "./lib/tokens";
+import { claimUpload } from "./files";
 
 /**
  * AI Note Taker — data layer. A `meetings` row follows one bot through its
@@ -30,26 +49,50 @@ export const MIN_BILLABLE_MINUTES = 10;
 export const MAX_MEETING_MINUTES = 240;
 
 const SETTINGS_DEFAULTS = {
-  announce: true,
   recapAudience: "host" as const,
   retentionDays: 30,
   autoJoin: "manual" as const,
 };
 
+/**
+ * The bot's display name always ends in "Notetaker" so it can never pass for
+ * a real participant ("Dana Smith" → "Dana Smith Notetaker").
+ */
+export function botDisplayName(raw: string | undefined, workspaceName: string): string {
+  // "Dana's workspace" → "Dana's Notetaker", "Acme" → "Acme Notetaker".
+  const owner = workspaceName.replace(/['’]s workspace$/i, "’s").trim();
+  const base = (raw?.trim() || owner || "AI")
+    .replace(/\s*(note[\s-]*taker|bot)\s*$/i, "")
+    .trim()
+    .slice(0, 80);
+  return `${base || owner || "AI"} Notetaker`;
+}
+
 function resolveSettings(
   row: Doc<"noteTakerSettings"> | null,
   workspaceName: string,
 ) {
-  // "Dana's workspace" → "Dana's Notetaker", "Acme" → "Acme Notetaker".
-  const owner = workspaceName.replace(/['’]s workspace$/i, "’s").trim();
   return {
-    botName: row?.botName?.trim() || `${owner || "AI"} Notetaker`.slice(0, 100),
-    announce: row?.announce ?? SETTINGS_DEFAULTS.announce,
+    botName: botDisplayName(row?.botName, workspaceName),
+    // The recording disclosure is mandatory (consent laws), not a toggle —
+    // a stored `announce: false` from before is ignored.
+    announce: true as const,
     recapAudience: row?.recapAudience ?? SETTINGS_DEFAULTS.recapAudience,
     recapExtraEmails: row?.recapExtraEmails ?? [],
     retentionDays: row?.retentionDays ?? SETTINGS_DEFAULTS.retentionDays,
     autoJoin: row?.autoJoin ?? SETTINGS_DEFAULTS.autoJoin,
+    // Has anyone chosen an auto-join mode yet? (First calendar connect
+    // switches "hosting" on when nobody has.)
+    autoJoinChosen: row?.autoJoin !== undefined,
+    joinInternalOnly: row?.joinInternalOnly ?? false,
+    internalDomains: row?.internalDomains ?? [],
+    skipRecurring: row?.skipRecurring ?? false,
+    outputLanguage: row?.outputLanguage ?? "auto",
+    briefEnabled: row?.briefEnabled ?? true,
+    briefLeadMin: row?.briefLeadMin ?? 60,
     calcomToken: row?.calcomToken ?? null,
+    calcomSecret: row?.calcomSecret ?? null,
+    calcomSecretVerified: row?.calcomSecretVerified ?? false,
     // Agenda Coach (live nudges) — off until the workspace switches it on.
     coachEnabled: row?.coachEnabled ?? false,
     coachChat: row?.coachChat ?? true,
@@ -84,9 +127,13 @@ async function ownMeeting(ctx: QueryCtx, meetingId: Id<"meetings">) {
 
 /** List rows without the heavy AI payload. */
 function lightMeeting(meeting: Doc<"meetings">) {
-  const { notes, analytics, searchText, ...rest } = meeting;
+  const { notes, analytics, searchText, scoreBreakdown, brief, coachState, ...rest } =
+    meeting;
   void analytics;
   void searchText;
+  void scoreBreakdown;
+  void brief;
+  void coachState;
   const summary =
     notes && typeof notes.summary === "string"
       ? (notes.summary as string).slice(0, 240)
@@ -115,7 +162,20 @@ export const overview = query({
       "noteTakerCreditsPerMinute",
     );
     const site = process.env.CONVEX_SITE_URL ?? "";
+    // Company domains guessed from teammates' logins (free-mail ones left
+    // out) — prefills "internal guests only".
+    const members = await ctx.db
+      .query("members")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+      .take(200);
+    const suggestedDomains = new Set<string>();
+    for (const member of members) {
+      const memberUser = await ctx.db.get(member.userId);
+      const domain = memberUser?.email ? emailDomain(memberUser.email) : "";
+      if (domain && !PUBLIC_EMAIL_DOMAINS.has(domain)) suggestedDomains.add(domain);
+    }
     return {
+      suggestedDomains: [...suggestedDomains].slice(0, 10),
       configured: Boolean(process.env.RECALL_API_KEY),
       emailConfigured: Boolean(process.env.RESEND_API_KEY),
       calendarProviders: {
@@ -152,7 +212,9 @@ export const overview = query({
 export const saveSettings = mutation({
   args: {
     botName: v.string(),
-    announce: v.boolean(),
+    // Ignored: the recording announcement is always on. Optional so older
+    // clients still validate.
+    announce: v.optional(v.boolean()),
     recapAudience: v.union(
       v.literal("host"),
       v.literal("attendees"),
@@ -160,7 +222,14 @@ export const saveSettings = mutation({
     ),
     recapExtraEmails: v.array(v.string()),
     retentionDays: v.number(),
-    autoJoin: v.union(v.literal("all"), v.literal("manual")),
+    autoJoin: autoJoinValidator,
+    // Optional so older clients still validate.
+    joinInternalOnly: v.optional(v.boolean()),
+    internalDomains: v.optional(v.array(v.string())),
+    skipRecurring: v.optional(v.boolean()),
+    outputLanguage: v.optional(v.string()),
+    briefEnabled: v.optional(v.boolean()),
+    briefLeadMin: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
@@ -172,13 +241,31 @@ export const saveSettings = mutation({
     const bad = emails.find((e) => !/^\S+@\S+\.\S+$/.test(e));
     if (bad) throw new Error(`"${bad}" isn't a valid email`);
     if (emails.length > 10) throw new Error("Up to 10 extra recipients");
+    const domains = (args.internalDomains ?? [])
+      .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
+      .filter(Boolean);
+    const badDomain = domains.find((d) => !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d));
+    if (badDomain) throw new Error(`"${badDomain}" isn't a valid domain`);
+    if (domains.length > 20) throw new Error("Up to 20 company domains");
+    if (args.outputLanguage && !(args.outputLanguage in OUTPUT_LANGUAGES)) {
+      throw new Error("Unsupported language");
+    }
     const patch = {
       botName: args.botName.trim().slice(0, 100) || undefined,
-      announce: args.announce,
       recapAudience: args.recapAudience,
       recapExtraEmails: emails,
       retentionDays: Math.min(365, Math.max(1, Math.round(args.retentionDays))),
       autoJoin: args.autoJoin,
+      ...(args.joinInternalOnly !== undefined && {
+        joinInternalOnly: args.joinInternalOnly,
+      }),
+      ...(args.internalDomains !== undefined && { internalDomains: domains }),
+      ...(args.skipRecurring !== undefined && { skipRecurring: args.skipRecurring }),
+      ...(args.outputLanguage !== undefined && { outputLanguage: args.outputLanguage }),
+      ...(args.briefEnabled !== undefined && { briefEnabled: args.briefEnabled }),
+      ...(args.briefLeadMin !== undefined && {
+        briefLeadMin: Math.min(24 * 60, Math.max(10, Math.round(args.briefLeadMin))),
+      }),
     };
     const row = await settingsRow(ctx, workspace._id);
     if (row) await ctx.db.patch(row._id, patch);
@@ -186,34 +273,93 @@ export const saveSettings = mutation({
   },
 });
 
-/** Mint (or rotate) the secret path token for the Cal.com webhook. */
+/**
+ * Mint (or rotate) the secret path token for the Cal.com webhook, plus the
+ * signing secret the user pastes into Cal.com's "Secret" field. Signatures
+ * are enforced from the first correctly signed delivery onwards.
+ */
 export const rotateCalcomToken = mutation({
   args: {},
   handler: async (ctx): Promise<string> => {
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
-    const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let token = "";
-    for (let i = 0; i < 32; i++) {
-      token += alphabet[Math.floor(Math.random() * alphabet.length)];
-    }
+    const patch = {
+      calcomToken: secureToken(40),
+      calcomSecret: secureToken(40),
+      calcomSecretVerified: false,
+    };
     const row = await settingsRow(ctx, workspace._id);
-    if (row) await ctx.db.patch(row._id, { calcomToken: token });
+    if (row) await ctx.db.patch(row._id, patch);
     else {
       await ctx.db.insert("noteTakerSettings", {
         workspaceId: workspace._id,
-        calcomToken: token,
+        ...patch,
       });
     }
-    return token;
+    return patch.calcomToken;
+  },
+});
+
+/**
+ * Auto-join mode picked while connecting a calendar. An explicit pick
+ * always applies; with none, "hosting" switches on only if nobody has ever
+ * chosen a mode (an existing choice is never overwritten).
+ */
+export const applyConnectAutoJoin = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    autoJoin: v.optional(autoJoinValidator),
+  },
+  handler: async (ctx, args) => {
+    const row = await settingsRow(ctx, args.workspaceId);
+    if (!args.autoJoin && row?.autoJoin !== undefined) return;
+    const autoJoin = args.autoJoin ?? "hosting";
+    if (row) await ctx.db.patch(row._id, { autoJoin });
+    else await ctx.db.insert("noteTakerSettings", { workspaceId: args.workspaceId, autoJoin });
+  },
+});
+
+/** First validly signed Cal.com delivery: from now on unsigned ones drop. */
+export const markCalcomSecretVerified = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const row = await settingsRow(ctx, args.workspaceId);
+    if (row && !row.calcomSecretVerified) {
+      await ctx.db.patch(row._id, { calcomSecretVerified: true });
+    }
   },
 });
 
 // ── Public: meetings ────────────────────────────────────────────────────
 
+/** A ?meeting=<id> deep link → the id, if it's a meeting the caller may open. */
+export const resolveMeetingId = query({
+  args: { id: v.string() },
+  handler: async (ctx, args): Promise<Id<"meetings"> | null> => {
+    const meetingId = ctx.db.normalizeId("meetings", args.id);
+    if (!meetingId) return null;
+    const own = await ownMeeting(ctx, meetingId);
+    return own ? meetingId : null;
+  },
+});
+
+const sourceValidator = v.union(
+  v.literal("manual"),
+  v.literal("calendar"),
+  v.literal("calcom"),
+  v.literal("upload"),
+);
+
 export const listMeetings = query({
-  args: { paginationOpts: paginationOptsValidator },
+  args: {
+    paginationOpts: paginationOptsValidator,
+    // Filters (all optional). A meeting type is a smart folder.
+    meetingType: v.optional(v.string()),
+    folderId: v.optional(v.id("noteFolders")),
+    source: v.optional(sourceValidator),
+    since: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const caller = await callerWorkspace(ctx);
     if (!caller) {
@@ -223,12 +369,227 @@ export const listMeetings = query({
         continueCursor: "",
       };
     }
-    const result = await ctx.db
+    const workspaceId = caller.workspace._id;
+    const base = args.meetingType
+      ? ctx.db
+          .query("meetings")
+          .withIndex("by_workspace_type", (q) =>
+            q.eq("workspaceId", workspaceId).eq("meetingType", args.meetingType),
+          )
+      : ctx.db
+          .query("meetings")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId));
+    const result = await base
+      .order("desc")
+      .filter((q) => {
+        const conditions = [];
+        if (args.source) conditions.push(q.eq(q.field("source"), args.source));
+        if (args.since) conditions.push(q.gte(q.field("_creationTime"), args.since));
+        return conditions.length > 0 ? q.and(...conditions) : true;
+      })
+      .paginate(args.paginationOpts);
+    // Folder membership is an array — filtered after the page is read (a
+    // page can come back short; "Load more" keeps going).
+    const page = args.folderId
+      ? result.page.filter((m) => m.folderIds?.includes(args.folderId!))
+      : result.page;
+    return { ...result, page: page.map(lightMeeting) };
+  },
+});
+
+/**
+ * Meetings the bot didn't record, newest first, with why. A skip the user
+ * chose (or an event deleted from the calendar) isn't a failure.
+ */
+export const listIncomplete = query({
+  args: {},
+  handler: async (ctx) => {
+    const caller = await callerWorkspace(ctx);
+    if (!caller) return { meetings: [], recentCount: 0 };
+    const recent = await ctx.db
       .query("meetings")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", caller.workspace._id))
       .order("desc")
-      .paginate(args.paginationOpts);
-    return { ...result, page: result.page.map(lightMeeting) };
+      .take(400);
+    const incomplete = recent
+      .filter(
+        (m) =>
+          m.status === "failed" ||
+          (m.status === "cancelled" &&
+            (m.failureCode !== undefined ||
+              !/^(Skipped by you|Removed from the calendar)/.test(m.statusDetail ?? ""))),
+      )
+      .slice(0, 60);
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60_000;
+    return {
+      meetings: incomplete.map(lightMeeting),
+      recentCount: incomplete.filter((m) => m._creationTime > weekAgo).length,
+    };
+  },
+});
+
+/** Smart folders (one per meeting type) + custom folders, with counts. */
+export const folderSummary = query({
+  args: {},
+  handler: async (ctx) => {
+    const caller = await callerWorkspace(ctx);
+    if (!caller) return null;
+    const workspaceId = caller.workspace._id;
+    const meetings = await ctx.db
+      .query("meetings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .order("desc")
+      .take(2000);
+    const typeCounts: Record<string, number> = {};
+    const folderCounts: Record<string, number> = {};
+    for (const meeting of meetings) {
+      if (meeting.meetingType) {
+        typeCounts[meeting.meetingType] = (typeCounts[meeting.meetingType] ?? 0) + 1;
+      }
+      for (const folderId of meeting.folderIds ?? []) {
+        folderCounts[folderId] = (folderCounts[folderId] ?? 0) + 1;
+      }
+    }
+    const folders = await ctx.db
+      .query("noteFolders")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .take(100);
+    return {
+      types: Object.entries(typeCounts)
+        .filter(([type]) => isMeetingType(type))
+        .map(([type, count]) => ({ type, count }))
+        .sort((a, b) => b.count - a.count),
+      folders: folders
+        .map((folder) => ({
+          _id: folder._id,
+          name: folder.name,
+          color: folder.color ?? null,
+          rules: folder.rules,
+          count: folderCounts[folder._id] ?? 0,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  },
+});
+
+const folderRulesValidator = v.object({
+  titleContains: v.array(v.string()),
+  emailDomains: v.array(v.string()),
+});
+
+function cleanRules(rules: { titleContains: string[]; emailDomains: string[] }) {
+  return {
+    titleContains: rules.titleContains
+      .map((w) => w.trim())
+      .filter(Boolean)
+      .slice(0, 20),
+    emailDomains: rules.emailDomains
+      .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
+      .filter(Boolean)
+      .slice(0, 20),
+  };
+}
+
+/** Create or edit a custom folder; rules re-file existing meetings too. */
+export const saveFolder = mutation({
+  args: {
+    folderId: v.optional(v.id("noteFolders")),
+    name: v.string(),
+    color: v.optional(v.string()),
+    rules: folderRulesValidator,
+  },
+  handler: async (ctx, args): Promise<Id<"noteFolders">> => {
+    const user = await requireUser(ctx);
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    if (!workspace) throw new Error("No workspace");
+    const name = args.name.trim().slice(0, 60);
+    if (!name) throw new Error("Give the folder a name");
+    const rules = cleanRules(args.rules);
+    let folderId = args.folderId;
+    if (folderId) {
+      const folder = await ctx.db.get(folderId);
+      if (!folder || folder.workspaceId !== workspace._id) throw new Error("Folder not found");
+      await ctx.db.patch(folderId, { name, color: args.color, rules });
+    } else {
+      const count = (
+        await ctx.db
+          .query("noteFolders")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+          .take(100)
+      ).length;
+      if (count >= 100) throw new Error("Up to 100 folders");
+      folderId = await ctx.db.insert("noteFolders", {
+        workspaceId: workspace._id,
+        name,
+        color: args.color,
+        rules,
+        createdBy: user._id,
+      });
+    }
+    // File the recent past by the new rules (manual additions are kept).
+    if (rules.titleContains.length > 0 || rules.emailDomains.length > 0) {
+      const recent = await ctx.db
+        .query("meetings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+        .order("desc")
+        .take(500);
+      for (const meeting of recent) {
+        if (meeting.folderIds?.includes(folderId)) continue;
+        const matches = await matchingFolders(ctx, meeting, meeting.title);
+        if (matches.includes(folderId)) {
+          await ctx.db.patch(meeting._id, {
+            folderIds: [...(meeting.folderIds ?? []), folderId],
+          });
+        }
+      }
+    }
+    return folderId;
+  },
+});
+
+export const deleteFolder = mutation({
+  args: { folderId: v.id("noteFolders") },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    const folder = await ctx.db.get(args.folderId);
+    if (!workspace || !folder || folder.workspaceId !== workspace._id) {
+      throw new Error("Folder not found");
+    }
+    await ctx.db.delete(args.folderId);
+    // Meetings stay; only the label goes.
+    const recent = await ctx.db
+      .query("meetings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+      .take(2000);
+    for (const meeting of recent) {
+      if (meeting.folderIds?.includes(args.folderId)) {
+        await ctx.db.patch(meeting._id, {
+          folderIds: meeting.folderIds.filter((id) => id !== args.folderId),
+        });
+      }
+    }
+  },
+});
+
+/** Put a meeting in / take it out of a custom folder by hand. */
+export const setMeetingFolder = mutation({
+  args: {
+    meetingId: v.id("meetings"),
+    folderId: v.id("noteFolders"),
+    inFolder: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const own = await ownMeeting(ctx, args.meetingId);
+    const folder = await ctx.db.get(args.folderId);
+    if (!own || !folder || folder.workspaceId !== own.workspace._id) {
+      throw new Error("Not found");
+    }
+    const current = own.meeting.folderIds ?? [];
+    const next = args.inFolder
+      ? [...new Set([...current, args.folderId])]
+      : current.filter((id) => id !== args.folderId);
+    await ctx.db.patch(args.meetingId, { folderIds: next });
   },
 });
 
@@ -425,7 +786,10 @@ export const createMeeting = internalMutation({
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
     const rate = await getConfigValue(ctx, "noteTakerCreditsPerMinute");
-    const minimum = rate * MIN_BILLABLE_MINUTES;
+    // Every bot already lined up claims its minimum too — the balance has
+    // to cover all of them, not just this one.
+    const committed = await liveBotCount(ctx, workspace._id);
+    const minimum = rate * MIN_BILLABLE_MINUTES * (committed + 1);
     if (workspace.credits < minimum) {
       throw new Error(
         `INSUFFICIENT_CREDITS: need ${Math.ceil(minimum)}, have ${Math.floor(workspace.credits)}`,
@@ -443,6 +807,52 @@ export const createMeeting = internalMutation({
       status: args.scheduledFor ? "scheduled" : "joining",
       scheduledFor: args.scheduledFor,
       coachToken: newCoachToken(),
+      realtimeToken: newRealtimeToken(),
+    });
+  },
+});
+
+/**
+ * An uploaded recording → a meeting row. The caller must own the fresh
+ * upload; the workspace must hold the minimum (billing happens per minute
+ * once the length is known, like a live meeting).
+ */
+export const createUploadMeeting = mutation({
+  args: {
+    storageId: v.id("_storage"),
+    title: v.optional(v.string()),
+    fileName: v.string(),
+  },
+  handler: async (ctx, args): Promise<Id<"meetings">> => {
+    const user = await requireUser(ctx);
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    if (!workspace) throw new Error("No workspace");
+    await claimUpload(ctx, user, args.storageId);
+    const file = await ctx.db.system.get(args.storageId);
+    const type = file?.contentType ?? "";
+    if (type && !/^(audio|video)\//.test(type)) {
+      throw new Error("Upload an audio or video recording");
+    }
+    const rate = await getConfigValue(ctx, "noteTakerCreditsPerMinute");
+    if (workspace.credits < rate * MIN_BILLABLE_MINUTES) {
+      throw new Error(
+        `INSUFFICIENT_CREDITS: need ${rate * MIN_BILLABLE_MINUTES}, have ${workspace.credits}`,
+      );
+    }
+    const title =
+      args.title?.trim().slice(0, 140) ||
+      args.fileName.replace(/\.[a-z0-9]+$/i, "").trim().slice(0, 140);
+    return await ctx.db.insert("meetings", {
+      workspaceId: workspace._id,
+      userId: user._id,
+      title: title || "Uploaded recording",
+      autoTitle: !args.title?.trim(),
+      meetingUrl: "",
+      source: "upload",
+      status: "processing",
+      statusDetail: "Transcribing the recording…",
+      mediaStorageId: args.storageId,
+      startedAt: Date.now(),
     });
   },
 });
@@ -482,9 +892,16 @@ export const upsertSystemMeeting = internalMutation({
           statusDetail: undefined,
         }),
       });
+      await syncAttendees(
+        ctx,
+        existing._id,
+        args.workspaceId,
+        args.attendees ?? existing.attendees,
+        args.scheduledFor,
+      );
       return existing._id;
     }
-    return await ctx.db.insert("meetings", {
+    const insertedId = await ctx.db.insert("meetings", {
       workspaceId: args.workspaceId,
       userId: args.userId,
       title: title || "Untitled meeting",
@@ -499,11 +916,33 @@ export const upsertSystemMeeting = internalMutation({
       scheduledFor: args.scheduledFor,
       attendees: args.attendees,
       coachToken: newCoachToken(),
+      realtimeToken: newRealtimeToken(),
     });
+    await syncAttendees(ctx, insertedId, args.workspaceId, args.attendees, args.scheduledFor);
+    return insertedId;
   },
 });
 
 // ── Internal: lifecycle reads/writes ────────────────────────────────────
+
+/** Bots scheduled or in a call for a workspace (optionally minus one). */
+async function liveBotCount(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  exclude?: Id<"meetings">,
+): Promise<number> {
+  const recent = await ctx.db
+    .query("meetings")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .order("desc")
+    .take(200);
+  return recent.filter(
+    (m) =>
+      m._id !== exclude &&
+      !m.finalizedAt &&
+      (m.status === "scheduled" || (ACTIVE_STATUSES as string[]).includes(m.status)),
+  ).length;
+}
 
 /** Everything needed to configure and dispatch a bot for a meeting. */
 export const getDispatchInfo = internalQuery({
@@ -520,15 +959,33 @@ export const getDispatchInfo = internalQuery({
     const rate = await getConfigValue(ctx, "noteTakerCreditsPerMinute");
     const affordableMinutes =
       rate > 0 ? Math.floor(workspace.credits / rate) : MAX_MEETING_MINUTES;
+    const others = await liveBotCount(ctx, meeting.workspaceId, meeting._id);
+    const host = await ctx.db.get(meeting.userId);
     return {
       meeting,
       settings,
+      // Named in the recording announcement ("…on behalf of Dana Smith").
+      hostName: host?.name?.trim() || host?.email || workspace.name,
       credits: workspace.credits,
-      canAfford: workspace.credits >= rate * MIN_BILLABLE_MINUTES,
+      // This bot's minimum on top of every other bot already lined up
+      // (calendar auto-join can stack many against one balance).
+      canAfford: workspace.credits >= rate * MIN_BILLABLE_MINUTES * (others + 1),
       maxRecordingSec:
         Math.min(MAX_MEETING_MINUTES, Math.max(MIN_BILLABLE_MINUTES, affordableMinutes)) *
         60,
     };
+  },
+});
+
+/** Live balance check while a bot records (pollMeeting stops it at zero). */
+export const getRecordingBudget = internalQuery({
+  args: { meetingId: v.id("meetings") },
+  handler: async (ctx, args) => {
+    const meeting = await ctx.db.get(args.meetingId);
+    if (!meeting) return null;
+    const workspace = await ctx.db.get(meeting.workspaceId);
+    const rate = await getConfigValue(ctx, "noteTakerCreditsPerMinute");
+    return { credits: workspace?.credits ?? 0, rate };
   },
 });
 
@@ -583,8 +1040,14 @@ export const patchMeeting = internalMutation({
       v.union(v.literal("pending"), v.literal("ready"), v.literal("failed")),
     ),
     recapSentAt: v.optional(v.number()),
+    meetingType: v.optional(v.string()),
+    meetingTypeLocked: v.optional(v.boolean()),
+    failureCode: v.optional(v.string()),
+    clearFailureCode: v.optional(v.boolean()),
+    brief: v.optional(v.any()),
+    briefScheduledFor: v.optional(v.number()),
   },
-  handler: async (ctx, { meetingId, clearStatusDetail, ...patch }) => {
+  handler: async (ctx, { meetingId, clearStatusDetail, clearFailureCode, ...patch }) => {
     const meeting = await ctx.db.get(meetingId);
     if (!meeting) return;
     if (patch.statusDetail) {
@@ -598,9 +1061,80 @@ export const patchMeeting = internalMutation({
     await ctx.db.patch(meetingId, {
       ...patch,
       ...(clearStatusDetail && { statusDetail: undefined }),
+      ...(clearFailureCode && { failureCode: undefined }),
     });
   },
 });
+
+/** Mirror a meeting's invitee emails into meetingAttendees (brief lookups). */
+async function syncAttendees(
+  ctx: MutationCtx,
+  meetingId: Id<"meetings">,
+  workspaceId: Id<"workspaces">,
+  attendees: { email?: string }[] | undefined,
+  at: number,
+) {
+  const existing = await ctx.db
+    .query("meetingAttendees")
+    .withIndex("by_meeting", (q) => q.eq("meetingId", meetingId))
+    .collect();
+  const want = new Set(
+    (attendees ?? []).flatMap((a) => (a.email ? [a.email.trim().toLowerCase()] : [])),
+  );
+  for (const row of existing) {
+    if (!want.has(row.email) || row.at !== at) await ctx.db.delete(row._id);
+    else want.delete(row.email);
+  }
+  for (const email of [...want].slice(0, 100)) {
+    await ctx.db.insert("meetingAttendees", { workspaceId, meetingId, email, at });
+  }
+}
+
+/**
+ * One-off: index invitee emails of existing meetings. Run until
+ * `remaining: false`: node node_modules/convex/bin/main.js run noteTaker:backfillAttendees
+ */
+export const backfillAttendees = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("meetings")
+      .paginate({ cursor: args.cursor ?? null, numItems: 100 });
+    for (const meeting of page.page) {
+      await syncAttendees(
+        ctx,
+        meeting._id,
+        meeting.workspaceId,
+        meeting.attendees,
+        meeting.startedAt ?? meeting.scheduledFor ?? meeting._creationTime,
+      );
+    }
+    return { cursor: page.continueCursor, remaining: !page.isDone };
+  },
+});
+
+/** Custom folders whose rules match this meeting (title words / guest domains). */
+async function matchingFolders(
+  ctx: MutationCtx,
+  meeting: Doc<"meetings">,
+  title: string,
+): Promise<Id<"noteFolders">[]> {
+  const folders = await ctx.db
+    .query("noteFolders")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", meeting.workspaceId))
+    .take(100);
+  const lowerTitle = title.toLowerCase();
+  const domains = new Set(
+    (meeting.attendees ?? []).flatMap((a) => (a.email ? [emailDomain(a.email)] : [])),
+  );
+  return folders
+    .filter(
+      (folder) =>
+        folder.rules.titleContains.some((word) => lowerTitle.includes(word.toLowerCase())) ||
+        folder.rules.emailDomains.some((domain) => domains.has(domain.toLowerCase())),
+    )
+    .map((folder) => folder._id);
+}
 
 /**
  * The recording is in: store the transcript (chunked), talk-time analytics
@@ -681,6 +1215,13 @@ export const storeRecording = internalMutation({
       statusDetail: undefined,
       notesStatus: "pending",
     });
+    await syncAttendees(
+      ctx,
+      args.meetingId,
+      meeting.workspaceId,
+      attendees,
+      args.startedAt ?? meeting.startedAt ?? meeting._creationTime,
+    );
     return { stored: true, credits };
   },
 });
@@ -731,17 +1272,41 @@ export const storeNotes = internalMutation({
       keyPoints?: string[];
       decisions?: string[];
       actionItems?: { task?: string }[];
+      meetingType?: string;
     };
     const title =
       meeting.autoTitle && notes.title?.trim()
         ? notes.title.trim().slice(0, 140)
         : meeting.title;
+    // A type a person picked sticks; otherwise the AI's classification.
+    const meetingType = meeting.meetingTypeLocked
+      ? meeting.meetingType
+      : isMeetingType(notes.meetingType)
+        ? notes.meetingType
+        : "general";
+    const folderIds = [
+      ...new Set([
+        ...(meeting.folderIds ?? []),
+        ...(await matchingFolders(ctx, meeting, title)),
+      ]),
+    ];
+    const scored = scoreMeeting({
+      analytics: meeting.analytics as MeetingAnalytics | undefined,
+      notes: args.notes as MeetingNotes,
+      durationSec: meeting.durationSec ?? 0,
+      coachState: meeting.coachState as CoachState | undefined,
+      agenda: meeting.agenda,
+    });
     await ctx.db.patch(args.meetingId, {
       title,
       notes: args.notes,
       notesStatus: "ready",
       status: "done",
       statusDetail: undefined,
+      meetingType,
+      folderIds,
+      score: scored?.score,
+      scoreBreakdown: scored?.breakdown,
       // What search_meta indexes: title + the written-up substance.
       searchText: [
         title,
@@ -757,6 +1322,40 @@ export const storeNotes = internalMutation({
     await ctx.scheduler.runAfter(0, internal.integrations.routeActionItems, {
       meetingId: args.meetingId,
     });
+  },
+});
+
+/**
+ * One-off: score + type meetings written before those existed. Run from the
+ * CLI until it reports `remaining: false`:
+ *   node node_modules/convex/bin/main.js run noteTaker:backfillScores
+ */
+export const backfillScores = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("meetings")
+      .paginate({ cursor: args.cursor ?? null, numItems: 200 });
+    let updated = 0;
+    for (const meeting of page.page) {
+      if (meeting.status !== "done" || !meeting.notes) continue;
+      const notes = meeting.notes as MeetingNotes;
+      const scored = scoreMeeting({
+        analytics: meeting.analytics as MeetingAnalytics | undefined,
+        notes,
+        durationSec: meeting.durationSec ?? 0,
+        coachState: meeting.coachState as CoachState | undefined,
+        agenda: meeting.agenda,
+      });
+      const meetingType =
+        meeting.meetingType ?? (isMeetingType(notes.meetingType) ? notes.meetingType : "general");
+      await ctx.db.patch(meeting._id, {
+        meetingType,
+        ...(scored && { score: scored.score, scoreBreakdown: scored.breakdown }),
+      });
+      updated++;
+    }
+    return { updated, cursor: page.continueCursor, remaining: !page.isDone };
   },
 });
 
@@ -845,11 +1444,7 @@ export const createOauthState = internalMutation({
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
-    const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let state = "";
-    for (let i = 0; i < 40; i++) {
-      state += alphabet[Math.floor(Math.random() * alphabet.length)];
-    }
+    const state = secureToken(43);
     await ctx.db.insert("noteTakerOauthStates", {
       state,
       userId: user._id,
@@ -872,6 +1467,57 @@ export const consumeOauthState = internalMutation({
     await ctx.db.delete(row._id);
     if (Date.now() - row._creationTime > 15 * 60_000) return null;
     return { userId: row.userId, workspaceId: row.workspaceId, platform: row.platform };
+  },
+});
+
+/** How long a finished consent waits for its owner to confirm in-app. */
+const PENDING_CALENDAR_TTL_MS = 15 * 60_000;
+
+/**
+ * Callback side: park the grant under a fresh nonce. Only the browser that
+ * finished the consent learns the nonce (it rides the redirect), and only
+ * the user who started the flow can claim it — so a consent link forwarded
+ * to someone else can't attach THEIR calendar to the sender's account.
+ */
+export const createPendingCalendar = internalMutation({
+  args: {
+    userId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    platform: calendarPlatformValidator,
+    refreshTokenEncrypted: v.string(),
+  },
+  handler: async (ctx, args): Promise<string> => {
+    const nonce = secureToken(43);
+    await ctx.db.insert("noteTakerPendingCalendars", {
+      ...args,
+      nonce,
+      expiresAt: Date.now() + PENDING_CALENDAR_TTL_MS,
+    });
+    return nonce;
+  },
+});
+
+/** Confirm side: one shot, signed-in owner only, inside the TTL. */
+export const claimPendingCalendar = internalMutation({
+  args: { nonce: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const row = await ctx.db
+      .query("noteTakerPendingCalendars")
+      .withIndex("by_nonce", (q) => q.eq("nonce", args.nonce))
+      .first();
+    if (!row) return { ok: false as const, reason: "expired" as const };
+    // Whatever happens next, a nonce is good for one attempt.
+    await ctx.db.delete(row._id);
+    if (row.expiresAt < Date.now()) return { ok: false as const, reason: "expired" as const };
+    if (row.userId !== user._id) return { ok: false as const, reason: "wrong_user" as const };
+    return {
+      ok: true as const,
+      userId: row.userId,
+      workspaceId: row.workspaceId,
+      platform: row.platform,
+      refreshTokenEncrypted: row.refreshTokenEncrypted,
+    };
   },
 });
 
@@ -982,6 +1628,11 @@ export const getWorkspaceByCalcomToken = internalQuery({
     if (!row) return null;
     const workspace = await ctx.db.get(row.workspaceId);
     if (!workspace) return null;
-    return { workspaceId: workspace._id, ownerId: workspace.ownerId };
+    return {
+      workspaceId: workspace._id,
+      ownerId: workspace.ownerId,
+      calcomSecret: row.calcomSecret ?? null,
+      calcomSecretVerified: row.calcomSecretVerified ?? false,
+    };
   },
 });

@@ -26,17 +26,40 @@ function apiKey(): string {
 async function failure(res: Response, what: string): Promise<Error> {
   const text = await res.text();
   let detail = text.slice(0, 300);
+  let code = "";
   try {
     const parsed = JSON.parse(text) as {
       detail?: { message?: string; status?: string } | string;
     };
     if (typeof parsed.detail === "string") detail = parsed.detail;
-    else if (parsed.detail?.message) detail = parsed.detail.message;
+    else {
+      if (parsed.detail?.message) detail = parsed.detail.message;
+      if (parsed.detail?.status) code = parsed.detail.status;
+    }
   } catch {
     // Keep the raw body.
   }
   console.error(`ElevenLabs ${res.status} on ${what}: ${text.slice(0, 500)}`);
-  return new Error(`ElevenLabs ${res.status}: ${detail}`);
+  return new Error(`ElevenLabs ${res.status}${code ? ` [${code}]` : ""}: ${detail}`);
+}
+
+/** The voice id isn't (or is no longer) in the account. */
+export function isVoiceMissingError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /^ElevenLabs (404|400 \[voice_not_found\])/.test(error.message)
+  );
+}
+
+/** The account is out of custom-voice slots. */
+export function isVoiceLimitError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /^ElevenLabs \d+/.test(error.message) &&
+    /voice_limit_reached|maximum amount of custom voices|voice slots?/i.test(
+      error.message,
+    )
+  );
 }
 
 /**
@@ -93,6 +116,39 @@ export async function cloneVoice(args: {
   const parsed = (await res.json()) as { voice_id?: string };
   if (!parsed.voice_id) throw new Error("ElevenLabs returned no voice id");
   return parsed.voice_id;
+}
+
+/**
+ * ElevenLabs' own stock ("premade") voices — usable by agents on any plan
+ * and never counted against voice slots. Our pooled clones are excluded.
+ */
+export async function listStockVoices(): Promise<
+  { id: string; name: string; description: string | null }[]
+> {
+  const res = await fetch(`${BASE}/voices`, { headers: { "xi-api-key": apiKey() } });
+  if (!res.ok) throw await failure(res, "voices");
+  const parsed = (await res.json()) as {
+    voices?: {
+      voice_id: string;
+      name: string;
+      category?: string;
+      description?: string | null;
+      labels?: Record<string, string>;
+    }[];
+  };
+  return (parsed.voices ?? [])
+    .filter((v) => v.category === "premade")
+    .map((v) => ({
+      id: v.voice_id,
+      // "Roger - Laid-Back, Casual, Resonant" → name + description.
+      name: v.name.split(" - ")[0].trim(),
+      description:
+        v.name.split(" - ").slice(1).join(" - ").trim() ||
+        v.description ||
+        [v.labels?.accent, v.labels?.gender].filter(Boolean).join(" · ") ||
+        null,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function deleteVoice(voiceId: string): Promise<void> {
@@ -188,4 +244,120 @@ export function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
   return btoa(binary);
+}
+
+// ── Audio tab: text-to-speech, voice changer, dubbing ──────────────────
+
+export type AudioVoiceSettings = {
+  stability?: number;
+  similarityBoost?: number;
+  style?: number;
+  speed?: number;
+};
+
+/** Text-to-speech with an explicit model and settings → MP3 bytes. */
+export async function synthesize(args: {
+  voiceId: string;
+  text: string;
+  modelId: string;
+  settings?: AudioVoiceSettings;
+}): Promise<Uint8Array> {
+  const s = args.settings ?? {};
+  // Eleven v3 only accepts three stability steps (creative / natural / robust).
+  const v3 = args.modelId.startsWith("eleven_v3");
+  const stability = v3
+    ? [0, 0.5, 1].reduce((best, step) =>
+        Math.abs(step - (s.stability ?? 0.5)) < Math.abs(best - (s.stability ?? 0.5)) ? step : best,
+      )
+    : (s.stability ?? 0.5);
+  const res = await fetch(
+    `${BASE}/text-to-speech/${encodeURIComponent(args.voiceId)}?output_format=mp3_44100_128`,
+    {
+      method: "POST",
+      headers: { "xi-api-key": apiKey(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: args.text,
+        model_id: args.modelId,
+        voice_settings: {
+          stability,
+          similarity_boost: s.similarityBoost ?? 0.75,
+          style: s.style ?? 0,
+          use_speaker_boost: true,
+          ...(s.speed !== undefined && { speed: s.speed }),
+        },
+      }),
+    },
+  );
+  if (!res.ok) throw await failure(res, "text-to-speech");
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/** Voice changer: same words, timing and emotion in another voice → MP3. */
+export async function changeVoice(args: {
+  voiceId: string;
+  media: Blob;
+  fileName: string;
+  removeBackgroundNoise?: boolean;
+}): Promise<Uint8Array> {
+  const form = new FormData();
+  form.append("audio", args.media, args.fileName);
+  form.append("model_id", "eleven_multilingual_sts_v2");
+  form.append("remove_background_noise", String(Boolean(args.removeBackgroundNoise)));
+  form.append(
+    "voice_settings",
+    JSON.stringify({ stability: 0.5, similarity_boost: 0.85, style: 0, use_speaker_boost: true }),
+  );
+  const res = await fetch(
+    `${BASE}/speech-to-speech/${encodeURIComponent(args.voiceId)}?output_format=mp3_44100_128`,
+    { method: "POST", headers: { "xi-api-key": apiKey() }, body: form },
+  );
+  if (!res.ok) throw await failure(res, "speech-to-speech");
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/** Start a dub (translate a video/audio into another language, same voices). */
+export async function startDubbing(args: {
+  sourceUrl: string;
+  targetLang: string;
+  sourceLang?: string;
+  name: string;
+}): Promise<{ dubbingId: string; expectedSec?: number }> {
+  const form = new FormData();
+  form.append("source_url", args.sourceUrl);
+  form.append("target_lang", args.targetLang);
+  form.append("source_lang", args.sourceLang || "auto");
+  form.append("num_speakers", "0");
+  form.append("name", args.name.slice(0, 100));
+  form.append("watermark", "false");
+  form.append("highest_resolution", "true");
+  const res = await fetch(`${BASE}/dubbing`, {
+    method: "POST",
+    headers: { "xi-api-key": apiKey() },
+    body: form,
+  });
+  if (!res.ok) throw await failure(res, "dubbing");
+  const parsed = (await res.json()) as { dubbing_id?: string; expected_duration_sec?: number };
+  if (!parsed.dubbing_id) throw new Error("ElevenLabs dubbing returned no id");
+  return { dubbingId: parsed.dubbing_id, expectedSec: parsed.expected_duration_sec };
+}
+
+export async function getDubbing(
+  dubbingId: string,
+): Promise<{ status: string; error: string | null }> {
+  const res = await fetch(`${BASE}/dubbing/${encodeURIComponent(dubbingId)}`, {
+    headers: { "xi-api-key": apiKey() },
+  });
+  if (!res.ok) throw await failure(res, "dubbing/status");
+  const parsed = (await res.json()) as { status?: string; error?: string | null };
+  return { status: String(parsed.status ?? "dubbing"), error: parsed.error ?? null };
+}
+
+/** The finished dub for one language (MP4 for video sources, MP3 for audio). */
+export async function getDubbedFile(dubbingId: string, lang: string): Promise<Blob> {
+  const res = await fetch(
+    `${BASE}/dubbing/${encodeURIComponent(dubbingId)}/audio/${encodeURIComponent(lang)}`,
+    { headers: { "xi-api-key": apiKey() } },
+  );
+  if (!res.ok) throw await failure(res, "dubbing/file");
+  return await res.blob();
 }

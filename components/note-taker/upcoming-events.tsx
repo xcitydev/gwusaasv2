@@ -11,13 +11,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { friendlyError, platformLabel, whenLabel } from "./shared";
+import type { AutoJoinMode } from "@/lib/note-taker";
 
 type UpcomingEvent = FunctionReturnType<
   typeof api.noteTakerActions.listUpcomingEvents
 >[number];
 
 /** The next two weeks from connected calendars, with a Record toggle each. */
-export function UpcomingEvents({ autoJoin }: { autoJoin: "all" | "manual" }) {
+export function UpcomingEvents({ autoJoin }: { autoJoin: AutoJoinMode }) {
   const listUpcoming = useAction(api.noteTakerActions.listUpcomingEvents);
   const setRecording = useAction(api.noteTakerActions.setEventRecording);
   const [events, setEvents] = useState<UpcomingEvent[] | null>(null);
@@ -68,7 +69,9 @@ export function UpcomingEvents({ autoJoin }: { autoJoin: "all" | "manual" }) {
             <span className="text-xs text-muted-foreground">
               {autoJoin === "all"
                 ? "Auto-recording everything with a link"
-                : "Pick what to record"}
+                : autoJoin === "hosting"
+                  ? "Auto-recording meetings you host"
+                  : "Pick what to record"}
             </span>
           </div>
           <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
@@ -100,6 +103,11 @@ export function UpcomingEvents({ autoJoin }: { autoJoin: "all" | "manual" }) {
                       : "No meeting link"}
                     {event.attendeeCount > 0 &&
                       ` · ${event.attendeeCount} invited`}
+                    {!event.recording && event.offReason && autoJoin !== "manual" && (
+                      <span className="text-muted-foreground/70">
+                        {" · "}Off: {event.offReason.toLowerCase()}
+                      </span>
+                    )}
                   </p>
                 </div>
                 {busyId === event.eventId && (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { hasConvex } from "@/lib/runtime";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -93,6 +93,8 @@ function InboxesTabLive() {
   const removeInbox = useMutation(api.outreach.removeInbox);
   const toggleWarmup = useAction(api.outreachActions.toggleWarmup);
   const syncNow = useAction(api.outreachActions.syncNow);
+  // Sync runs the platform-wide engine, so it is an admin-only control.
+  const me = useQuery(api.users.me);
   const [syncing, setSyncing] = useState(false);
 
   const [dialog, setDialog] = useState<null | "oauth" | "imap" | "prewarmed">(null);
@@ -107,24 +109,128 @@ function InboxesTabLive() {
     smtpHost: "", smtpPort: "587", smtpUser: "", smtpPass: "", dailyLimit: "30",
   });
   const [oauthEmail, setOauthEmail] = useState("");
+  const [appPassword, setAppPassword] = useState("");
+  // Sign in with Google/Microsoft: the session we are polling, if any.
+  const [signIn, setSignIn] = useState<{ sessionId: string; authUrl: string } | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const startSignIn = useAction(api.outreachActions.startMailboxSignIn);
+  const checkSignIn = useAction(api.outreachActions.checkMailboxSignIn);
+  const detectProvider = useAction(api.outreachActions.detectMailProvider);
+  const popupRef = useRef<Window | null>(null);
 
-  const connectOauth = async () => {
-    if (!/^\S+@\S+\.\S+$/.test(oauthEmail)) {
-      toast.error("Enter the inbox email address.");
+  // A personal Gmail address can't use Google sign-in (Workspace only), so
+  // it connects over IMAP/SMTP with an app password instead.
+  const isPersonalGmail = /@(gmail|googlemail)\.com$/i.test(oauthEmail.trim());
+  const useAppPassword = oauthProvider === "google" && isPersonalGmail;
+
+  const closeOauthDialog = () => {
+    setDialog(null);
+    setSignIn(null);
+    setAppPassword("");
+    popupRef.current?.close();
+  };
+
+  // Poll the sign-in while the dialog waits on it.
+  useEffect(() => {
+    if (!signIn || dialog !== "oauth") return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        const result = await checkSignIn({ sessionId: signIn.sessionId });
+        if (stopped) return;
+        if (result.status === "pending") {
+          timer = setTimeout(tick, 3000);
+          return;
+        }
+        popupRef.current?.close();
+        setSignIn(null);
+        if (result.status === "connected") {
+          toast.success(`${result.email} connected — warmup starts automatically.`);
+          setDialog(null);
+        } else {
+          toast.error(result.message, { duration: 10000 });
+        }
+      } catch {
+        if (!stopped) timer = setTimeout(tick, 5000);
+      }
+    };
+    timer = setTimeout(tick, 3000);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [signIn, dialog, checkSignIn]);
+
+  const beginSignIn = async () => {
+    // Open the window inside the click so popup blockers allow it, then
+    // point it at the provider once the session exists.
+    const popup = window.open("about:blank", "mailbox-sign-in", "width=520,height=700");
+    popupRef.current = popup;
+    setBusy(true);
+    try {
+      const session = await startSignIn({ provider: oauthProvider });
+      if (popup && !popup.closed) popup.location.href = session.authUrl;
+      setSignIn(session);
+    } catch (error) {
+      popup?.close();
+      toast.error(error instanceof Error ? error.message : "Couldn't start the sign-in.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const connectGmailAppPassword = async () => {
+    const email = oauthEmail.trim();
+    const password = appPassword.replace(/\s+/g, "");
+    if (password.length < 16) {
+      toast.error("Paste the 16-character app password from Google.");
       return;
     }
     setBusy(true);
     try {
-      await connectInboxes({
-        inboxes: [{ email: oauthEmail, provider: oauthProvider, dailyLimit: 30 }],
+      const result = await connectInboxes({
+        inboxes: [
+          {
+            email,
+            provider: "imap_smtp",
+            dailyLimit: 30,
+            imap: { host: "imap.gmail.com", port: "993", username: email, password },
+            smtp: { host: "smtp.gmail.com", port: "587", username: email, password },
+          },
+        ],
       });
-      toast.success(`${oauthEmail} connected — warmup starts automatically.`);
-      setDialog(null);
-      setOauthEmail("");
-    } catch {
-      toast.error("Connection failed. Are you signed in?");
+      if (result.engineErrors.length > 0) {
+        toast.error(result.engineErrors[0], { duration: 10000 });
+        return;
+      }
+      toast.success(`${email} connected — warmup starts automatically.`);
+      closeOauthDialog();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Connection failed.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** One click for the address the user signed in to the platform with. */
+  const connectAccountEmail = async (email: string) => {
+    setDetecting(true);
+    try {
+      const { kind } = await detectProvider({ email });
+      if (kind === "imap") {
+        setImapForm((prev) => ({ ...prev, email }));
+        setDialog("imap");
+      } else {
+        setOauthProvider(kind === "outlook" ? "outlook" : "google");
+        setOauthEmail(email);
+        setDialog("oauth");
+      }
+    } catch {
+      toast.error("Couldn't check that address. Try Add inboxes instead.");
+    } finally {
+      setDetecting(false);
     }
   };
 
@@ -218,14 +324,36 @@ function InboxesTabLive() {
   const setField = (key: keyof typeof imapForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setImapForm((prev) => ({ ...prev, [key]: e.target.value }));
 
+  const accountEmail = me?.email?.trim().toLowerCase() || null;
+  const accountEmailConnected =
+    inboxesQuery === undefined || inboxes.some((i) => i.email === accountEmail);
+
   return (
     <div>
+      {accountEmail && !accountEmailConnected && (
+        <Card className="mb-4 border-white/10">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div className="min-w-0">
+              <p className="font-medium">Send from {accountEmail}</p>
+              <p className="text-sm text-muted-foreground">
+                The email you signed in with. Connect it in a couple of clicks.
+              </p>
+            </div>
+            <Button onClick={() => connectAccountEmail(accountEmail)} disabled={detecting}>
+              {detecting ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+              Connect this email
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {inboxes.length} inbox{inboxes.length === 1 ? "" : "es"} ·{" "}
           {inboxes.filter((i) => i.status === "warmed").length} warmed
         </p>
         <div className="flex items-center gap-2">
+        {me?.adminRole && (
         <Button
           variant="outline"
           size="sm"
@@ -249,6 +377,7 @@ function InboxesTabLive() {
           {syncing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
           Sync
         </Button>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button data-tour="outreach-add-inboxes">
@@ -259,10 +388,10 @@ function InboxesTabLive() {
             <DropdownMenuItem onClick={() => setDialog("prewarmed")}>
               <ShoppingCart className="size-4" /> Buy prewarmed domains
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { setOauthProvider("google"); setDialog("oauth"); }}>
+            <DropdownMenuItem onClick={() => { setOauthProvider("google"); setOauthEmail(""); setDialog("oauth"); }}>
               <Mail className="size-4" /> Connect Gmail / GSuite
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { setOauthProvider("outlook"); setDialog("oauth"); }}>
+            <DropdownMenuItem onClick={() => { setOauthProvider("outlook"); setOauthEmail(""); setDialog("oauth"); }}>
               <Mail className="size-4" /> Connect Outlook
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setDialog("imap")}>
@@ -499,29 +628,86 @@ function InboxesTabLive() {
       </Dialog>
 
       {/* OAuth connect */}
-      <Dialog open={dialog === "oauth"} onOpenChange={(o) => !o && setDialog(null)}>
+      <Dialog open={dialog === "oauth"} onOpenChange={(o) => !o && closeOauthDialog()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Connect {oauthProvider === "google" ? "Gmail / GSuite" : "Outlook"}
+              Connect {oauthProvider === "google" ? "Gmail / Google Workspace" : "Outlook / Microsoft 365"}
             </DialogTitle>
             <DialogDescription>
-              Enter the inbox address — you&apos;ll authorize it with{" "}
-              {oauthProvider === "google" ? "Google" : "Microsoft"} and warmup
-              starts automatically.
+              {useAppPassword
+                ? "Personal Gmail connects with an app password. Google doesn't allow sign-in here for @gmail.com addresses."
+                : `Sign in with ${oauthProvider === "google" ? "Google" : "Microsoft"} in the window that opens. We never see your password, and warmup starts automatically.`}
             </DialogDescription>
           </DialogHeader>
-          <Input
-            placeholder="you@yourdomain.com"
-            type="email"
-            value={oauthEmail}
-            onChange={(e) => setOauthEmail(e.target.value)}
-          />
+          {oauthProvider === "google" && (
+            <div className="space-y-1.5">
+              <Label>Email address</Label>
+              <Input
+                placeholder="you@yourdomain.com"
+                type="email"
+                value={oauthEmail}
+                disabled={Boolean(signIn)}
+                onChange={(e) => setOauthEmail(e.target.value)}
+              />
+            </div>
+          )}
+          {useAppPassword ? (
+            <div className="space-y-3 text-sm">
+              <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
+                <li>Turn on 2-Step Verification for this Google account.</li>
+                <li>
+                  Open{" "}
+                  <a
+                    href="https://myaccount.google.com/apppasswords"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary underline underline-offset-2"
+                  >
+                    Google app passwords
+                  </a>
+                  , create one (any name), and copy the 16-character code.
+                </li>
+                <li>Paste it below.</li>
+              </ol>
+              <div className="space-y-1.5">
+                <Label>App password</Label>
+                <Input
+                  type="password"
+                  placeholder="abcd efgh ijkl mnop"
+                  value={appPassword}
+                  onChange={(e) => setAppPassword(e.target.value)}
+                />
+              </div>
+            </div>
+          ) : signIn ? (
+            <div className="flex items-start gap-2 rounded-md border border-white/10 p-3 text-sm">
+              <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin" />
+              <p className="text-muted-foreground">
+                Finish signing in in the other window. This updates by itself.{" "}
+                <a
+                  href={signIn.authUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary underline underline-offset-2"
+                >
+                  Window didn&apos;t open?
+                </a>
+              </p>
+            </div>
+          ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
-            <Button onClick={connectOauth} disabled={busy}>
-              {busy && <Loader2 className="size-4 animate-spin" />} Connect
-            </Button>
+            <Button variant="outline" onClick={closeOauthDialog}>Cancel</Button>
+            {useAppPassword ? (
+              <Button onClick={connectGmailAppPassword} disabled={busy}>
+                {busy && <Loader2 className="size-4 animate-spin" />} Connect
+              </Button>
+            ) : (
+              <Button onClick={beginSignIn} disabled={busy || Boolean(signIn)}>
+                {busy && <Loader2 className="size-4 animate-spin" />}
+                Sign in with {oauthProvider === "google" ? "Google" : "Microsoft"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -13,6 +13,8 @@ export type ImageModel = {
   baseUsd: number; // per image
   resolutions: string[];
   supportsEdit?: boolean;
+  /** Price multiplier per resolution where the provider bills by size; missing = 1. */
+  resolutionMultiplier?: Record<string, number>;
 };
 
 export type VideoModel = {
@@ -26,6 +28,8 @@ export type VideoModel = {
   durations: number[]; // seconds the model can generate
   resolutions: string[];
   supportsReference?: boolean;
+  /** Price multiplier per resolution where the provider bills by size; missing = 1. */
+  resolutionMultiplier?: Record<string, number>;
 };
 
 export const IMAGE_MODELS: ImageModel[] = [
@@ -35,6 +39,8 @@ export const IMAGE_MODELS: ImageModel[] = [
     provider: "fal-ai/flux-pro/v1.1",
     baseUsd: 0.04,
     resolutions: ["1024×1024", "1024×1440", "1440×1024", "2048×2048"],
+    // Billed per megapixel, rounded up.
+    resolutionMultiplier: { "1024×1440": 2, "1440×1024": 2, "2048×2048": 5 },
   },
   {
     id: "flux-dev",
@@ -42,6 +48,8 @@ export const IMAGE_MODELS: ImageModel[] = [
     provider: "fal-ai/flux/dev",
     baseUsd: 0.025,
     resolutions: ["1024×1024", "1024×1440", "1440×1024"],
+    // Billed per megapixel, rounded up.
+    resolutionMultiplier: { "1024×1440": 2, "1440×1024": 2 },
   },
   {
     id: "recraft-v3",
@@ -97,6 +105,8 @@ export const VIDEO_MODELS: VideoModel[] = [
     durations: [5, 10],
     resolutions: ["720p", "1080p"],
     supportsReference: true,
+    // Token-metered: cost scales with pixels (1080p ≈ 2.25× 720p).
+    resolutionMultiplier: { "1080p": 2.25 },
   },
   {
     id: "luma-ray-2",
@@ -181,14 +191,51 @@ export function findVideoModel(id: string): VideoModel | undefined {
   return VIDEO_MODELS.find((m) => m.id === id);
 }
 
+/**
+ * Server-side check of client-chosen generation options: the resolution
+ * must be one the model offers and, for video, the duration one of its
+ * fixed lengths. Returns an error sentence, or null when valid.
+ */
+export function invalidGenerationOptions(args: {
+  kind: "image" | "video";
+  modelId: string;
+  resolution: string;
+  durationSec?: number;
+}): string | null {
+  const model =
+    args.kind === "image" ? findImageModel(args.modelId) : findVideoModel(args.modelId);
+  if (!model) return "Unknown model";
+  if (!model.resolutions.includes(args.resolution)) {
+    return `${model.label} supports ${model.resolutions.join(", ")} — pick one of those sizes.`;
+  }
+  if (args.kind === "video") {
+    const video = model as VideoModel;
+    if (args.durationSec === undefined || !video.durations.includes(args.durationSec)) {
+      return `${model.label} renders ${video.durations.join(" or ")} second clips — pick one of those lengths.`;
+    }
+  }
+  return null;
+}
+
+function resolutionFactor(
+  model: { resolutionMultiplier?: Record<string, number> } | undefined,
+  resolution?: string,
+): number {
+  if (!model || !resolution) return 1;
+  return model.resolutionMultiplier?.[resolution] ?? 1;
+}
+
 /** base provider cost in USD for one generation */
 export function baseCostUsd(args: {
   kind: "image" | "video" | "motion";
   modelId: string;
   durationSec?: number;
+  /** Chosen size; models that bill by size cost more at larger ones. */
+  resolution?: string;
 }): number {
   if (args.kind === "image") {
-    return findImageModel(args.modelId)?.baseUsd ?? 0;
+    const model = findImageModel(args.modelId);
+    return (model?.baseUsd ?? 0) * resolutionFactor(model, args.resolution);
   }
   if (args.kind === "motion") {
     const model = findMotionModel(args.modelId);
@@ -197,7 +244,11 @@ export function baseCostUsd(args: {
   }
   const model = findVideoModel(args.modelId);
   if (!model) return 0;
-  return model.perSecondUsd * (args.durationSec ?? model.durations[0]);
+  return (
+    model.perSecondUsd *
+    (args.durationSec ?? model.durations[0]) *
+    resolutionFactor(model, args.resolution)
+  );
 }
 
 /** credits charged = base × markup ÷ creditPrice, rounded up */
@@ -205,6 +256,7 @@ export function costInCredits(args: {
   kind: "image" | "video" | "motion";
   modelId: string;
   durationSec?: number;
+  resolution?: string;
   markup: number;
   creditPriceUsd: number;
 }): number {

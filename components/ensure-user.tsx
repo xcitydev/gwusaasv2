@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { useAuth } from "@clerk/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -17,10 +16,8 @@ const REF_KEY = "referral-code";
  */
 export function EnsureUser() {
   const { isAuthenticated } = useConvexAuth();
-  const { has } = useAuth();
   const ensureUser = useMutation(api.users.ensureUser);
   const redeemInvite = useMutation(api.inviteCodes.redeem);
-  const syncPlan = useMutation(api.billing.syncPlan);
   const me = useQuery(api.users.me, isAuthenticated ? {} : "skip");
   const router = useRouter();
   const pathname = usePathname();
@@ -87,19 +84,7 @@ export function EnsureUser() {
     router.replace("/welcome");
   }, [me?.planQuizPending, pathname, router]);
 
-  // Mirror the Clerk Billing plan into Convex (grants plan credits once,
-  // qualifies the referrer's one-time 30% payout).
-  useEffect(() => {
-    if (!isAuthenticated || !has) return;
-    const plan = has({ plan: "team" })
-      ? ("team" as const)
-      : has({ plan: "personal" })
-        ? ("personal" as const)
-        : ("free" as const);
-    void syncPlan({ plan }).catch(() => {
-      // Billing not configured yet — plan stays as-is.
-    });
-  }, [isAuthenticated, has, syncPlan]);
+  // Plan state is written only by Whop webhooks — nothing to mirror here.
 
   return null;
 }

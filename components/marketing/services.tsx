@@ -59,7 +59,7 @@ export const SERVICES: Service[] = [
   {
     id: "leads", icon: Users, name: "Find Customers", sub: "Maps · LinkedIn · B2B", tag: "Leads",
     title: "Find your customers",
-    blurb: "Say who you want. AI searches Google Maps, LinkedIn and B2B data — deduped, with verified emails.",
+    blurb: "Say who you want. AI searches Google Maps, LinkedIn and B2B data — deduped, with work emails where available.",
     cta: "Find leads", Visual: LeadsVisual,
   },
   {

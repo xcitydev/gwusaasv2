@@ -1,7 +1,11 @@
 import { query, mutation } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
 import { notify } from "./notifications";
+import { secureToken } from "./lib/tokens";
+
+/** Team invites are single-use and die after a week. */
+const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const members = query({
   args: {},
@@ -34,7 +38,11 @@ export const members = query({
         }),
       ),
       pendingInvites: invites
-        .filter((i) => i.status === "pending")
+        .filter(
+          (i) =>
+            i.status === "pending" &&
+            (i.expiresAt ?? i._creationTime + INVITE_TTL_MS) > Date.now(),
+        )
         .map((i) => ({ _id: i._id, email: i.email })),
     };
   },
@@ -59,7 +67,14 @@ export const invite = mutation({
       .query("invites")
       .withIndex("by_email", (q) => q.eq("email", email))
       .collect();
-    if (existing.some((i) => i.workspaceId === workspace._id && i.status === "pending")) {
+    if (
+      existing.some(
+        (i) =>
+          i.workspaceId === workspace._id &&
+          i.status === "pending" &&
+          (i.expiresAt ?? i._creationTime + INVITE_TTL_MS) > Date.now(),
+      )
+    ) {
       throw new Error("That email already has a pending invite");
     }
 
@@ -70,6 +85,7 @@ export const invite = mutation({
       token,
       invitedBy: user._id,
       status: "pending",
+      expiresAt: Date.now() + INVITE_TTL_MS,
     });
     return token;
   },
@@ -107,12 +123,30 @@ export const acceptInvite = mutation({
   args: { token: v.string() },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
+    const identity = await ctx.auth.getUserIdentity();
     const inviteDoc = await ctx.db
       .query("invites")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
+    // ConvexError so the reason survives production error redaction.
     if (!inviteDoc || inviteDoc.status !== "pending") {
-      throw new Error("This invite is no longer valid");
+      throw new ConvexError("This invite is no longer valid — ask for a new one.");
+    }
+    // Legacy rows have no expiresAt: they expire a week after creation.
+    const expiresAt = inviteDoc.expiresAt ?? inviteDoc._creationTime + INVITE_TTL_MS;
+    if (Date.now() > expiresAt) {
+      throw new ConvexError("This invite has expired — ask for a new one.");
+    }
+    // A leaked link is useless to anyone but the invited address, and only
+    // once Clerk has verified that the caller really owns it.
+    const email = (identity?.email ?? "").trim().toLowerCase();
+    if (!email || identity?.emailVerified !== true) {
+      throw new ConvexError("Verify your email address before accepting this invite.");
+    }
+    if (email !== inviteDoc.email.trim().toLowerCase()) {
+      throw new ConvexError(
+        `This invite was sent to ${inviteDoc.email}. Sign in with that email to accept it.`,
+      );
     }
     const already = await ctx.db
       .query("members")
@@ -140,10 +174,8 @@ export const acceptInvite = mutation({
 });
 
 function generateToken(): string {
-  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let token = "";
-  for (let i = 0; i < 24; i++) {
-    token += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return token;
+  return secureToken(
+    24,
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+  );
 }

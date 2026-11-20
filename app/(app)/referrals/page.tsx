@@ -9,7 +9,7 @@ export default function ReferralsPage() {
     <LivePage>
       <PageHeader
         title="Referrals"
-        description="Share your link, earn 50% when someone you refer subscribes."
+        description="Share your link, earn 15% of every payment from anyone you refer, for life."
         actions={<TourLauncher tour={REFERRALS_TOUR} />}
       />
       <ReferralsClient />

@@ -25,6 +25,7 @@ export type ErrorArea =
 const VENDORS: { vendor: string; area: ErrorArea; pattern: RegExp }[] = [
   { vendor: "Bland", area: "voice", pattern: /\bbland\b|bland\.ai/i },
   { vendor: "ElevenLabs", area: "voice", pattern: /eleven ?labs/i },
+  { vendor: "Twilio", area: "voice", pattern: /\btwilio\b/i },
   { vendor: "Higgsfield", area: "generation", pattern: /higgsfield/i },
   { vendor: "fal", area: "generation", pattern: /\bfal(?:\.ai|\.media|-ai)?\b/i },
   { vendor: "Apify", area: "leads", pattern: /apify/i },

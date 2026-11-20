@@ -24,10 +24,10 @@ type Showcase = {
 const SHOWCASES: Showcase[] = [
   {
     id: "soul",
-    eyebrow: "Exclusively in Studio",
+    eyebrow: "Available in Studio",
     title: "Soul 2 in Studio",
     blurb:
-      "The Higgsfield photoreal image model, inside your workspace. Fashion, editorial and product shots that read like a real shoot, priced per image.",
+      "Higgsfield's photoreal Soul 2 image model, available in your workspace. Fashion, editorial and product shots that read like a real shoot, priced per image.",
     cta: "Try Soul 2",
     studio: "Open image studio",
   },

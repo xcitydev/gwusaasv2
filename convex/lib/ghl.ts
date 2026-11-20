@@ -57,14 +57,48 @@ const APP_SCOPES: Record<GhlApp, string> = {
   ].join(" "),
 };
 
-export function installUrl(app: GhlApp, redirectUri: string): string {
+export function installUrl(app: GhlApp, redirectUri: string, state: string): string {
   const params = new URLSearchParams({
     response_type: "code",
     redirect_uri: redirectUri,
     client_id: appCreds(app).id,
     scope: APP_SCOPES[app],
+    // One-shot, admin-minted; the callback refuses codes without it.
+    state,
   });
   return `https://marketplace.gohighlevel.com/oauth/chooselocation?${params}`;
+}
+
+// ── Token sealing (ghlAuth / igAccounts rows) ───────────────────────────
+
+const SEALED_PREFIX = "enc1:";
+let warnedNoKey = false;
+
+/**
+ * Encrypt a GHL token for storage (AES-GCM via lib/crypto, actions only).
+ * Without ENCRYPTION_KEY it stores plaintext and warns once, so a missing
+ * key degrades instead of breaking IG DMs.
+ */
+export async function sealToken(token: string): Promise<string> {
+  if (!process.env.ENCRYPTION_KEY) {
+    if (!warnedNoKey) {
+      warnedNoKey = true;
+      console.warn("GHL: ENCRYPTION_KEY is not set — storing GHL tokens unencrypted");
+    }
+    return token;
+  }
+  const { encryptString } = await import("./crypto");
+  return SEALED_PREFIX + (await encryptString(token));
+}
+
+/** Inverse of sealToken; rows written before sealing pass through as-is. */
+export async function openToken(stored: string): Promise<string>;
+export async function openToken(stored: string | null | undefined): Promise<string | null>;
+export async function openToken(stored: string | null | undefined): Promise<string | null> {
+  if (!stored) return stored ?? null;
+  if (!stored.startsWith(SEALED_PREFIX)) return stored;
+  const { decryptString } = await import("./crypto");
+  return await decryptString(stored.slice(SEALED_PREFIX.length));
 }
 
 async function request<T>(

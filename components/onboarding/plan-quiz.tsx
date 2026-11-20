@@ -13,6 +13,7 @@ import {
   AudioWaveform,
   Briefcase,
   Building2,
+  CalendarCheck,
   Check,
   Loader2,
   Megaphone,
@@ -374,6 +375,25 @@ function PlanReveal({
             ))}
           </ul>
         </div>
+
+        {goals.includes("notes") && (
+          <Link
+            href="/note-taker?connect=1"
+            className="mt-4 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-primary/40"
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+              <CalendarCheck className="size-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium">Connect your calendar</span>
+              <span className="block text-xs text-muted-foreground">
+                The note taker then joins the meetings you host on its own — no
+                links to paste.
+              </span>
+            </span>
+            <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+          </Link>
+        )}
 
         <div className="mt-6 flex flex-col gap-2.5 sm:flex-row">
           <Button asChild size="lg" className="h-12 flex-1 rounded-xl text-base font-semibold">

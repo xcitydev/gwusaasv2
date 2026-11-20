@@ -156,6 +156,11 @@ export const NOTE_TAKER_TOUR: TourDefinition = {
       body: "A bot joins your Zoom, Google Meet or Teams call, records, and writes the notes — summary, decisions, action items, follow-up email.",
     },
     {
+      target: "notetaker-connect-calendar",
+      title: "Make it automatic 📅",
+      body: "Connect Google or Outlook and the bot joins the meetings you host on its own. Change which meetings it joins any time in Settings.",
+    },
+    {
       target: "notetaker-record",
       title: "Record a meeting",
       body: "Paste the invite link and the bot joins now or at a set time. For Zoom, use “Copy invite link” so the link has its passcode (?pwd=…).",
@@ -168,6 +173,11 @@ export const NOTE_TAKER_TOUR: TourDefinition = {
       target: "notetaker-search",
       title: "Find anything ever said",
       body: "Search every meeting — titles, notes, and the actual words spoken, with a jump to the exact moment.",
+    },
+    {
+      target: "notetaker-ask-bar",
+      title: "Ask across every meeting ✨",
+      body: "“What did we decide about pricing?” — the Ask bar up top answers from all your meetings, on any page, and links to the moment it was said. Ctrl/⌘ J opens it.",
     },
     {
       target: "notetaker-tab-coach",
@@ -187,7 +197,7 @@ export const CREATE_TOUR: TourDefinition = {
   steps: [
     {
       title: "Create with AI",
-      body: "One place for images, video, motion control and Higgsfield Studio — 20+ models, one credit balance, every price shown before you render.",
+      body: "One place for images, video, AI influencers and ads — 40+ models, one credit balance, every price shown before you render.",
     },
     {
       target: "create-tab-hub",
@@ -195,14 +205,14 @@ export const CREATE_TOUR: TourDefinition = {
       body: "Just chat: describe what you want, attach reference images if you have them. The AI picks the right model, shows a plan with the exact price, and renders only after you tap Run.",
     },
     {
-      target: "create-tab-image",
+      target: "create-tab-studio",
       title: "Want manual control?",
-      body: "Click Image to see the advanced tabs.",
+      body: "Click Studio to pick the model yourself.",
       advance: "click",
     },
     {
       title: "Every knob, every model 🎛️",
-      body: "Image, Video, Motion and Studio tabs give you full manual control — model, size, duration, references. Same credit pricing per generation.",
+      body: "Studio has every image and video model in one picker — size, length, references and style. AI Influencer, Elements (type @ to reuse saved people, places and props) and Ads & Products sit on top.",
     },
     {
       target: "create-tab-library",

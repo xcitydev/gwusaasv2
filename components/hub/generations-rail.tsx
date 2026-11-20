@@ -22,7 +22,7 @@ export function modelLabel(id: string): string {
 /** The newest results, always in view next to the chat. */
 export function GenerationsRail({ onOpenLibrary }: { onOpenLibrary: () => void }) {
   const generations = useQuery(api.generations.list);
-  const recent = (generations ?? []).slice(0, 12);
+  const recent = (generations ?? []).filter((g) => g.kind !== "audio").slice(0, 12);
 
   return (
     <Card className="lg:sticky lg:top-24">

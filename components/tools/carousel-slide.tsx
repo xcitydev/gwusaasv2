@@ -31,6 +31,8 @@ export function proxiedImageUrl(url: string): string {
 
 /** Loads a template's Google Fonts — React 19 hoists + dedupes these links. */
 export function TemplateFonts({ template }: { template: CarouselTemplate }) {
+  // Admin-supplied: never load a stylesheet from anywhere but Google Fonts.
+  if (!template.fontsUrl?.startsWith("https://fonts.googleapis.com/")) return null;
   return <link rel="stylesheet" href={template.fontsUrl} precedence="default" />;
 }
 

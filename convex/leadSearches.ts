@@ -2,6 +2,9 @@ import { query, mutation, internalMutation, internalQuery } from "./_generated/s
 import { publicRowError } from "./incidents";
 import { v } from "convex/values";
 import { requireUser, getCurrentUser, getPrimaryWorkspace } from "./lib/auth";
+import { assertPlanDb } from "./lib/plan";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { getConfigValue, ConfigKey } from "./config";
 import { spendCredits } from "./lib/credits";
 import { leadSourceMeta } from "../lib/lead-sources";
@@ -20,8 +23,36 @@ export type SearchResultRow = FoundLead & {
   fromPool?: boolean;
 };
 
+/** New to this workspace and has an email or phone — counts toward the requested total. */
+function isImportableRow(r: Pick<SearchResultRow, "duplicate" | "noEmail" | "phoneOnly">): boolean {
+  return !r.duplicate && (!r.noEmail || Boolean(r.phoneOnly));
+}
+
 /** A search that has been "running" longer than this is treated as stuck. */
 const STUCK_AFTER_MS = 20 * 60 * 1000;
+
+const ONE_AT_A_TIME =
+  "You already have a lead search running — wait for it to finish, then search again.";
+
+/** Another non-stuck search is running in this workspace (optionally ignoring one). */
+async function hasRunningSearch(
+  ctx: QueryCtx | MutationCtx,
+  workspaceId: Id<"workspaces">,
+  exceptId?: Id<"leadSearches">,
+): Promise<boolean> {
+  const recent = await ctx.db
+    .query("leadSearches")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .order("desc")
+    .take(10);
+  const now = Date.now();
+  return recent.some(
+    (s) =>
+      s._id !== exceptId &&
+      s.status === "running" &&
+      now - s._creationTime < STUCK_AFTER_MS,
+  );
+}
 
 /** Legacy rows predate rowId; their array position is stable (never merged). */
 const rowIdOf = (row: SearchResultRow, i: number) => row.rowId ?? `i${i}`;
@@ -39,16 +70,10 @@ export const prepare = internalQuery({
     if (!workspace) throw new Error("No workspace");
     const costTier = leadSourceMeta(args.source).costTier;
     const costPerLead = Number(await getConfigValue(ctx, costTier as ConfigKey)) || 1;
-    const recent = await ctx.db
-      .query("leadSearches")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-      .order("desc")
-      .take(10);
-    const now = Date.now();
-    const running = recent.some(
-      (s) => s.status === "running" && now - s._creationTime < STUCK_AFTER_MS,
-    );
-    return { workspaceId: workspace._id, credits: workspace.credits, costPerLead, running };
+    // Early, friendly answer only — createSearch/startExtend re-check
+    // atomically, so two racing searches can't both start.
+    const running = await hasRunningSearch(ctx, workspace._id);
+    return { userId: user._id, workspaceId: workspace._id, credits: workspace.credits, costPerLead, running };
   },
 });
 
@@ -65,6 +90,9 @@ export const createSearch = internalMutation({
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
+    // Check-and-create in one transaction: the one-at-a-time rule holds
+    // even when two searches are fired at once.
+    if (await hasRunningSearch(ctx, workspace._id)) throw new Error(ONE_AT_A_TIME);
     const costTier = leadSourceMeta(args.source).costTier;
     const creditCostPerLead = await getConfigValue(ctx, costTier as ConfigKey);
     return await ctx.db.insert("leadSearches", {
@@ -104,24 +132,38 @@ export const storeResults = internalMutation({
       await addToPool(ctx, search.source, search.filters ?? {}, incoming);
     }
 
+    // The target is NEW, importable leads: ones the workspace already owns
+    // or that have no email/phone are still listed but don't count, so a
+    // search for 10 ends with 10 the user can actually import.
+    const target = Math.min(search.limit ?? 200, 1000);
     // Row storage ceiling: 1000 keeps the doc well inside Convex's 1MB limit.
-    const cap = Math.min(search.limit ?? 200, 1000);
+    const MAX_ROWS = 1000;
     const kept = search.extending ? ((search.results ?? []) as SearchResultRow[]) : [];
     const rows: SearchResultRow[] = [...kept];
     const seen = new Set(kept.map((r) => r.email).filter(Boolean));
+    // The same business can arrive twice with different keys (library copy
+    // keyed by phone, fresh scrape now has an email) — also match it by
+    // phone number and by name + location, so it's listed once.
+    const businessIndex = new Map<string, number>();
+    const businessKeys = (r: { name?: string; location?: string; phone?: string }) =>
+      [
+        phoneLeadKey(r.phone),
+        r.name?.trim() ? `nl:${r.name.trim().toLowerCase()}|${(r.location ?? "").trim().toLowerCase()}` : null,
+      ].filter((k): k is string => Boolean(k));
+    kept.forEach((r, i) => businessKeys(r).forEach((k) => businessIndex.set(k, i)));
+    let importable = kept.filter(isImportableRow).length;
     let nextId = kept.length;
     for (const lead of incoming) {
-      if (rows.length >= cap) break;
+      if (importable >= target || rows.length >= MAX_ROWS) break;
       const realEmail = (lead.email ?? "").trim().toLowerCase();
       const noEmail = !realEmail.includes("@");
       // No email but a phone → still importable (the user decides), keyed by
       // the phone digits. Neither → nothing to contact, never importable.
       const phoneKey = noEmail ? phoneLeadKey(lead.phone) : null;
       const email = noEmail ? (phoneKey ?? "") : realEmail;
+      if (email && seen.has(email)) continue; // collapse dupes entirely
       let duplicate = false;
       if (email) {
-        if (seen.has(email)) continue; // collapse dupes entirely
-        seen.add(email);
         duplicate = Boolean(
           await ctx.db
             .query("leads")
@@ -131,7 +173,22 @@ export const storeResults = internalMutation({
             .unique(),
         );
       }
-      rows.push({
+      const keys = businessKeys(lead);
+      const sameAs = keys.map((k) => businessIndex.get(k)).find((i) => i !== undefined);
+      if (sameAs !== undefined) {
+        // Already listed. If this copy shows the workspace owns it, mark the
+        // listed copy owned too so it can't be bought twice.
+        const existing = rows[sameAs];
+        if (duplicate && !existing.duplicate) {
+          if (isImportableRow(existing)) importable--;
+          rows[sameAs] = { ...existing, duplicate: true };
+        }
+        if (email) seen.add(email);
+        continue;
+      }
+      if (email) seen.add(email);
+      keys.forEach((k) => businessIndex.set(k, rows.length));
+      const row: SearchResultRow = {
         ...lead,
         email,
         rowId: `r${nextId++}`,
@@ -139,16 +196,27 @@ export const storeResults = internalMutation({
         noEmail,
         phoneOnly: Boolean(phoneKey),
         ...(args.fromPool && { fromPool: true }),
-      });
+      };
+      rows.push(row);
+      if (isImportableRow(row)) importable++;
     }
+    // A real scrape finished and still came up short: the source simply has
+    // no more for this search. Say so plainly instead of looking broken.
+    const shortNote =
+      !args.fromPool && importable < target
+        ? `Only ${importable} new lead${importable === 1 ? "" : "s"} matched this search right now (you asked for ${target}) — that's everything available${
+            rows.length > importable ? "; the rest are already in your leads or have no contact details" : ""
+          }. Try a nearby area or broader wording for more.`
+        : undefined;
+    const warning = [args.warning, shortNote].filter(Boolean).join(" ") || undefined;
     await ctx.db.patch(args.id, {
       status: "done",
       extending: false,
       results: rows,
       resultCount: rows.length,
       ...(args.fromPool && { poolCount: rows.length }),
-      ...(args.warning && {
-        warning: await publicRowError(ctx, args.warning, {
+      ...(warning && {
+        warning: await publicRowError(ctx, warning, {
           source: `lead search warning (${search.source ?? "unknown"})`,
           area: "leads",
           userId: search.userId,
@@ -188,6 +256,9 @@ export const startExtend = internalMutation({
   handler: async (ctx, args) => {
     const search = await ctx.db.get(args.id);
     if (!search) throw new Error("Search not found");
+    if (search.status === "running" || (await hasRunningSearch(ctx, search.workspaceId, args.id))) {
+      throw new Error(ONE_AT_A_TIME);
+    }
     await ctx.db.patch(args.id, { status: "running", extending: true, warning: undefined });
   },
 });
@@ -255,7 +326,8 @@ export const get = query({
           website: row.website,
           email: owned ? realEmail : maskEmail(realEmail),
           phone: owned ? row.phone : maskPhone(row.phone ?? ""),
-          duplicate: owned,
+          // Owned under this key, or (flagged at merge) under another key.
+          duplicate: owned || Boolean(row.duplicate),
           noEmail: row.noEmail,
           phoneOnly: Boolean(row.phoneOnly),
           fromPool: Boolean(row.fromPool),
@@ -286,6 +358,8 @@ export const importFromSearch = mutation({
   args: { id: v.id("leadSearches"), rowIds: v.array(v.string()) },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
+    // Same wall as the search itself: importing leads is a paid-plan feature.
+    await assertPlanDb(ctx, "personal", "Scrape Leads");
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
     const search = await ctx.db.get(args.id);
@@ -306,7 +380,9 @@ export const importFromSearch = mutation({
           q.eq("workspaceId", workspace._id).eq("email", row.email),
         )
         .unique();
-      if (existing) {
+      // row.duplicate: the same business is already in the workspace under
+      // another key (e.g. its email, while this copy is keyed by phone).
+      if (existing || row.duplicate) {
         skipped++;
         continue;
       }

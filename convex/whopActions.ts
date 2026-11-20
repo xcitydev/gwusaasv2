@@ -90,6 +90,8 @@ export const startTopupCheckout = action({
         baseCredits: String(quote.baseCredits),
         bonusCredits: String(quote.bonusCredits),
         pack: quote.packId ?? "custom",
+        // What the buyer must pay; the webhook grants only against this.
+        expectedUsd: String(quote.usd),
       },
       redirectUrl: redirectUrl(),
     });

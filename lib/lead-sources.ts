@@ -27,7 +27,7 @@ export const LEAD_SOURCES: {
   {
     id: "linkedin",
     label: "LinkedIn",
-    blurb: "Professionals by job title and location, with verified emails — the go-to for B2B.",
+    blurb: "Professionals by job title and location, with work emails where available — the go-to for B2B.",
     costTier: "leadCreditCostB2B",
     etaLabel: "usually 2–5 minutes",
   },

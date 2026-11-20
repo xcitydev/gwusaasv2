@@ -6,6 +6,7 @@ import {
   findImageModel,
   findVideoModel,
   findMotionModel,
+  invalidGenerationOptions,
   MOTION_MAX_SECONDS,
 } from "../lib/ai-models";
 import { runFal } from "./lib/fal";
@@ -63,6 +64,13 @@ export const generate = action({
     } else if (args.kind === "image") {
       const model = findImageModel(args.modelId);
       if (!model) throw new Error("Unknown model");
+      // Size is priced and sent to the provider: only the model's own list.
+      const invalid = invalidGenerationOptions({
+        kind: "image",
+        modelId: args.modelId,
+        resolution: args.resolution,
+      });
+      if (invalid) throw new Error(invalid);
       if (args.referenceUrl && !model.supportsEdit) {
         throw new Error(
           `${model.label} can't use a reference image — pick Nano Banana (edit) to transform an image.`,
@@ -72,6 +80,15 @@ export const generate = action({
     } else {
       const model = findVideoModel(args.modelId);
       if (!model) throw new Error("Unknown model");
+      // Duration and resolution drive the price: reject anything the model
+      // doesn't offer instead of trusting the client's numbers.
+      const invalid = invalidGenerationOptions({
+        kind: "video",
+        modelId: args.modelId,
+        resolution: args.resolution,
+        durationSec: args.durationSec,
+      });
+      if (invalid) throw new Error(invalid);
       const route = args.referenceUrl ? model.providerI2V : model.providerT2V;
       if (!route) {
         throw new Error(
@@ -103,6 +120,7 @@ export const generate = action({
         }),
       },
       durationSec,
+      ...(args.kind !== "motion" && { resolution: args.resolution }),
     });
 
     try {

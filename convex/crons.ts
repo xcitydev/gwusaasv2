@@ -30,6 +30,15 @@ crons.interval(
   {},
 );
 
+// Direct-Instagram (Meta) tokens last 60 days and only refresh on use;
+// a daily pass keeps quiet accounts from expiring.
+crons.interval(
+  "refresh meta ig tokens",
+  { hours: 24 },
+  internal.igDmsActions.refreshMetaTokens,
+  {},
+);
+
 // AI Note Taker safety net: rescue meetings whose poll chain or webhook
 // was lost, and re-sync connected calendars.
 crons.interval(
@@ -45,6 +54,15 @@ crons.interval(
   "archive finished campaigns",
   { hours: 24 },
   internal.outreachActions.autoArchive,
+  {},
+);
+
+// Privacy retention: shared lead-library rows older than 12 months are
+// deleted (batched; the mutation reschedules itself while there's more).
+crons.interval(
+  "purge expired lead library rows",
+  { hours: 24 },
+  internal.leadPool.purgeExpired,
   {},
 );
 

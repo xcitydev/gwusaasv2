@@ -1,24 +1,25 @@
 import Image from "next/image";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
+import { LEGAL_LINKS } from "@/lib/legal";
 
 const COLUMNS: { title: string; links: { label: string; href: string }[] }[] = [
   {
     title: "Product",
     links: [
-      { label: "Cold email & outreach", href: "#features" },
-      { label: "Find customers", href: "#features" },
-      { label: "AI Receptionist", href: "#voice" },
-      { label: "IG DMs & AI Voice", href: "#features" },
-      { label: "AI Note Taker", href: "#features" },
+      { label: "Cold email & outreach", href: "/#features" },
+      { label: "Find customers", href: "/#features" },
+      { label: "AI Receptionist", href: "/#voice" },
+      { label: "IG DMs & AI Voice", href: "/#features" },
+      { label: "AI Note Taker", href: "/#features" },
       { label: "Studio", href: "/create" },
     ],
   },
   {
     title: "Plans",
     links: [
-      { label: "Pricing", href: "#pricing" },
-      { label: "FAQ", href: "#faq" },
+      { label: "Pricing", href: "/#pricing" },
+      { label: "FAQ", href: "/#faq" },
       { label: "Start free", href: "/sign-up" },
       { label: "Sign in", href: "/sign-in" },
     ],
@@ -28,6 +29,15 @@ const COLUMNS: { title: string; links: { label: string; href: string }[] }[] = [
     links: [
       { label: "Support", href: "/support" },
       { label: "Referrals", href: "/referrals" },
+    ],
+  },
+  {
+    title: "Legal",
+    links: [
+      { label: "Privacy Policy", href: LEGAL_LINKS.privacy },
+      { label: "Terms of Service", href: LEGAL_LINKS.terms },
+      { label: "Acceptable Use", href: LEGAL_LINKS.acceptableUse },
+      { label: "Do Not Sell / Opt out of lead data", href: LEGAL_LINKS.optOut },
     ],
   },
 ];
@@ -67,7 +77,7 @@ export function SiteFooter() {
               </div>
 
               {/* Navigation */}
-              <div className="grid w-full grid-cols-2 gap-8 sm:grid-cols-3 lg:w-auto">
+              <div className="grid w-full grid-cols-2 gap-8 sm:grid-cols-4 lg:w-auto">
                 {COLUMNS.map((column) => (
                   <div key={column.title}>
                     <p className="text-sm font-medium tracking-tight text-white/90">
@@ -96,6 +106,13 @@ export function SiteFooter() {
                 © {new Date().getFullYear()} {BRAND.fullName}. All rights
                 reserved.
               </p>
+              <nav className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/50">
+                <Link href={LEGAL_LINKS.privacy} className="hover:text-white">Privacy</Link>
+                <Link href={LEGAL_LINKS.terms} className="hover:text-white">Terms</Link>
+                <Link href={LEGAL_LINKS.optOut} className="hover:text-white">
+                  Do Not Sell or Share My Personal Information
+                </Link>
+              </nav>
             </div>
           </div>
         </div>

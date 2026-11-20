@@ -7,7 +7,7 @@ import { Id } from "./_generated/dataModel";
 import { requireUser, getCurrentUser, getPrimaryWorkspace } from "./lib/auth";
 import { assertPlanAction } from "./lib/plan";
 import { getConfigValue } from "./config";
-import { spendCredits } from "./lib/credits";
+import { grantCredits, spendCredits } from "./lib/credits";
 import {
   APIFY_ACTORS,
   apifyConfigured,
@@ -27,7 +27,9 @@ import {
  * Leads → IG Commenters. One job = two Apify runs chained by a scheduled
  * poller: apify/instagram-comment-scraper (post → comments, deduped by
  * author) then apify/instagram-profile-scraper (authors → bio, followers,
- * link in bio). Credits are charged on completion, per profile returned.
+ * link in bio). The worst case is reserved (spent) when the job starts; on
+ * completion the actual cost is kept and the rest refunded, and a failed
+ * job refunds the whole reservation.
  */
 
 const MAX_LIMIT = 500;
@@ -131,16 +133,12 @@ export const createJob = internalMutation({
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
     const rates = await creditRates(ctx);
-    // Billed on completion from actual counts; require the worst case (every
-    // comment scraped and every profile found) up front so a finished run can
-    // never be left unpaid.
+    // Reserve the worst case (every comment scraped and every profile found)
+    // atomically with the job: the balance can't be spent elsewhere mid-run,
+    // and parallel jobs can't each pass a balance check they'd jointly fail.
+    // spendCredits throws INSUFFICIENT_CREDITS (rolling back the insert).
     const worstCase = jobCredits(rates, args.limit, args.limit);
-    if (workspace.credits < worstCase) {
-      throw new Error(
-        `INSUFFICIENT_CREDITS: need ${Math.ceil(worstCase)}, have ${Math.floor(workspace.credits)}`,
-      );
-    }
-    return await ctx.db.insert("igCommentScrapes", {
+    const jobId = await ctx.db.insert("igCommentScrapes", {
       workspaceId: workspace._id,
       userId: user._id,
       postUrl: args.postUrl,
@@ -150,9 +148,39 @@ export const createJob = internalMutation({
       resultCount: 0,
       creditCostPerProfile: rates.comment + rates.profile,
       creditRates: rates,
+      creditsReserved: worstCase,
     });
+    if (worstCase > 0) {
+      await spendCredits(ctx, {
+        workspaceId: workspace._id,
+        amount: worstCase,
+        feature: "ig_commenters",
+        description: `IG commenters: reserved for up to ${args.limit} commenters`,
+        userId: user._id,
+        meta: { jobId, rates, reserved: worstCase, postUrl: args.postUrl },
+      });
+    }
+    return jobId;
   },
 });
+
+/** Give back the unused part of a job's reservation. */
+async function refundReservation(
+  ctx: Parameters<typeof grantCredits>[0],
+  job: { _id: Id<"igCommentScrapes">; workspaceId: Id<"workspaces">; userId: Id<"users"> },
+  amount: number,
+  reason: string,
+): Promise<void> {
+  if (amount <= 0) return;
+  await grantCredits(ctx, {
+    workspaceId: job.workspaceId,
+    amount,
+    feature: "ig_commenters_refund",
+    description: `IG commenters: ${reason}`,
+    userId: job.userId,
+    meta: { jobId: job._id },
+  });
+}
 
 export const setRun = internalMutation({
   args: {
@@ -176,8 +204,14 @@ export const fail = internalMutation({
   args: { id: v.id("igCommentScrapes"), error: v.string() },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.id);
+    // Settle once: only a running job holds an unsettled reservation.
+    if (!job || job.status !== "running") return;
+    if (job.creditsReserved) {
+      await refundReservation(ctx, job, job.creditsReserved, "refund — the job failed");
+    }
     await ctx.db.patch(args.id, {
       status: "failed",
+      ...(job.creditsReserved !== undefined && { creditsSpent: 0 }),
       error: await publicRowError(ctx, args.error, {
         source: "IG commenters",
         area: "leads",
@@ -206,7 +240,18 @@ export const complete = internalMutation({
     const due = jobCredits(rates, commentsScraped, profilesFound);
     let creditsSpent = 0;
     let warning = args.warning;
-    if (due > 0) {
+    if (job.creditsReserved !== undefined) {
+      // Reserved at start: keep what the run actually cost (never more than
+      // the quoted worst case) and refund the rest.
+      creditsSpent = Math.min(due, job.creditsReserved);
+      await refundReservation(
+        ctx,
+        job,
+        job.creditsReserved - creditsSpent,
+        `unused reservation returned (${commentsScraped} comment${commentsScraped === 1 ? "" : "s"}, ${profilesFound} profile${profilesFound === 1 ? "" : "s"} billed)`,
+      );
+    } else if (due > 0) {
+      // Legacy job started before reservations: post-paid, clamped to balance.
       const workspace = await ctx.db.get(job.workspaceId);
       const balance = workspace?.credits ?? 0;
       // The worst case was reserved at start; this only triggers if the

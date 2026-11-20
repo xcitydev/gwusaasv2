@@ -6,9 +6,11 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { grantCredits, clawbackCredits } from "./lib/credits";
 import { getConfigValue } from "./config";
 import { notify } from "./notifications";
+import { recordIncident } from "./incidents";
 import {
   whopPlansConfigured,
   whopTopupsConfigured,
@@ -82,6 +84,40 @@ async function buyerFromMetadata(
   return user ?? (await ctx.db.get(workspace.ownerId));
 }
 
+/** Commissions wait this long (Whop's refund window) before they're owed. */
+const COMMISSION_HOLD_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Collapse address variants that reach the same inbox (+tags, Gmail dots). */
+function normalizeEmail(email: string): string {
+  const [rawLocal, rawDomain] = email.trim().toLowerCase().split("@");
+  if (!rawDomain) return email.trim().toLowerCase();
+  const domain = rawDomain === "googlemail.com" ? "gmail.com" : rawDomain;
+  let local = rawLocal.split("+")[0];
+  if (domain === "gmail.com") local = local.replace(/\./g, "");
+  return `${local}@${domain}`;
+}
+
+/** Referrer paying for themselves: same user, same inbox, or inside the paying workspace. */
+async function isSelfReferral(
+  ctx: MutationCtx,
+  referrerUserId: Id<"users">,
+  buyer: Doc<"users">,
+  workspace: Doc<"workspaces">,
+): Promise<boolean> {
+  if (referrerUserId === buyer._id || referrerUserId === workspace.ownerId) return true;
+  const referrer = await ctx.db.get(referrerUserId);
+  if (!referrer) return false;
+  if (normalizeEmail(referrer.email) === normalizeEmail(buyer.email)) return true;
+  const owner = await ctx.db.get(workspace.ownerId);
+  if (owner && normalizeEmail(referrer.email) === normalizeEmail(owner.email)) return true;
+  const membership = await ctx.db
+    .query("members")
+    .withIndex("by_user", (q) => q.eq("userId", referrerUserId))
+    .filter((q) => q.eq(q.field("workspaceId"), workspace._id))
+    .first();
+  return Boolean(membership);
+}
+
 /**
  * payment.succeeded — the fulfillment event. billing_reason tells the story:
  * subscription_create = first purchase (set plan + referral payout),
@@ -126,25 +162,61 @@ export const handlePaymentSucceeded = internalMutation({
       const bonus = Math.max(0, Math.round(Number(metadata.bonusCredits ?? 0)) || 0);
       const base = Math.max(0, Math.round(Number(metadata.baseCredits ?? credits)) || credits);
       const pack = typeof metadata.pack === "string" ? metadata.pack : "custom";
-      await grantCredits(ctx, {
-        workspaceId: workspace._id,
-        amount: credits,
-        feature: "topup",
-        description:
-          bonus > 0
-            ? `Credit top-up (${base.toLocaleString()} + ${bonus.toLocaleString()} bonus)`
-            : `Credit top-up (${credits.toLocaleString()})`,
-        userId: buyer?._id ?? workspace.ownerId,
-      });
+      // Grant only what was actually paid for. expectedUsd is stamped at
+      // checkout; older checkouts are re-priced from their base credits.
+      let expectedUsd = Number(metadata.expectedUsd);
+      if (!Number.isFinite(expectedUsd) || expectedUsd <= 0) {
+        try {
+          expectedUsd = quoteTopup(base, await getConfigValue(ctx, "creditPriceUsd")).usd;
+        } catch {
+          expectedUsd = NaN;
+        }
+      }
+      const paidUsd = args.usdTotal;
+      let grant = credits;
+      let shortfall: string | null = null;
+      if (paidUsd === undefined || !Number.isFinite(expectedUsd)) {
+        grant = 0;
+        shortfall = `top-up payment ${args.paymentId} has no verifiable amount (paid ${paidUsd ?? "?"}, expected ${expectedUsd}) — nothing granted, review and grant by hand`;
+      } else if (paidUsd + 0.01 < expectedUsd) {
+        grant = Math.max(0, Math.floor((credits * paidUsd) / expectedUsd));
+        shortfall = `top-up payment ${args.paymentId} paid $${paidUsd} of $${expectedUsd} — granted ${grant} of ${credits} credits`;
+      }
+      if (shortfall) {
+        console.error("WHOP:", shortfall);
+        await recordIncident(ctx, {
+          area: "billing",
+          source: "whop.handlePaymentSucceeded (topup amount)",
+          message: shortfall,
+          userId: buyer?._id,
+          workspaceId: workspace._id,
+        });
+      }
+      if (grant > 0) {
+        await grantCredits(ctx, {
+          workspaceId: workspace._id,
+          amount: grant,
+          feature: "topup",
+          description:
+            grant < credits
+              ? `Credit top-up (${grant.toLocaleString()} of ${credits.toLocaleString()} — partial payment)`
+              : bonus > 0
+                ? `Credit top-up (${base.toLocaleString()} + ${bonus.toLocaleString()} bonus)`
+                : `Credit top-up (${credits.toLocaleString()})`,
+          userId: buyer?._id ?? workspace.ownerId,
+        });
+      }
       await ctx.db.insert("purchases", {
         workspaceId: workspace._id,
         userId: buyer?._id ?? workspace.ownerId,
         kind: "topup",
-        amountUsd: args.usdTotal ?? 0,
+        amountUsd: paidUsd ?? 0,
         status: "paid",
-        meta: { whopPaymentId: args.paymentId, credits, baseCredits: base, bonusCredits: bonus, pack },
+        whopPaymentId: args.paymentId,
+        creditsGranted: grant,
+        meta: { whopPaymentId: args.paymentId, credits, baseCredits: base, bonusCredits: bonus, pack, expectedUsd },
       });
-      return { handled: "topup" };
+      return { handled: grant < credits ? "topup_short" : "topup" };
     }
 
     // Plan payment (first or renewal).
@@ -187,6 +259,8 @@ export const handlePaymentSucceeded = internalMutation({
       kind: "subscription",
       amountUsd: priceUsd,
       status: "paid",
+      whopPaymentId: args.paymentId,
+      creditsGranted: credits,
       meta: { plan, whopPaymentId: args.paymentId, renewal: !firstPayment },
     });
 
@@ -199,10 +273,30 @@ export const handlePaymentSucceeded = internalMutation({
         .query("referrals")
         .withIndex("by_referred", (q) => q.eq("referredUserId", buyer._id))
         .unique();
-      if (referral) {
+      const selfReferral = referral
+        ? await isSelfReferral(ctx, referral.referrerUserId, buyer, workspace)
+        : false;
+      if (referral && selfReferral) {
+        // Kept for the audit trail, never payable.
+        await ctx.db.insert("referralCommissions", {
+          referralId: referral._id,
+          referrerUserId: referral.referrerUserId,
+          referredUserId: buyer._id,
+          whopPaymentId: args.paymentId,
+          kind: firstPayment ? "first" : "renewal",
+          plan,
+          paymentUsd: priceUsd,
+          percent: 0,
+          amountUsd: 0,
+          status: "void",
+          voidReason: "self_referral",
+        });
+      } else if (referral) {
         const lockedPercent = referral.commissionPercent ?? percent;
         const amountUsd = Math.round(priceUsd * (lockedPercent / 100) * 100) / 100;
-        await ctx.db.insert("referralCommissions", {
+        // Held as pending through the refund window, then released to owed.
+        const availableAt = Date.now() + COMMISSION_HOLD_MS;
+        const commissionId = await ctx.db.insert("referralCommissions", {
           referralId: referral._id,
           referrerUserId: referral.referrerUserId,
           referredUserId: buyer._id,
@@ -212,7 +306,11 @@ export const handlePaymentSucceeded = internalMutation({
           paymentUsd: priceUsd,
           percent: lockedPercent,
           amountUsd,
-          status: "owed",
+          status: "pending",
+          availableAt,
+        });
+        await ctx.scheduler.runAt(availableAt, internal.whop.releaseCommission, {
+          id: commissionId,
         });
         await ctx.db.patch(referral._id, {
           status: "active",
@@ -227,9 +325,11 @@ export const handlePaymentSucceeded = internalMutation({
           userId: referral.referrerUserId,
           type: firstPayment ? "referral_qualified" : "referral_renewal",
           title: `You earned $${amountUsd} from a referral`,
-          body: firstPayment
-            ? `Someone you referred just subscribed. You get ${lockedPercent}% of every renewal for as long as they stay.`
-            : `A referral renewed their ${plan} plan — ${lockedPercent}% is yours again.`,
+          body:
+            (firstPayment
+              ? `Someone you referred just subscribed. You get ${lockedPercent}% of every renewal for as long as they stay.`
+              : `A referral renewed their ${plan} plan — ${lockedPercent}% is yours again.`) +
+            " It becomes payable after the 14-day refund window.",
           href: "/referrals",
         });
       }
@@ -313,10 +413,57 @@ export const handleMembershipUpdate = internalMutation({
   },
 });
 
+/** A held commission clears the refund window and becomes payable. */
+export const releaseCommission = internalMutation({
+  args: { id: v.id("referralCommissions") },
+  handler: async (ctx, args) => {
+    const commission = await ctx.db.get(args.id);
+    if (!commission || commission.status !== "pending") return;
+    await ctx.db.patch(args.id, { status: "owed" });
+  },
+});
+
+/** The purchase row a Whop payment produced (new rows by index, legacy by meta). */
+async function purchaseForPayment(
+  ctx: MutationCtx,
+  paymentId: string,
+  workspaceId: Id<"workspaces"> | null,
+): Promise<Doc<"purchases"> | null> {
+  const indexed = await ctx.db
+    .query("purchases")
+    .withIndex("by_whop_payment", (q) => q.eq("whopPaymentId", paymentId))
+    .first();
+  if (indexed || !workspaceId) return indexed;
+  const recent = await ctx.db
+    .query("purchases")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .order("desc")
+    .take(500);
+  return (
+    recent.find(
+      (p) => (p.meta as { whopPaymentId?: string } | undefined)?.whopPaymentId === paymentId,
+    ) ?? null
+  );
+}
+
+/** Credits a purchase granted; legacy rows fall back to their metadata/config. */
+async function creditsGrantedBy(ctx: MutationCtx, purchase: Doc<"purchases">): Promise<number> {
+  if (typeof purchase.creditsGranted === "number") return purchase.creditsGranted;
+  const meta = (purchase.meta ?? {}) as { credits?: unknown; plan?: unknown };
+  if (purchase.kind === "topup") return Math.max(0, Math.round(Number(meta.credits)) || 0);
+  if (purchase.kind === "subscription") {
+    return await getConfigValue(ctx, meta.plan === "team" ? "teamPlanCredits" : "personalPlanCredits");
+  }
+  return 0;
+}
+
 /**
- * A refunded or voided payment. Credit packs are clawed back (never below
- * zero) and the owner is told; plan refunds are only logged, because access
- * is governed by the membership events and Whop ends the membership itself.
+ * A refunded, voided or disputed payment. The credits that payment granted
+ * (top-up pack or plan grant) are clawed back in proportion to the money
+ * returned — never below zero — and a plan payment's referral commission is
+ * voided. Partial refunds arrive with a cumulative refunded amount, so each
+ * new refund claws back only the delta; a dispute counts as the full amount.
+ * Plan access itself is still governed by the membership events.
  */
 export const handlePaymentRefunded = internalMutation({
   args: {
@@ -324,42 +471,118 @@ export const handlePaymentRefunded = internalMutation({
     paymentId: v.string(),
     metadata: v.optional(v.any()),
     usdTotal: v.optional(v.number()),
+    /** Cumulative USD refunded on this payment so far (Whop refunded_amount). */
+    refundedUsd: v.optional(v.number()),
+    kind: v.optional(v.union(v.literal("refund"), v.literal("dispute"))),
   },
   handler: async (ctx, args): Promise<{ handled: string }> => {
-    if (!(await firstTime(ctx, `refund:${args.paymentId}`, "payment.refunded"))) {
+    const isDispute = args.kind === "dispute";
+    // One clawback per dispute; one per distinct cumulative refund amount.
+    const key = isDispute
+      ? `dispute:${args.paymentId}`
+      : `refund:${args.paymentId}:${args.refundedUsd ?? "full"}`;
+    // Refunds handled before partial-refund support were keyed per payment.
+    const legacy = await ctx.db
+      .query("whopEvents")
+      .withIndex("by_key", (q) => q.eq("key", `refund:${args.paymentId}`))
+      .first();
+    if (legacy || !(await firstTime(ctx, key, isDispute ? "dispute" : "payment.refunded"))) {
       return { handled: "duplicate" };
     }
     const metadata = (args.metadata ?? {}) as Record<string, unknown>;
-    const workspaceId = parseWorkspaceId(ctx, metadata);
-    if (!workspaceId) return { handled: "unattributed" };
-    const workspace = await ctx.db.get(workspaceId);
+    const purchase = await purchaseForPayment(
+      ctx,
+      args.paymentId,
+      parseWorkspaceId(ctx, metadata),
+    );
+    if (!purchase) {
+      console.error("WHOP: refund/dispute for unknown payment", args.paymentId);
+      return { handled: "unknown_payment" };
+    }
+    const workspace = await ctx.db.get(purchase.workspaceId);
     if (!workspace) return { handled: "unknown_workspace" };
 
-    if (metadata.kind !== "topup") {
-      console.log("WHOP: plan payment refunded", args.paymentId, "workspace", workspaceId);
-      return { handled: "plan_refund_logged" };
-    }
-    const credits = Math.round(Number(metadata.credits));
-    if (!Number.isFinite(credits) || credits < 1) return { handled: "bad_topup" };
-    // Whatever was already spent cannot come back; say so on the ledger line.
-    const removable = Math.max(0, Math.min(workspace.credits, credits));
-    const { removed } = await clawbackCredits(ctx, {
-      workspaceId: workspace._id,
-      amount: credits,
-      feature: "topup_refund",
-      description: `Refund of credit top-up (${credits.toLocaleString()} credits${
-        removable < credits ? `, ${(credits - removable).toLocaleString()} already spent` : ""
-      })`,
-      meta: { whopPaymentId: args.paymentId, refundedUsd: args.usdTotal ?? null },
+    const paidUsd = purchase.amountUsd > 0 ? purchase.amountUsd : (args.usdTotal ?? 0);
+    const already = purchase.refundedUsd ?? 0;
+    const target =
+      isDispute || args.refundedUsd === undefined || paidUsd <= 0
+        ? paidUsd
+        : Math.min(paidUsd, args.refundedUsd);
+    const fraction = paidUsd > 0 ? Math.max(0, (target - already) / paidUsd) : already > 0 ? 0 : 1;
+    if (fraction <= 0) return { handled: "nothing_new" };
+    await ctx.db.patch(purchase._id, {
+      refundedUsd: Math.max(already, target),
+      ...(target >= paidUsd - 0.005 && { status: "refunded" as const }),
     });
+
+    const granted = await creditsGrantedBy(ctx, purchase);
+    const owed = Math.round(granted * Math.min(1, fraction));
+    const label = purchase.kind === "topup" ? "credit top-up" : "plan payment";
+    const what = isDispute ? "Chargeback" : fraction < 1 ? "Partial refund" : "Refund";
+    let removed = 0;
+    if (owed > 0) {
+      // Whatever was already spent cannot come back; say so on the ledger line.
+      const removable = Math.max(0, Math.min(workspace.credits, owed));
+      ({ removed } = await clawbackCredits(ctx, {
+        workspaceId: workspace._id,
+        amount: owed,
+        feature: purchase.kind === "topup" ? "topup_refund" : "plan_refund",
+        description: `${what} of ${label} (${owed.toLocaleString()} credits${
+          removable < owed ? `, ${(owed - removable).toLocaleString()} already spent` : ""
+        })`,
+        meta: { whopPaymentId: args.paymentId, refundedUsd: target, dispute: isDispute },
+      }));
+    }
+
+    // The referrer's cut of this payment never becomes payable.
+    const commission = await ctx.db
+      .query("referralCommissions")
+      .withIndex("by_payment", (q) => q.eq("whopPaymentId", args.paymentId))
+      .first();
+    if (commission && (commission.status === "pending" || commission.status === "owed")) {
+      await ctx.db.patch(commission._id, {
+        status: "void",
+        voidReason: isDispute ? "dispute" : "refund",
+      });
+      const referral = await ctx.db.get(commission.referralId);
+      if (referral) {
+        await ctx.db.patch(referral._id, {
+          lifetimeUsd: Math.max(
+            0,
+            Math.round(((referral.lifetimeUsd ?? 0) - commission.amountUsd) * 100) / 100,
+          ),
+          paymentCount: Math.max(0, (referral.paymentCount ?? 0) - 1),
+        });
+      }
+    } else if (commission && commission.status === "paid") {
+      // Already paid out — an admin has to recover it by hand.
+      await recordIncident(ctx, {
+        area: "billing",
+        source: "whop.handlePaymentRefunded (paid commission)",
+        message: `${what} on payment ${args.paymentId} whose referral commission ($${commission.amountUsd}) was already paid out`,
+        userId: commission.referrerUserId,
+        workspaceId: workspace._id,
+      });
+    }
+    if (isDispute) {
+      await recordIncident(ctx, {
+        area: "billing",
+        source: "whop.handlePaymentRefunded (dispute)",
+        message: `Chargeback opened on ${label} ${args.paymentId}: ${removed} credits clawed back`,
+        workspaceId: workspace._id,
+      });
+    }
+
     await notify(ctx, {
       userId: workspace.ownerId,
       workspaceId: workspace._id,
-      type: "topup_refunded",
-      title: "Credit top-up refunded",
-      body: `${removed.toLocaleString()} credits were removed to match the refund.`,
+      type: purchase.kind === "topup" ? "topup_refunded" : "plan_refunded",
+      title: purchase.kind === "topup" ? "Credit top-up refunded" : "Plan payment refunded",
+      body: `${removed.toLocaleString()} credits were removed to match the ${
+        isDispute ? "chargeback" : "refund"
+      }.`,
       href: "/settings?tab=billing",
     });
-    return { handled: "topup_refunded" };
+    return { handled: purchase.kind === "topup" ? "topup_refunded" : "plan_refunded" };
   },
 });

@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { getCurrentUser, getPrimaryWorkspace, hasFormsAccess } from "./lib/auth";
+import { getCurrentUser, getPrimaryWorkspace, getUserRecord, hasFormsAccess } from "./lib/auth";
 
 /**
  * Idempotent sign-in hook: called from the client once a Clerk session exists.
@@ -110,8 +110,26 @@ export const ensureUser = mutation({
 export const me = query({
   args: {},
   handler: async (ctx) => {
-    const user = await getCurrentUser(ctx);
+    const user = await getUserRecord(ctx);
     if (!user) return null;
+    // Locked accounts get the same shape with every privilege stripped, so
+    // the UI can show the lock without exposing role, plan or workspace.
+    if (user.status === "locked") {
+      return {
+        _id: user._id,
+        email: user.email,
+        name: user.name,
+        imageUrl: user.imageUrl,
+        adminRole: undefined,
+        status: user.status,
+        referralCode: undefined,
+        formsAccess: false,
+        formsAccessSource: undefined,
+        planQuizPending: false,
+        planQuiz: null,
+        workspace: null,
+      };
+    }
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     return {
       _id: user._id,

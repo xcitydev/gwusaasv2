@@ -75,6 +75,16 @@ function Denied() {
   );
 }
 
+/** Denial without Convex hooks (no provider when the app isn't configured). */
+function StaticDenied() {
+  return (
+    <div className="flex flex-col items-center gap-4 py-20 text-center">
+      <ShieldAlert className="size-10 text-muted-foreground" />
+      <p className="font-medium">Admin access required</p>
+    </div>
+  );
+}
+
 function LiveGate({ children }: { children: ReactNode }) {
   const me = useQuery(api.users.me);
   if (me === undefined) {
@@ -85,12 +95,18 @@ function LiveGate({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (!me?.adminRole) return <Denied />;
+  if (!me?.adminRole) return <Denied />; // locked accounts report no role
   return <>{children}</>;
 }
 
-/** Wraps every /admin page. In setup mode the gate is open for previewing. */
+/**
+ * Wraps every /admin page (the layout also gates server-side). In dev setup
+ * mode the gate is open for previewing; a production build never is.
+ */
 export function AdminGate({ children }: { children: ReactNode }) {
-  if (!isConfigured) return <>{children}</>;
+  if (!isConfigured) {
+    if (process.env.NODE_ENV === "production") return <StaticDenied />;
+    return <>{children}</>;
+  }
   return <LiveGate>{children}</LiveGate>;
 }

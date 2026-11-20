@@ -4,13 +4,20 @@ import {
   internalQuery,
   mutation,
   type QueryCtx,
+  type MutationCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { igPriorityValidator, igStageValidator } from "./schema";
-import { getCurrentUser, requireUser, getPrimaryWorkspace } from "./lib/auth";
+import {
+  getCurrentUser,
+  requireUser,
+  requireAdmin,
+  getPrimaryWorkspace,
+} from "./lib/auth";
+import { secureToken } from "./lib/tokens";
 import { spendCredits, grantCredits } from "./lib/credits";
 import { getConfigValue } from "./config";
 import { notify } from "./notifications";
@@ -54,17 +61,200 @@ async function voiceProfileFor(
   return Object.keys(profile).length > 0 ? profile : null;
 }
 
+// ── Channels: a workspace may run one GHL and one Meta-direct account ──
+
+type Channel = "ghl" | "meta";
+const channelValidator = v.union(v.literal("ghl"), v.literal("meta"));
+const META_KEY_LO = "meta:";
+
+function channelOfKey(ghlConversationId: string): Channel {
+  return ghlConversationId.startsWith(META_KEY_LO) ? "meta" : "ghl";
+}
+
+async function workspaceAccounts(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
+  const rows = await ctx.db
+    .query("igAccounts")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .take(5);
+  const meta = rows.find((a) => a.provider === "meta") ?? null;
+  const ghl = rows.find((a) => a.provider !== "meta") ?? null;
+  // Shared settings (copilot brief, voice picks) live on the primary one.
+  return { ghl, meta, primary: ghl ?? meta };
+}
+
+/** The account that owns this conversation's channel. */
+async function accountForConversation(ctx: QueryCtx, conversation: Doc<"igConversations">) {
+  const { ghl, meta } = await workspaceAccounts(ctx, conversation.workspaceId);
+  return channelOfKey(conversation.ghlConversationId) === "meta" ? meta : ghl;
+}
+
+function inChannel(conversation: Doc<"igConversations">, channel?: Channel): boolean {
+  return !channel || channelOfKey(conversation.ghlConversationId) === channel;
+}
+
+// ── Inbox tab totals (igInboxCounts) ─────────────────────────────────────
+// Every write that can change a thread's tab membership (insert, delete, or
+// a patch touching lastDirection / needsHuman / stage) goes through these
+// helpers so the running totals stay exact. Patches that only touch other
+// fields (unread, contactName, assignee, triageScheduledFor) may use
+// ctx.db.patch directly.
+
+type CountShape = { needsReply: number; qualified: number; all: number };
+
+function countsOf(c: Pick<Doc<"igConversations">, "lastDirection" | "needsHuman" | "stage"> | null): CountShape {
+  if (!c) return { needsReply: 0, qualified: 0, all: 0 };
+  return {
+    needsReply: c.lastDirection === "inbound" || c.needsHuman === true ? 1 : 0,
+    qualified: c.stage === "qualified" || c.stage === "booking_ready" ? 1 : 0,
+    all: 1,
+  };
+}
+
+async function bumpCounts(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  channel: Channel,
+  delta: CountShape,
+): Promise<void> {
+  if (!delta.needsReply && !delta.qualified && !delta.all) return;
+  const row = await ctx.db
+    .query("igInboxCounts")
+    .withIndex("by_workspace_channel", (q) =>
+      q.eq("workspaceId", workspaceId).eq("channel", channel),
+    )
+    .first();
+  if (row) {
+    await ctx.db.patch(row._id, {
+      needsReply: Math.max(0, row.needsReply + delta.needsReply),
+      qualified: Math.max(0, row.qualified + delta.qualified),
+      all: Math.max(0, row.all + delta.all),
+    });
+  } else {
+    await ctx.db.insert("igInboxCounts", {
+      workspaceId,
+      channel,
+      needsReply: Math.max(0, delta.needsReply),
+      qualified: Math.max(0, delta.qualified),
+      all: Math.max(0, delta.all),
+    });
+  }
+}
+
+function diff(after: CountShape, before: CountShape): CountShape {
+  return {
+    needsReply: after.needsReply - before.needsReply,
+    qualified: after.qualified - before.qualified,
+    all: after.all - before.all,
+  };
+}
+
+async function insertConversation(
+  ctx: MutationCtx,
+  doc: Omit<Doc<"igConversations">, "_id" | "_creationTime">,
+): Promise<Id<"igConversations">> {
+  const id = await ctx.db.insert("igConversations", {
+    ...doc,
+    ...(channelOfKey(doc.ghlConversationId) === "meta" && { channel: "meta" as const }),
+  });
+  await bumpCounts(ctx, doc.workspaceId, channelOfKey(doc.ghlConversationId), countsOf(doc));
+  return id;
+}
+
+async function patchConversation(
+  ctx: MutationCtx,
+  id: Id<"igConversations">,
+  patch: Partial<Doc<"igConversations">>,
+): Promise<void> {
+  const before = await ctx.db.get(id);
+  if (!before) return;
+  await ctx.db.patch(id, patch);
+  const after = { ...before, ...patch };
+  await bumpCounts(
+    ctx,
+    before.workspaceId,
+    channelOfKey(before.ghlConversationId),
+    diff(countsOf(after), countsOf(before)),
+  );
+}
+
+async function deleteConversation(ctx: MutationCtx, conversation: Doc<"igConversations">): Promise<void> {
+  await ctx.db.delete(conversation._id);
+  await bumpCounts(
+    ctx,
+    conversation.workspaceId,
+    channelOfKey(conversation.ghlConversationId),
+    diff(countsOf(null), countsOf(conversation)),
+  );
+}
+
+/**
+ * Rebuild one workspace's totals from scratch, 2,000 threads per run
+ * (seeds existing inboxes; also the repair tool if totals ever drift).
+ */
+export const recountInboxCounts = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    ghl: v.optional(v.object({ needsReply: v.number(), qualified: v.number(), all: v.number() })),
+    meta: v.optional(v.object({ needsReply: v.number(), qualified: v.number(), all: v.number() })),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    const totals: Record<Channel, CountShape> = {
+      ghl: args.ghl ?? { needsReply: 0, qualified: 0, all: 0 },
+      meta: args.meta ?? { needsReply: 0, qualified: 0, all: 0 },
+    };
+    const page = await ctx.db
+      .query("igConversations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .paginate({ numItems: 2000, cursor: args.cursor ?? null });
+    for (const c of page.page) {
+      const t = totals[channelOfKey(c.ghlConversationId)];
+      const add = countsOf(c);
+      t.needsReply += add.needsReply;
+      t.qualified += add.qualified;
+      t.all += add.all;
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.igDms.recountInboxCounts, {
+        workspaceId: args.workspaceId,
+        cursor: page.continueCursor,
+        ghl: totals.ghl,
+        meta: totals.meta,
+      });
+      return;
+    }
+    for (const channel of ["ghl", "meta"] as const) {
+      const row = await ctx.db
+        .query("igInboxCounts")
+        .withIndex("by_workspace_channel", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("channel", channel),
+        )
+        .first();
+      if (row) await ctx.db.patch(row._id, totals[channel]);
+      else await ctx.db.insert("igInboxCounts", { workspaceId: args.workspaceId, channel, ...totals[channel] });
+    }
+  },
+});
+
+/** One-off seed: recount every workspace that has IG DMs. */
+export const recountAllInboxCounts = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const accounts = await ctx.db.query("igAccounts").collect();
+    const workspaces = [...new Set(accounts.map((a) => a.workspaceId))];
+    for (const workspaceId of workspaces) {
+      await ctx.scheduler.runAfter(0, internal.igDms.recountInboxCounts, { workspaceId });
+    }
+    return workspaces.length;
+  },
+});
+
 /** Everything the AI needs to read a thread and speak for the client. */
 async function copilotContext(
   ctx: QueryCtx,
   conversation: Doc<"igConversations">,
 ) {
-  const account = await ctx.db
-    .query("igAccounts")
-    .withIndex("by_workspace", (q) =>
-      q.eq("workspaceId", conversation.workspaceId),
-    )
-    .first();
+  const account = (await workspaceAccounts(ctx, conversation.workspaceId)).primary;
   if (!account) return null;
   const workspace = await ctx.db.get(conversation.workspaceId);
   const messages = await ctx.db
@@ -103,13 +293,18 @@ export const myAccount = query({
     if (!user) return null;
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) return null;
-    const account = await ctx.db
-      .query("igAccounts")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-      .first();
-    if (!account) return { status: "none" as const };
+    const { ghl, meta, primary: account } = await workspaceAccounts(ctx, workspace._id);
+    if (!account) {
+      return { status: "none" as const, isOwner: workspace.ownerId === user._id };
+    }
     return {
+      // Both channels present → the inbox shows GHL / Instagram-direct tabs.
+      hasGhl: Boolean(ghl),
+      meta: meta ? { igUsername: meta.igUsername ?? null } : null,
       status: account.status,
+      source: account.source ?? ("platform" as const),
+      provider: account.provider ?? ("ghl" as const),
+      isOwner: workspace.ownerId === user._id,
       igUsername: account.igUsername ?? null,
       ghlLocationId: account.ghlLocationId,
       autopilot: account.autopilot ?? false,
@@ -134,7 +329,11 @@ const inboxTabValidator = v.union(
  * 50 at a time — the UI re-sorts each loaded page hot-first.
  */
 export const listConversations = query({
-  args: { tab: inboxTabValidator, paginationOpts: paginationOptsValidator },
+  args: {
+    tab: inboxTabValidator,
+    paginationOpts: paginationOptsValidator,
+    channel: v.optional(channelValidator),
+  },
   handler: async (ctx, args) => {
     const empty = {
       page: [] as Doc<"igConversations">[],
@@ -145,10 +344,20 @@ export const listConversations = query({
     if (!user) return empty;
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) return empty;
-    const base = ctx.db
-      .query("igConversations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-      .order("desc");
+    // One channel = one index range (GHL threads have no channel field).
+    const base = args.channel
+      ? ctx.db
+          .query("igConversations")
+          .withIndex("by_workspace_channel", (q) =>
+            q
+              .eq("workspaceId", workspace._id)
+              .eq("channel", args.channel === "meta" ? "meta" : undefined),
+          )
+          .order("desc")
+      : ctx.db
+          .query("igConversations")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+          .order("desc");
     const filtered =
       args.tab === "needs_reply"
         ? base.filter((q) =>
@@ -173,26 +382,32 @@ export const listConversations = query({
 
 /** Tab badge counts across the whole inbox (not just loaded pages). */
 export const conversationCounts = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { channel: v.optional(channelValidator) },
+  handler: async (ctx, args) => {
     const zero = { needs_reply: 0, qualified: 0, mine: 0, all: 0 };
     const user = await getCurrentUser(ctx);
     if (!user) return zero;
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) return zero;
-    const all = await ctx.db
-      .query("igConversations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+    const rows = await ctx.db
+      .query("igInboxCounts")
+      .withIndex("by_workspace_channel", (q) => q.eq("workspaceId", workspace._id))
       .collect();
+    const picked = rows.filter((r) => !args.channel || r.channel === args.channel);
+    const sum = (key: keyof CountShape) => picked.reduce((n, r) => n + r[key], 0);
+    const mine = (
+      await ctx.db
+        .query("igConversations")
+        .withIndex("by_assignee", (q) =>
+          q.eq("assigneeId", user._id).eq("workspaceId", workspace._id),
+        )
+        .collect()
+    ).filter((c) => inChannel(c, args.channel)).length;
     return {
-      needs_reply: all.filter(
-        (c) => c.lastDirection === "inbound" || c.needsHuman === true,
-      ).length,
-      qualified: all.filter(
-        (c) => c.stage === "qualified" || c.stage === "booking_ready",
-      ).length,
-      mine: all.filter((c) => c.assigneeId === user._id).length,
-      all: all.length,
+      needs_reply: sum("needsReply"),
+      qualified: sum("qualified"),
+      mine,
+      all: sum("all"),
     };
   },
 });
@@ -228,7 +443,7 @@ function snippetAround(body: string, term: string): string {
  * indexes). Returns conversations with the matching message as a snippet.
  */
 export const searchConversations = query({
-  args: { q: v.string() },
+  args: { q: v.string(), channel: v.optional(channelValidator) },
   handler: async (ctx, args) => {
     const term = args.q.trim();
     const user = await getCurrentUser(ctx);
@@ -266,6 +481,7 @@ export const searchConversations = query({
       });
     }
     return [...results.values()]
+      .filter((r) => inChannel(r.conversation, args.channel))
       .sort((a, b) => b.conversation.lastMessageAt - a.conversation.lastMessageAt)
       .slice(0, 40);
   },
@@ -391,7 +607,7 @@ export const setConversationMeta = mutation({
       patch.needsHuman = false;
       patch.needsHumanReason = undefined;
     }
-    await ctx.db.patch(args.conversationId, patch);
+    await patchConversation(ctx, args.conversationId, patch);
   },
 });
 
@@ -405,10 +621,7 @@ export const setCopilotSettings = mutation({
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
-    const account = await ctx.db
-      .query("igAccounts")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-      .first();
+    const { ghl, meta, primary: account } = await workspaceAccounts(ctx, workspace._id);
     if (!account) throw new Error("Enable Instagram DMs first");
     const aiBrief = args.aiBrief.trim().slice(0, 4000);
     const bookingLink = args.bookingLink.trim();
@@ -420,17 +633,305 @@ export const setCopilotSettings = mutation({
         "Write the brief first — autopilot only speaks from what's in it.",
       );
     }
-    await ctx.db.patch(account._id, {
-      autopilot: args.autopilot,
-      aiBrief: aiBrief || undefined,
-      bookingLink: bookingLink || undefined,
-    });
+    // One brief for the workspace, whichever channel a thread came in on.
+    for (const row of [ghl, meta]) {
+      if (!row) continue;
+      await ctx.db.patch(row._id, {
+        autopilot: args.autopilot,
+        aiBrief: aiBrief || undefined,
+        bookingLink: bookingLink || undefined,
+      });
+    }
   },
 });
 
 // ── Internals (webhook + actions) ───────────────────────────────────────
 
 const ghlRole = v.union(v.literal("provisioner"), v.literal("messenger"));
+
+/** Lifetime of an admin-minted GHL install state. */
+const GHL_STATE_TTL_MS = 30 * 60_000;
+
+/**
+ * Admin starts the agency install: a one-shot state the OAuth callback must
+ * present. Without it any code exchange (anyone can run GHL's install flow
+ * against our client id) would overwrite the platform-wide tokens.
+ */
+export const createGhlOauthState = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<string> => {
+    const admin = await requireAdmin(ctx);
+    const state = secureToken(43);
+    await ctx.db.insert("ghlOauthStates", {
+      state,
+      userId: admin._id,
+      expiresAt: Date.now() + GHL_STATE_TTL_MS,
+    });
+    return state;
+  },
+});
+
+/**
+ * Customer side of "Use my own GHL": a one-shot state tied to their
+ * workspace. Only the workspace owner may bind an outside GHL account.
+ */
+export const createOwnGhlOauthState = internalMutation({
+  args: { purpose: v.optional(v.union(v.literal("own_ghl"), v.literal("meta_ig"))) },
+  handler: async (ctx, args): Promise<string> => {
+    const user = await requireUser(ctx);
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    if (!workspace) throw new Error("No workspace");
+    if (workspace.ownerId !== user._id) {
+      throw new Error("Only the workspace owner can connect their own account.");
+    }
+    const state = secureToken(43);
+    await ctx.db.insert("ghlOauthStates", {
+      state,
+      userId: user._id,
+      expiresAt: Date.now() + GHL_STATE_TTL_MS,
+      purpose: args.purpose ?? "own_ghl",
+      workspaceId: workspace._id,
+    });
+    return state;
+  },
+});
+
+/** Callback side: valid once, before it expires. */
+export const consumeGhlOauthState = internalMutation({
+  args: { state: v.string() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<
+    | { purpose: "admin" }
+    | { purpose: "own_ghl"; workspaceId: Id<"workspaces"> }
+    | { purpose: "meta_ig"; workspaceId: Id<"workspaces"> }
+    | null
+  > => {
+    const row = await ctx.db
+      .query("ghlOauthStates")
+      .withIndex("by_state", (q) => q.eq("state", args.state))
+      .first();
+    if (!row) return null;
+    await ctx.db.delete(row._id);
+    if (row.expiresAt <= Date.now()) return null;
+    if (row.purpose === "own_ghl" || row.purpose === "meta_ig") {
+      if (!row.workspaceId) return null;
+      return { purpose: row.purpose, workspaceId: row.workspaceId };
+    }
+    return { purpose: "admin" };
+  },
+});
+
+/**
+ * Bind a sub-account from the customer's own GHL to their workspace. A
+ * location already serving another workspace is refused (it would leak
+ * that workspace's DMs); reconnecting the same location refreshes tokens.
+ */
+export const bindOwnGhlLocation = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    ghlLocationId: v.string(),
+    locationToken: v.string(),
+    locationTokenExpiresAt: v.number(),
+    locationRefreshToken: v.string(),
+  },
+  handler: async (ctx, args): Promise<"created" | "refreshed"> => {
+    const byLocation = await ctx.db
+      .query("igAccounts")
+      .withIndex("by_location", (q) => q.eq("ghlLocationId", args.ghlLocationId))
+      .first();
+    if (byLocation && byLocation.workspaceId !== args.workspaceId) {
+      throw new Error(
+        "That sub-account is already connected to a different workspace here.",
+      );
+    }
+    const mine = (await workspaceAccounts(ctx, args.workspaceId)).ghl;
+    const tokens = {
+      locationToken: args.locationToken,
+      locationTokenExpiresAt: args.locationTokenExpiresAt,
+      locationRefreshToken: args.locationRefreshToken,
+    };
+    if (mine) {
+      if (mine.ghlLocationId !== args.ghlLocationId) {
+        throw new Error(
+          "This workspace already has Instagram DMs set up on another sub-account. Disconnect it first, then connect again.",
+        );
+      }
+      await ctx.db.patch(mine._id, { ...tokens, source: "own", status: "connected" });
+      return "refreshed";
+    }
+    await ctx.db.insert("igAccounts", {
+      workspaceId: args.workspaceId,
+      ghlLocationId: args.ghlLocationId,
+      ...tokens,
+      source: "own",
+      status: "connected",
+    });
+    return "created";
+  },
+});
+
+/**
+ * Owner disconnects their own GHL: the account row goes now (sync and the
+ * webhook stop finding it), and the copied DMs are wiped in batches.
+ */
+export const disconnectOwnGhl = mutation({
+  args: { channel: v.optional(channelValidator) },
+  handler: async (ctx, args): Promise<void> => {
+    const user = await requireUser(ctx);
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    if (!workspace) throw new Error("No workspace");
+    if (workspace.ownerId !== user._id) {
+      throw new Error("Only the workspace owner can disconnect it.");
+    }
+    const channel: Channel = args.channel ?? "ghl";
+    const accounts = await workspaceAccounts(ctx, workspace._id);
+    const account = channel === "meta" ? accounts.meta : accounts.ghl;
+    if (!account) return;
+    if (channel === "ghl" && account.source !== "own") {
+      throw new Error("This workspace uses the built-in setup, so there's nothing of yours to disconnect.");
+    }
+    await ctx.db.delete(account._id);
+    await ctx.scheduler.runAfter(0, internal.igDms.wipeWorkspaceIgData, {
+      workspaceId: workspace._id,
+      channel,
+    });
+  },
+});
+
+/**
+ * Bind an Instagram account connected straight through Meta to a workspace.
+ * Refuses an IG account already serving another workspace, and a workspace
+ * that is still on a GHL setup (disconnect that first).
+ */
+export const bindMetaIgAccount = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    ghlLocationId: v.string(),
+    igUsername: v.optional(v.string()),
+    locationToken: v.string(),
+    locationTokenExpiresAt: v.number(),
+  },
+  handler: async (ctx, args): Promise<"created" | "refreshed"> => {
+    const byLocation = await ctx.db
+      .query("igAccounts")
+      .withIndex("by_location", (q) => q.eq("ghlLocationId", args.ghlLocationId))
+      .first();
+    if (byLocation && byLocation.workspaceId !== args.workspaceId) {
+      throw new Error("That Instagram account is already connected to a different workspace here.");
+    }
+    const mine = (await workspaceAccounts(ctx, args.workspaceId)).meta;
+    const fields = {
+      locationToken: args.locationToken,
+      locationTokenExpiresAt: args.locationTokenExpiresAt,
+      igUsername: args.igUsername,
+      provider: "meta" as const,
+      status: "connected" as const,
+    };
+    if (mine) {
+      if (mine.ghlLocationId !== args.ghlLocationId) {
+        throw new Error(
+          "This workspace already has a different Instagram connected directly. Disconnect it first, then connect again.",
+        );
+      }
+      await ctx.db.patch(mine._id, fields);
+      return "refreshed";
+    }
+    await ctx.db.insert("igAccounts", {
+      workspaceId: args.workspaceId,
+      ghlLocationId: args.ghlLocationId,
+      ...fields,
+    });
+    return "created";
+  },
+});
+
+/**
+ * Meta echo (a message the business sent — from our app or straight from
+ * the Instagram app). Recorded once so replies made on the phone show here.
+ */
+export const ingestMetaEcho = internalMutation({
+  args: {
+    ghlLocationId: v.string(),
+    ghlConversationId: v.string(),
+    ghlContactId: v.string(),
+    ghlMessageId: v.string(),
+    body: v.string(),
+    sentAt: v.number(),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    const account = await ctx.db
+      .query("igAccounts")
+      .withIndex("by_location", (q) => q.eq("ghlLocationId", args.ghlLocationId))
+      .first();
+    if (!account) return;
+    let conversation = await conversationByGhlId(ctx, account.workspaceId, args.ghlConversationId);
+    if (conversation) {
+      const recent = await ctx.db
+        .query("igMessages")
+        .withIndex("by_conversation", (q) => q.eq("conversationId", conversation!._id))
+        .order("desc")
+        .take(20);
+      if (recent.some((m) => m.ghlMessageId === args.ghlMessageId)) return;
+      await patchConversation(ctx, conversation._id, {
+        lastMessageAt: args.sentAt,
+        lastPreview: args.body.slice(0, 120),
+        lastDirection: "outbound",
+      });
+    } else {
+      const id = await insertConversation(ctx, {
+        workspaceId: account.workspaceId,
+        ghlConversationId: args.ghlConversationId,
+        ghlContactId: args.ghlContactId,
+        lastMessageAt: args.sentAt,
+        lastPreview: args.body.slice(0, 120),
+        unread: false,
+        lastDirection: "outbound",
+      });
+      conversation = await ctx.db.get(id);
+    }
+    await ctx.db.insert("igMessages", {
+      workspaceId: account.workspaceId,
+      conversationId: conversation!._id,
+      direction: "outbound",
+      body: args.body,
+      ghlMessageId: args.ghlMessageId,
+      sentAt: args.sentAt,
+      sentBy: "human",
+    });
+  },
+});
+
+/** Batched delete of a workspace's IG conversations and their messages. */
+export const wipeWorkspaceIgData = internalMutation({
+  args: { workspaceId: v.id("workspaces"), channel: v.optional(channelValidator) },
+  handler: async (ctx, args): Promise<void> => {
+    const channel: Channel = args.channel ?? "ghl";
+    // A fresh connection on this channel owns the data now — stop.
+    const accounts = await workspaceAccounts(ctx, args.workspaceId);
+    if (channel === "meta" ? accounts.meta : accounts.ghl) return;
+    const conversations = await ctx.db
+      .query("igConversations")
+      .withIndex("by_workspace_channel", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("channel", channel === "meta" ? "meta" : undefined),
+      )
+      .take(20);
+    if (conversations.length === 0) return;
+    for (const conversation of conversations) {
+      const messages = await ctx.db
+        .query("igMessages")
+        .withIndex("by_conversation", (q) => q.eq("conversationId", conversation._id))
+        .take(200);
+      for (const message of messages) await ctx.db.delete(message._id);
+      // Finish this thread's messages before dropping the thread itself.
+      if (messages.length < 200) await deleteConversation(ctx, conversation);
+    }
+    await ctx.scheduler.runAfter(0, internal.igDms.wipeWorkspaceIgData, args);
+  },
+});
 
 export const getAgencyAuth = internalQuery({
   args: { role: ghlRole },
@@ -470,14 +971,13 @@ export const getAccountForCaller = internalQuery({
     if (!user) return null;
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) return null;
-    const account = await ctx.db
-      .query("igAccounts")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-      .first();
+    const { ghl, meta } = await workspaceAccounts(ctx, workspace._id);
     return {
       workspaceId: workspace._id,
       workspaceName: workspace.name,
-      account,
+      // The GHL account (GHL flows); metaAccount is the direct one.
+      account: ghl,
+      metaAccount: meta,
     };
   },
 });
@@ -524,7 +1024,48 @@ export const getAccountByLocation = internalQuery({
   },
 });
 
-/** Webhook ingest: upsert conversation + append message. */
+/** Webhook bursts within this window share one triage run. */
+const TRIAGE_MIN_GAP_MS = 20_000;
+
+/**
+ * Coalesced triage: if a run is already queued for the future it will read
+ * the newest messages anyway, so nothing more is scheduled; otherwise the
+ * next run goes out no sooner than TRIAGE_MIN_GAP_MS after the previous one.
+ * Caps AI spend per conversation however fast messages (or forged webhooks)
+ * arrive.
+ */
+async function queueTriage(
+  ctx: MutationCtx,
+  conversation: Pick<Doc<"igConversations">, "_id" | "triageScheduledFor">,
+): Promise<void> {
+  const now = Date.now();
+  const last = conversation.triageScheduledFor ?? 0;
+  if (last > now) return;
+  const runAt = Math.max(now, last + TRIAGE_MIN_GAP_MS);
+  await ctx.db.patch(conversation._id, { triageScheduledFor: runAt });
+  await ctx.scheduler.runAfter(runAt - now, internal.igAi.triageConversation, {
+    conversationId: conversation._id,
+  });
+}
+
+/** The location's conversation with this GHL id — never another workspace's. */
+async function conversationByGhlId(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  ghlConversationId: string,
+) {
+  return await ctx.db
+    .query("igConversations")
+    .withIndex("by_ghl", (q) => q.eq("ghlConversationId", ghlConversationId))
+    .filter((q) => q.eq(q.field("workspaceId"), workspaceId))
+    .first();
+}
+
+/**
+ * Webhook ingest: upsert conversation + append message. Returns the
+ * conversation (and whether its contact still needs a name), or null when
+ * the location isn't one of ours.
+ */
 export const ingestInbound = internalMutation({
   args: {
     ghlLocationId: v.string(),
@@ -534,35 +1075,38 @@ export const ingestInbound = internalMutation({
     body: v.string(),
     sentAt: v.number(),
   },
-  handler: async (ctx, args): Promise<boolean> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ conversationId: Id<"igConversations">; needsName: boolean } | null> => {
     const account = await ctx.db
       .query("igAccounts")
       .withIndex("by_location", (q) =>
         q.eq("ghlLocationId", args.ghlLocationId),
       )
       .first();
-    if (!account) return false; // not one of ours — drop
+    if (!account) return null; // not one of ours — drop
     // First inbound DM proves the IG connection is live.
     if (account.status !== "connected") {
       await ctx.db.patch(account._id, { status: "connected" });
     }
-    const conversation = await ctx.db
-      .query("igConversations")
-      .withIndex("by_ghl", (q) =>
-        q.eq("ghlConversationId", args.ghlConversationId),
-      )
-      .first();
+    const conversation = await conversationByGhlId(
+      ctx,
+      account.workspaceId,
+      args.ghlConversationId,
+    );
+    const needsName = !conversation?.contactName;
     let conversationId: Id<"igConversations">;
     if (conversation) {
       conversationId = conversation._id;
-      await ctx.db.patch(conversationId, {
+      await patchConversation(ctx, conversationId, {
         lastMessageAt: args.sentAt,
         lastPreview: args.body.slice(0, 120),
         unread: true,
         lastDirection: "inbound",
       });
     } else {
-      conversationId = await ctx.db.insert("igConversations", {
+      conversationId = await insertConversation(ctx, {
         workspaceId: account.workspaceId,
         ghlConversationId: args.ghlConversationId,
         ghlContactId: args.ghlContactId,
@@ -581,7 +1125,9 @@ export const ingestInbound = internalMutation({
         )
         .order("desc")
         .take(20);
-      if (recent.some((m) => m.ghlMessageId === args.ghlMessageId)) return true;
+      if (recent.some((m) => m.ghlMessageId === args.ghlMessageId)) {
+        return { conversationId, needsName };
+      }
     }
     await ctx.db.insert("igMessages", {
       workspaceId: account.workspaceId,
@@ -592,10 +1138,11 @@ export const ingestInbound = internalMutation({
       sentAt: args.sentAt,
     });
     // Triage (and autopilot, when on) runs off the webhook, not in it.
-    await ctx.scheduler.runAfter(0, internal.igAi.triageConversation, {
-      conversationId,
+    await queueTriage(ctx, {
+      _id: conversationId,
+      triageScheduledFor: conversation?.triageScheduledFor,
     });
-    return true;
+    return { conversationId, needsName };
   },
 });
 
@@ -605,12 +1152,7 @@ export const getConversationSystem = internalQuery({
   handler: async (ctx, args) => {
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) return null;
-    const account = await ctx.db
-      .query("igAccounts")
-      .withIndex("by_workspace", (q) =>
-        q.eq("workspaceId", conversation.workspaceId),
-      )
-      .first();
+    const account = await accountForConversation(ctx, conversation);
     if (!account) return null;
     return {
       conversation,
@@ -625,11 +1167,27 @@ export const getConversationSystem = internalQuery({
   },
 });
 
+export const listMetaAccounts = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const accounts = await ctx.db.query("igAccounts").collect();
+    return accounts
+      .filter((a) => a.provider === "meta")
+      .map((a) => ({
+        id: a._id,
+        ghlLocationId: a.ghlLocationId,
+        locationToken: a.locationToken ?? null,
+        locationTokenExpiresAt: a.locationTokenExpiresAt ?? 0,
+      }));
+  },
+});
+
 export const listAllAccounts = internalQuery({
   args: {},
   handler: async (ctx) => {
     const accounts = await ctx.db.query("igAccounts").collect();
-    return accounts.map((a) => a.ghlLocationId);
+    // Meta-direct accounts are webhook-driven; the GHL sweep can't read them.
+    return accounts.filter((a) => a.provider !== "meta").map((a) => a.ghlLocationId);
   },
 });
 
@@ -662,12 +1220,7 @@ export const getConversationForReply = internalQuery({
     if (!conversation || conversation.workspaceId !== workspace?._id) {
       return null;
     }
-    const account = await ctx.db
-      .query("igAccounts")
-      .withIndex("by_workspace", (q) =>
-        q.eq("workspaceId", conversation.workspaceId),
-      )
-      .first();
+    const account = await accountForConversation(ctx, conversation);
     if (!account) return null;
     const messages = await ctx.db
       .query("igMessages")
@@ -726,7 +1279,7 @@ export const setTriage = internalMutation({
     nextAction: v.string(),
   },
   handler: async (ctx, { conversationId, ...triage }) => {
-    await ctx.db.patch(conversationId, { ...triage, triagedAt: Date.now() });
+    await patchConversation(ctx, conversationId, { ...triage, triagedAt: Date.now() });
   },
 });
 
@@ -737,7 +1290,7 @@ export const flagNeedsHuman = internalMutation({
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) return;
     const reason = args.reason.slice(0, 200);
-    await ctx.db.patch(args.conversationId, {
+    await patchConversation(ctx, args.conversationId, {
       needsHuman: true,
       needsHumanReason: reason,
       unread: true,
@@ -759,12 +1312,18 @@ export const flagNeedsHuman = internalMutation({
 // ── Voice-note billing ──────────────────────────────────────────────────
 
 export const chargeVoiceNote = internalMutation({
-  args: { chars: v.number() },
+  args: { chars: v.number(), elevenLabs: v.optional(v.boolean()) },
   handler: async (ctx, args): Promise<{ credits: number }> => {
     const user = await requireUser(ctx);
     const workspace = await getPrimaryWorkspace(ctx, user._id);
     if (!workspace) throw new Error("No workspace");
-    const rate = await getConfigValue(ctx, "voiceNoteCreditsPer1kChars");
+    // ElevenLabs costs us ~5× Bland per character — its own rate.
+    const rate = await getConfigValue(
+      ctx,
+      args.elevenLabs
+        ? "voiceNoteCreditsPer1kCharsElevenLabs"
+        : "voiceNoteCreditsPer1kChars",
+    );
     const credits = Math.max(1, Math.ceil((args.chars / 1000) * rate));
     await spendCredits(ctx, {
       workspaceId: workspace._id,
@@ -888,18 +1447,18 @@ export const upsertSyncedConversation = internalMutation({
     if (account.status !== "connected") {
       await ctx.db.patch(account._id, { status: "connected" });
     }
-    const existing = await ctx.db
-      .query("igConversations")
-      .withIndex("by_ghl", (q) =>
-        q.eq("ghlConversationId", args.ghlConversationId),
-      )
-      .first();
+    const existing = await conversationByGhlId(
+      ctx,
+      account.workspaceId,
+      args.ghlConversationId,
+    );
     if (existing) {
       const newer = args.lastMessageAt > existing.lastMessageAt;
-      await ctx.db.patch(existing._id, {
+      await patchConversation(ctx, existing._id, {
         lastMessageAt: Math.max(existing.lastMessageAt, args.lastMessageAt),
         ...(args.lastPreview && { lastPreview: args.lastPreview.slice(0, 120) }),
-        ...(args.contactName && { contactName: args.contactName }),
+        // Never replace a name we already have (e.g. a resolved real name).
+        ...(args.contactName && !existing.contactName && { contactName: args.contactName }),
         ...(newer && args.lastDirection && { lastDirection: args.lastDirection }),
       });
       const anyMessage = await ctx.db
@@ -908,7 +1467,7 @@ export const upsertSyncedConversation = internalMutation({
         .first();
       return { conversationId: existing._id, stale: newer || !anyMessage };
     }
-    const conversationId = await ctx.db.insert("igConversations", {
+    const conversationId = await insertConversation(ctx, {
       workspaceId: account.workspaceId,
       ghlConversationId: args.ghlConversationId,
       ghlContactId: args.ghlContactId,
@@ -944,7 +1503,7 @@ export const settleConversation = internalMutation({
     if (!conversation.lastDirection) patch.lastDirection = newest.direction;
     if (!conversation.lastPreview) patch.lastPreview = newest.body.slice(0, 120);
     if (Object.keys(patch).length > 0) {
-      await ctx.db.patch(args.conversationId, patch);
+      await patchConversation(ctx, args.conversationId, patch);
     }
   },
 });
@@ -978,7 +1537,7 @@ export const insertMessageIfNew = internalMutation({
       sentAt: args.sentAt,
     });
     if (args.sentAt > conversation.lastMessageAt) {
-      await ctx.db.patch(args.conversationId, {
+      await patchConversation(ctx, args.conversationId, {
         lastMessageAt: args.sentAt,
         lastDirection: args.direction,
       });
@@ -997,31 +1556,98 @@ export const recordOutbound = internalMutation({
     senderId: v.optional(v.id("users")),
     kind: v.optional(messageKindValidator),
     audioStorageId: v.optional(v.id("_storage")),
+    // Autopilot: this message carried the AI-assistant disclosure.
+    markAiDisclosed: v.optional(v.boolean()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, { markAiDisclosed, ...args }) => {
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) return;
     const now = Date.now();
     const sentBy = args.sentBy ?? "human";
-    await ctx.db.insert("igMessages", {
-      workspaceId: conversation.workspaceId,
-      conversationId: args.conversationId,
-      direction: "outbound",
+    const details = {
       body: args.body,
-      ghlMessageId: args.ghlMessageId,
-      sentAt: now,
       sentBy,
       senderId: args.senderId,
-      kind: args.kind ?? "text",
+      kind: args.kind ?? ("text" as const),
       audioStorageId: args.audioStorageId,
-    });
-    await ctx.db.patch(args.conversationId, {
+    };
+    // Meta's webhook echo can land before this runs — enrich that row
+    // (voice/AI details) instead of adding a duplicate.
+    const echoed = args.ghlMessageId
+      ? (
+          await ctx.db
+            .query("igMessages")
+            .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
+            .order("desc")
+            .take(20)
+        ).find((m) => m.ghlMessageId === args.ghlMessageId)
+      : undefined;
+    if (echoed) {
+      await ctx.db.patch(echoed._id, details);
+    } else {
+      await ctx.db.insert("igMessages", {
+        workspaceId: conversation.workspaceId,
+        conversationId: args.conversationId,
+        direction: "outbound",
+        ghlMessageId: args.ghlMessageId,
+        sentAt: now,
+        ...details,
+      });
+    }
+    await patchConversation(ctx, args.conversationId, {
       lastMessageAt: now,
       lastPreview: (args.kind === "voice" ? "🎙 " : "") + args.body.slice(0, 120),
       unread: false,
       lastDirection: "outbound",
       // A human answering resolves an autopilot hand-off.
       ...(sentBy === "human" && { needsHuman: false, needsHumanReason: undefined }),
+      ...(markAiDisclosed && !conversation.aiDisclosedAt && { aiDisclosedAt: now }),
     });
+  },
+});
+
+// ── Voice-note renders (what /crm/audio may serve) ──────────────────────
+
+/** Remember a render as the caller's workspace's own. */
+export const registerVoiceNote = internalMutation({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    if (!workspace) throw new Error("No workspace");
+    await ctx.db.insert("igVoiceNotes", {
+      workspaceId: workspace._id,
+      storageId: args.storageId,
+    });
+  },
+});
+
+/** /crm/audio: only registered voice-note renders are public. */
+export const isVoiceNote = internalQuery({
+  args: { storageId: v.string() },
+  handler: async (ctx, args): Promise<boolean> => {
+    const storageId = ctx.db.system.normalizeId("_storage", args.storageId);
+    if (!storageId) return false;
+    const row = await ctx.db
+      .query("igVoiceNotes")
+      .withIndex("by_storage", (q) => q.eq("storageId", storageId))
+      .first();
+    return Boolean(row);
+  },
+});
+
+/** sendVoiceNote's reuse of a preview: it must be the caller's own render. */
+export const callerOwnsVoiceNote = internalQuery({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args): Promise<boolean> => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return false;
+    const workspace = await getPrimaryWorkspace(ctx, user._id);
+    if (!workspace) return false;
+    const row = await ctx.db
+      .query("igVoiceNotes")
+      .withIndex("by_storage", (q) => q.eq("storageId", args.storageId))
+      .first();
+    return row?.workspaceId === workspace._id;
   },
 });

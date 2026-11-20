@@ -25,8 +25,14 @@ const CONFIG_META: {
   key: string;
   label: string;
   help: string;
-  kind: "number" | "email";
+  kind: "number" | "email" | "url";
 }[] = [
+  {
+    key: "ghlAffiliateUrl",
+    label: "GHL affiliate link",
+    help: "Shown on the IG DMs \"Use my own GHL\" option as the sign-up link, so new GHL accounts earn you the referral commission. Leave empty to hide it.",
+    kind: "url",
+  },
   {
     key: "creditPriceUsd",
     label: "Price per credit (USD)",
@@ -58,9 +64,33 @@ const CONFIG_META: {
     kind: "number",
   },
   {
+    key: "audioUsdPer1kChars",
+    label: "Audio: text-to-speech cost per 1k characters (USD)",
+    help: "Our provider cost for the Audio tab's Text to Speech, before the generation markup.",
+    kind: "number",
+  },
+  {
+    key: "voiceChangeUsdPerMinute",
+    label: "Audio: voice change cost per minute (USD)",
+    help: "Provider cost per minute of uploaded audio/video, before the generation markup.",
+    kind: "number",
+  },
+  {
+    key: "dubbingUsdPerMinute",
+    label: "Audio: translate (dubbing) cost per minute (USD)",
+    help: "Provider cost per minute of source media, before the generation markup.",
+    kind: "number",
+  },
+  {
     key: "referralPercent",
     label: "Referral percentage (%)",
     help: "Commission on every payment a referred workspace makes, first charge and each renewal, for as long as they stay. Locked per referral at their first payment.",
+    kind: "number",
+  },
+  {
+    key: "studioNumberPriceUsd",
+    label: "Studio HD phone number price (USD)",
+    help: "Numbers for ElevenLabs calling, bought on Twilio and charged once in credits at purchase.",
     kind: "number",
   },
   {
@@ -76,9 +106,33 @@ const CONFIG_META: {
     kind: "number",
   },
   {
+    key: "voiceNoteCreditsPer1kCharsElevenLabs",
+    label: "Voice-note credits per 1k characters (Studio HD voice)",
+    help: "Voice notes spoken in a Studio HD (ElevenLabs) clone — costs us more per character.",
+    kind: "number",
+  },
+  {
+    key: "elevenLabsVoiceSlots",
+    label: "Studio HD voices loaded at once",
+    help: "Match the ElevenLabs plan's voice slots, minus a couple of spares (Creator 30, Pro 160, Scale 660). Customers keep every clone — the least recently used is unloaded and reloads on next use.",
+    kind: "number",
+  },
+  {
+    key: "blandVoiceSlots",
+    label: "Standard (Bland) cloned voices loaded at once",
+    help: "Match the Bland plan's voice-clone limit (Start 1). Voices on live receptionists and running campaigns are never unloaded.",
+    kind: "number",
+  },
+  {
     key: "noteTakerCreditsPerMinute",
     label: "Note-taker credits per minute",
     help: "AI Note Taker meetings, billed per recorded minute.",
+    kind: "number",
+  },
+  {
+    key: "noteTakerBriefCredits",
+    label: "Pre-meeting brief credits",
+    help: "Charged per brief written before a scheduled meeting (skipped if the balance can't cover it).",
     kind: "number",
   },
   {
@@ -210,6 +264,10 @@ function ConfigEditor() {
       toast.error("Enter a valid non-negative number.");
       return;
     }
+    if (editing.kind === "url" && parsed !== "" && !/^https:\/\/\S+$/i.test(String(parsed))) {
+      toast.error("Enter a full https:// link, or leave it empty.");
+      return;
+    }
     try {
       await set({ key: editing.key, value: parsed });
       toast.success(`${editing.label} updated.`);
@@ -274,7 +332,7 @@ function ConfigEditor() {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             inputMode={editing?.kind === "number" ? "decimal" : undefined}
-            type={editing?.kind === "email" ? "email" : "text"}
+            type={editing?.kind === "email" ? "email" : editing?.kind === "url" ? "url" : "text"}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>
